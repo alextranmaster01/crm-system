@@ -160,6 +160,25 @@ with tab2:
                 df_raw = pd.read_excel(uploaded_file, header=0, dtype=str).fillna("")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
+                # ====================================================
+                # FIX LỖI 21000: LOẠI BỎ DÒNG TRÙNG LẶP (DUPLICATE) TRƯỚC KHI IMPORT
+                # ====================================================
+                if 'Specs' in df_raw.columns:
+                    # Chuẩn hóa cột Specs (xóa khoảng trắng thừa)
+                    df_raw['Specs'] = df_raw['Specs'].astype(str).str.strip()
+                    
+                    # Đếm số dòng trước khi xóa trùng
+                    rows_before = len(df_raw)
+                    
+                    # Xóa các dòng có Specs trùng nhau, giữ lại dòng cuối cùng (keep='last')
+                    df_raw = df_raw.drop_duplicates(subset=['Specs'], keep='last')
+                    
+                    # Nếu dòng bị xóa thì thông báo
+                    rows_dropped = rows_before - len(df_raw)
+                    if rows_dropped > 0:
+                        status_box.write(f"⚠️ Đã tự động loại bỏ {rows_dropped} dòng trùng lặp 'Specs'.")
+                # ====================================================
+
                 data_clean = []
                 prog_bar = status_box.progress(0)
                 total = len(df_raw)
@@ -179,8 +198,7 @@ with tab2:
                         old_link = safe_str(row.get('Images') or row.iloc[12])
                         if "http" in old_link: final_link = old_link
 
-                    # --- QUAN TRỌNG: SỬA LỖI FORMAT SỐ ---
-                    # Sử dụng to_float() để lấy số thực, KHÔNG dùng fmt_num()
+                    # Sử dụng to_float() để lấy số thực
                     item = {
                         "no": safe_str(row.iloc[0]), 
                         "item_code": code, 
@@ -229,7 +247,7 @@ with tab2:
         if search and not df_pur.empty:
             df_pur = df_pur[df_pur.apply(lambda x: x.astype(str).str.contains(search, case=False, na=False)).any(axis=1)]
 
-        # Config hiển thị cột (Format số có dấu phẩy TẠI ĐÂY)
+        # Config hiển thị cột
         cfg = {
             "images": st.column_config.LinkColumn("Link Ảnh"),
             "buying_price_vnd": st.column_config.NumberColumn("Giá VND", format="%d"),
@@ -265,7 +283,6 @@ with tab2:
                 
             st.markdown("---")
             st.markdown(f"<div style='font-size:12px'><b>Specs:</b> {selected_row.get('specs','')}</div>", unsafe_allow_html=True)
-            # Hiển thị giá có format dấu phẩy
             price_display = fmt_num(selected_row.get('buying_price_vnd', 0))
             st.markdown(f"<div style='font-size:12px; color:blue'><b>Giá:</b> {price_display}</div>", unsafe_allow_html=True)
         else:
