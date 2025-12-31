@@ -413,7 +413,8 @@ with t2:
                     try:
                         for k in range(0, len(records), chunk_ins):
                             batch = records[k:k+chunk_ins]
-                            supabase.table("crm_purchases").insert(batch).execute()
+                            # --- FIX LỖI 23505: ĐỔI SANG UPSERT ---
+                            supabase.table("crm_purchases").upsert(batch).execute()
                     except Exception as e_ins:
                          # NẾU LỖI DO CỘT row_order KHÔNG TỒN TẠI, XÓA NÓ ĐI VÀ INSERT LẠI
                         if "row_order" in str(e_ins):
@@ -423,7 +424,8 @@ with t2:
                             
                             for k in range(0, len(records), chunk_ins):
                                 batch = records[k:k+chunk_ins]
-                                supabase.table("crm_purchases").insert(batch).execute()
+                                # --- FIX LỖI 23505: ĐỔI SANG UPSERT ---
+                                supabase.table("crm_purchases").upsert(batch).execute()
                         else:
                             raise e_ins
 
