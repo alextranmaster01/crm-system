@@ -3,6 +3,7 @@
 # - FIXED: KEEP EXCEL COLUMN ORDER & NAMES
 # - FIXED: SORT BY 'NO' COLUMN
 # - FIXED: EXTRACT EMBEDDED IMAGES FROM EXCEL & UPLOAD TO DRIVE
+# - FIXED: PROGRESS BAR ERROR (Index overflow)
 # =============================================================================
 
 import streamlit as st
@@ -179,7 +180,7 @@ with st.sidebar:
     st.title("CRM V4810 PRO")
     st.markdown("---")
     menu = st.radio("MENU", ["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "⚙️ MASTER DATA"])
-    st.markdown("---"); st.caption("Version: V4810 Hybrid")
+    st.markdown("---"); st.caption("Version: V4810 Hybrid Fix")
 
 # --- DASHBOARD ---
 if menu == "📊 DASHBOARD":
@@ -237,41 +238,26 @@ elif menu == "📦 KHO HÀNG":
                     wb = load_workbook(up, data_only=True)
                     ws = wb.active
                     
-                    # Tìm ảnh neo ở cột M (Index ~ 12 trong 0-based hoặc kiểm tra col)
-                    # OpenPyXL 0-indexed: A=0, B=1 ... M=12. 
-                    total_imgs = len(ws._images)
-                    processed_imgs = 0
-                    
                     for image in ws._images:
-                        # Lấy vị trí neo (Anchor)
                         try:
-                            # Tùy phiên bản openpyxl, anchor có thể khác nhau. Thường là _from
-                            row = image.anchor._from.row # 0-indexed header=0, data start=1
-                            col = image.anchor._from.col # M = 12
+                            # 0-indexed: A=0...M=12
+                            row = image.anchor._from.row 
+                            col = image.anchor._from.col
                             
-                            if col == 12: # Chỉ lấy ảnh cột M
-                                processed_imgs += 1
-                                status_text.text(f"📤 Đang upload ảnh dòng {row+1} lên Google Drive...")
-                                
-                                # Convert ảnh sang Bytes
+                            if col == 12: # Cột M
                                 img_bytes = io.BytesIO()
-                                # image.ref là BytesIO hoặc image._data
                                 try:
                                     pil_img = PilImage.open(image.ref).convert('RGB')
                                     pil_img.save(img_bytes, format='JPEG')
                                 except:
-                                    # Fallback cho các loại ảnh khác
                                     img_bytes.write(image._data())
                                 
                                 img_bytes.seek(0)
                                 fname = f"IMG_ROW_{row+1}_{int(time.time())}.jpg"
-                                
-                                # Upload lên Drive
                                 link = be.upload_img(img_bytes, fname)
                                 if link:
-                                    image_map[row] = link # Map row index (openpyxl) to link
-                        except Exception as e:
-                            print(f"Skip image: {e}")
+                                    image_map[row] = link 
+                        except: pass
                     
                     status_text.text(f"✅ Đã upload {len(image_map)} ảnh lên Drive.")
 
@@ -286,25 +272,20 @@ elif menu == "📦 KHO HÀNG":
                     df_imp = df_imp.drop_duplicates(subset=['Specs'], keep='last')
 
                 recs = []
-                # Pandas index bắt đầu từ 0. Header là dòng 0 của file (tương ứng row 1 openpyxl).
-                # Dữ liệu bắt đầu từ dòng index 0 (tương ứng row 1 header, row 2 data trong Excel).
-                # OpenPyXL: Header row = 0. Data row start = 1.
-                # Pandas Index i corresponds to OpenPyXL row i + 1.
-                
                 total_rows = len(df_imp)
-                for idx, r in df_imp.iterrows():
-                    # Logic lấy link ảnh:
-                    # 1. Ưu tiên ảnh vừa upload từ Excel (image_map)
-                    # 2. Nếu không có, lấy text từ cột Images (nếu là link)
+                
+                # SỬ DỤNG ENUMERATE ĐỂ TRÁNH LỖI PROGRESS BAR
+                for i, (idx, r) in enumerate(df_imp.iterrows()):
+                    # idx: index gốc của dataframe (dùng để map với ảnh openpyxl)
+                    # i: số thứ tự vòng lặp (dùng cho progress bar)
                     
                     img_link = ""
-                    # Check Map (Pandas idx = Openpyxl row - 1. So Openpyxl row = idx + 1)
+                    # Pandas index = Openpyxl row - 1 => Openpyxl row = Pandas Index + 1
                     if (idx + 1) in image_map:
                         img_link = image_map[idx + 1]
                     else:
-                        # Clean text link
                         raw_link = str(r.get("Images", "")).replace("nan", "").strip()
-                        if len(raw_link) > 5: # Có dữ liệu text
+                        if len(raw_link) > 5:
                             img_link = raw_link
 
                     recs.append({
@@ -320,12 +301,15 @@ elif menu == "📦 KHO HÀNG":
                         "total_buying_price_vnd": r.get("Total buying price (VND)"), 
                         "leadtime": str(r.get("Leadtime","")),
                         "supplier": str(r.get("Supplier","")), 
-                        "images": img_link, # LINK ĐÃ XỬ LÝ
+                        "images": img_link,
                         "type": str(r.get("Type","")), 
                         "nuoc": str(r.get("N/U/O/C",""))
                     })
-                    if idx % 50 == 0:
-                        progress_bar.progress((idx / total_rows))
+                    
+                    # CẬP NHẬT THANH TIẾN TRÌNH AN TOÀN
+                    if i % 50 == 0 and total_rows > 0:
+                        prog = min(i / total_rows, 1.0)
+                        progress_bar.progress(prog)
 
                 # Upsert Database
                 batch = 500
@@ -334,7 +318,7 @@ elif menu == "📦 KHO HÀNG":
                 for i in range(0, len(valid), batch):
                     be.supabase.table("crm_purchases").upsert(valid[i:i+batch], on_conflict="specs").execute()
                 
-                progress_bar.progress(100)
+                progress_bar.progress(1.0)
                 st.success(f"✅ Đã Import {len(valid)} dòng & Upload {len(image_map)} ảnh mới!")
                 time.sleep(2)
                 st.rerun()
