@@ -159,7 +159,8 @@ def drive_download_bytes(svc, file_id:str)->bytes:
         _,done=dl.next_chunk()
     return fh.getvalue()
 
-def sb_fetch_df(sb:SupabaseClient, table:str, cols:List[str])->pd.DataFrame:
+@st.cache_data(ttl=60)
+def sb_fetch_df(_sb, table:str, cols:List[str])->pd.DataFrame:
     try:
         res=sb.table(table).select("*").execute()
         rows=res.data or []
