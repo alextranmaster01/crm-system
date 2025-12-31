@@ -1,8 +1,8 @@
 # =============================================================================
-# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4809 - FINAL STABLE)
-# - FIXED: ERROR 21000 (DUPLICATE ROWS IN EXCEL INPUT)
-# - FIXED: UPSERT LOGIC
-# - FIXED: IMAGE DISPLAY
+# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4810 - FINAL STABLE)
+# - FIXED: KEEP EXCEL COLUMN ORDER & NAMES
+# - FIXED: SORT BY 'NO' COLUMN
+# - FIXED: IMAGE DISPLAY & UPSERT
 # =============================================================================
 
 import streamlit as st
@@ -31,9 +31,9 @@ except ImportError:
     st.stop()
 
 # =============================================================================
-# 1. SETUP UI (SẮC MÀU V4800)
+# 1. SETUP UI
 # =============================================================================
-st.set_page_config(page_title="CRM V4800 ONLINE", layout="wide", page_icon="🌈", initial_sidebar_state="expanded")
+st.set_page_config(page_title="CRM V4810 ONLINE", layout="wide", page_icon="🌈", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -170,10 +170,10 @@ be = CRMBackend()
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/906/906343.png", width=80)
-    st.title("CRM V4800 PRO")
+    st.title("CRM V4810 PRO")
     st.markdown("---")
     menu = st.radio("MENU", ["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "⚙️ MASTER DATA"])
-    st.markdown("---"); st.caption("Version: V4809 Stable")
+    st.markdown("---"); st.caption("Version: V4810 Stable")
 
 # --- DASHBOARD ---
 if menu == "📊 DASHBOARD":
@@ -193,79 +193,116 @@ if menu == "📊 DASHBOARD":
 elif menu == "📦 KHO HÀNG":
     st.markdown("## 📦 KHO HÀNG & HÌNH ẢNH")
     
+    # 1. CẤU HÌNH CỘT HIỂN THỊ CHUẨN EXCEL
+    EXCEL_COLUMNS_ORDER = [
+        "No", "Item code", "Item name", "Specs", "Q'ty", 
+        "Buying price (RMB)", "Total buying price (RMB)", "Exchange rate", 
+        "Buying price (VND)", "Total buying price (VND)", "Leadtime", 
+        "Supplier", "Images", "Type", "N/U/O/C"
+    ]
+
+    # 2. MAPPING DATABASE -> EXCEL HEADER
+    DB_TO_EXCEL_MAP = {
+        "no": "No", "item_code": "Item code", "item_name": "Item name",
+        "specs": "Specs", "qty": "Q'ty",
+        "buying_price_rmb": "Buying price (RMB)",
+        "total_buying_price_rmb": "Total buying price (RMB)",
+        "exchange_rate": "Exchange rate",
+        "buying_price_vnd": "Buying price (VND)",
+        "total_buying_price_vnd": "Total buying price (VND)",
+        "leadtime": "Leadtime", "supplier": "Supplier",
+        "images": "Images", "type": "Type", "nuoc": "N/U/O/C"
+    }
+
     with st.expander("📥 IMPORT TỪ EXCEL (GHI ĐÈ)", expanded=False):
         up = st.file_uploader("Upload Excel", type=['xlsx'])
         if up and st.button("Import"):
             try:
-                df = pd.read_excel(up)
-                # Chuẩn hóa header
-                df.columns = [str(c).replace('\n',' ').strip() for c in df.columns]
+                df_imp = pd.read_excel(up)
+                # Chuẩn hóa tên cột
+                df_imp.columns = [str(c).replace('\n',' ').strip() for c in df_imp.columns]
                 
-                # --- FIX: LOẠI BỎ TRÙNG LẶP TRONG EXCEL TRƯỚC KHI UPSERT ---
-                # Tìm cột Specs
-                specs_col = next((c for c in df.columns if c.lower() == 'specs'), 'Specs')
-                if specs_col in df.columns:
-                    # Chuẩn hóa dữ liệu Specs (xóa khoảng trắng)
-                    df[specs_col] = df[specs_col].astype(str).str.strip()
-                    # Loại bỏ dòng trùng lặp trong chính file Excel (giữ dòng cuối)
-                    df = df.drop_duplicates(subset=[specs_col], keep='last')
-                # -------------------------------------------------------------
+                # Loại bỏ trùng lặp trong file Excel
+                if 'Specs' in df_imp.columns:
+                    df_imp['Specs'] = df_imp['Specs'].astype(str).str.strip()
+                    df_imp = df_imp.drop_duplicates(subset=['Specs'], keep='last')
 
                 recs = []
-                for _, r in df.iterrows():
+                for _, r in df_imp.iterrows():
                     recs.append({
-                        "no": r.get("No"), "item_code": str(r.get("Item code","")), "item_name": str(r.get("Item name","")),
-                        "specs": str(r.get("Specs","")).strip(), "qty": r.get("Q'ty"),
-                        "buying_price_rmb": r.get("Buying price (RMB)"), "total_buying_price_rmb": r.get("Total buying price (RMB)"),
-                        "exchange_rate": r.get("Exchange rate"), "buying_price_vnd": r.get("Buying price (VND)"),
-                        "total_buying_price_vnd": r.get("Total buying price (VND)"), "leadtime": str(r.get("Leadtime","")),
-                        "supplier": str(r.get("Supplier","")), "images": str(r.get("Images","")),
-                        "type": str(r.get("Type","")), "nuoc": str(r.get("N/U/O/C",""))
+                        "no": r.get("No"), 
+                        "item_code": str(r.get("Item code","")), 
+                        "item_name": str(r.get("Item name","")),
+                        "specs": str(r.get("Specs","")).strip(), 
+                        "qty": r.get("Q'ty"),
+                        "buying_price_rmb": r.get("Buying price (RMB)"), 
+                        "total_buying_price_rmb": r.get("Total buying price (RMB)"),
+                        "exchange_rate": r.get("Exchange rate"), 
+                        "buying_price_vnd": r.get("Buying price (VND)"),
+                        "total_buying_price_vnd": r.get("Total buying price (VND)"), 
+                        "leadtime": str(r.get("Leadtime","")),
+                        "supplier": str(r.get("Supplier","")), 
+                        "images": str(r.get("Images","")),
+                        "type": str(r.get("Type","")), 
+                        "nuoc": str(r.get("N/U/O/C",""))
                     })
                 
-                # UPSERT
                 batch = 500
-                valid = [x for x in recs if x['specs']] # Chỉ lấy dòng có specs
+                valid = [x for x in recs if x['specs']]
                 for i in range(0, len(valid), batch):
                     be.supabase.table("crm_purchases").upsert(valid[i:i+batch], on_conflict="specs").execute()
-                st.success(f"✅ Đã cập nhật {len(valid)} dòng!"); time.sleep(1); st.rerun()
+                st.success(f"✅ Đã cập nhật {len(valid)} dòng chuẩn Excel!"); time.sleep(1); st.rerun()
             except Exception as e: st.error(f"Lỗi: {e}")
 
-    # Display
+    # --- HIỂN THỊ ---
     search = st.text_input("🔍 Tìm kiếm...", placeholder="Nhập mã hàng...")
-    res = be.supabase.table("crm_purchases").select("*").order("no", desc=False).execute()
+    res = be.supabase.table("crm_purchases").select("*").execute()
     df = pd.DataFrame(res.data)
     
     if not df.empty:
-        if search: df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
+        # Sắp xếp theo cột No (chuyển sang số)
+        if 'no' in df.columns:
+            df['no_numeric'] = pd.to_numeric(df['no'], errors='coerce')
+            df = df.sort_values('no_numeric').reset_index(drop=True)
+        
+        # Tìm kiếm
+        if search: 
+            mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
+            df = df[mask].reset_index(drop=True)
+        
+        # Đổi tên cột & Lọc đúng cột Excel
+        view_df = df.rename(columns=DB_TO_EXCEL_MAP)
+        final_cols = [c for c in EXCEL_COLUMNS_ORDER if c in view_df.columns]
+        view_df = view_df[final_cols]
         
         c1, c2 = st.columns([7, 3])
         with c1:
-            event = st.dataframe(df, use_container_width=True, height=600, selection_mode="single-row", on_select="rerun", hide_index=True)
+            event = st.dataframe(view_df, use_container_width=True, height=600, selection_mode="single-row", on_select="rerun", hide_index=True)
         
         with c2:
             st.markdown("### 🖼️ ẢNH SẢN PHẨM")
             if event.selection.rows:
                 idx = event.selection.rows[0]
+                # Truy ngược về df gốc để lấy link ảnh & id
                 row = df.iloc[idx]
-                st.info(f"Mã: **{row['specs']}**")
+                st.info(f"Mã: **{row.get('specs', 'N/A')}**")
                 
-                # SHOW IMAGE FIXED SIZE
                 img_url = row.get('images')
                 if img_url and str(img_url).startswith("http"):
                     st.image(img_url, width=300)
                 else:
                     st.markdown('<div class="img-box">🚫 Không có ảnh</div>', unsafe_allow_html=True)
                 
-                # UPLOAD NEW
                 new_img = st.file_uploader("Cập nhật ảnh", type=['jpg','png'])
                 if new_img and st.button("Lưu ảnh"):
-                    link = be.upload_img(new_img, f"{row['specs']}_{int(time.time())}.jpg")
+                    fname = f"{re.sub(r'[^a-zA-Z0-9]', '', str(row.get('specs','')))}_{int(time.time())}.jpg"
+                    link = be.upload_img(new_img, fname)
                     if link:
                         be.supabase.table("crm_purchases").update({"images": link}).eq("id", row['id']).execute()
-                        st.success("Xong!"); time.sleep(1); st.rerun()
-            else: st.info("👈 Chọn dòng để xem ảnh")
-    else: st.info("Trống.")
+                        st.success("Đã lưu!"); time.sleep(1); st.rerun()
+            else:
+                st.info("👈 Chọn dòng để xem ảnh")
+    else: st.info("Chưa có dữ liệu.")
 
 # --- BÁO GIÁ ---
 elif menu == "💰 BÁO GIÁ":
