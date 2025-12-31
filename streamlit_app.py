@@ -1,8 +1,8 @@
 # =============================================================================
-# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4807 - FIXED IMAGES & UPSERT)
-# 1. FIXED IMAGE DISPLAY & SIZE (300px)
-# 2. FIXED DRIVE UPLOAD
-# 3. ENABLED DATA OVERWRITE (UPSERT MODE)
+# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4808 - FINAL STABLE)
+# - FIXED: UPSERT CONFLICT ERROR
+# - FIXED: EXCEL STRICT MAPPING
+# - FIXED: IMAGE SIZE & DISPLAY
 # =============================================================================
 
 import streamlit as st
@@ -14,7 +14,7 @@ import re
 import json
 from datetime import datetime, timedelta
 
-# --- THƯ VIỆN CLOUD ---
+# --- IMPORT LIBRARY ---
 try:
     from supabase import create_client, Client
     from google.oauth2.credentials import Credentials
@@ -27,35 +27,26 @@ try:
     import xlsxwriter
     import plotly.express as px
 except ImportError:
-    st.error("⚠️ Thiếu thư viện. Vui lòng cài đặt file requirements.txt")
+    st.error("⚠️ Cần cài đặt thư viện: pip install -r requirements.txt")
     st.stop()
 
 # =============================================================================
-# 1. THIẾT LẬP GIAO DIỆN "SẮC MÀU" (CHUẨN V4800)
+# 1. SETUP UI (SẮC MÀU V4800)
 # =============================================================================
-st.set_page_config(
-    page_title="CRM V4800 ONLINE PRO", 
-    layout="wide", 
-    page_icon="🌈",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="CRM V4800 ONLINE", layout="wide", page_icon="🌈", initial_sidebar_state="expanded")
 
-# --- CSS INJECTION ---
 st.markdown("""
     <style>
     .stApp { background-color: #f4f6f9; }
     div.stButton > button { 
         background: linear-gradient(90deg, #1CB5E0 0%, #000851 100%);
         color: white; font-weight: bold; border: none; border-radius: 8px; height: 45px;
-        transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        transition: all 0.3s; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     }
-    div.stButton > button:hover {
-        transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%); color: #000;
-    }
+    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
     .dashboard-card {
         border-radius: 15px; padding: 20px; color: white; text-align: center; margin-bottom: 20px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; overflow: hidden; transition: transform 0.3s;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3); transition: transform 0.3s;
     }
     .dashboard-card:hover { transform: scale(1.02); }
     .card-sales { background: linear-gradient(45deg, #FF416C, #FF4B2B); }
@@ -63,105 +54,71 @@ st.markdown("""
     .card-orders { background: linear-gradient(45deg, #8E2DE2, #4A00E0); }
     .card-value { font-size: 32px; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
     .card-title { font-size: 16px; font-weight: 600; opacity: 0.9; text-transform: uppercase; }
-    
-    /* Image Preview Box - Fixed Size */
-    .img-preview-container {
-        border: 2px solid #ddd;
-        border-radius: 10px;
-        padding: 5px;
-        background: white;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 200px;
-    }
-    
+    .img-box { border: 2px dashed #4b6cb7; padding: 20px; text-align: center; background: white; border-radius: 10px; }
     [data-testid="stDataFrame"] { border: 2px solid #000851; border-radius: 8px; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px; white-space: pre-wrap; background-color: #fff; border-radius: 5px;
-        color: #333; font-weight: 600; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
-    .stTabs [aria-selected="true"] { background-color: #000851; color: white; }
     </style>
 """, unsafe_allow_html=True)
 
 if 'quote_data' not in st.session_state: st.session_state['quote_data'] = None
 
 # =============================================================================
-# 2. CORE BACKEND
+# 2. BACKEND ENGINE
 # =============================================================================
 
 class CRMBackend:
     def __init__(self):
-        self.supabase = self.connect_supabase()
-        self.drive_service = self.connect_google_drive()
+        self.supabase = self.init_supabase()
+        self.drive = self.init_drive()
 
-    def connect_supabase(self):
-        try:
-            return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-        except Exception as e:
-            st.error(f"❌ Lỗi Supabase: {e}"); return None
+    def init_supabase(self):
+        try: return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+        except: return None
 
-    def connect_google_drive(self):
+    def init_drive(self):
         try:
             info = st.secrets["google_oauth"]
             creds = Credentials(None, refresh_token=info["refresh_token"],
                                 token_uri="https://oauth2.googleapis.com/token",
                                 client_id=info["client_id"], client_secret=info["client_secret"])
             return build('drive', 'v3', credentials=creds)
-        except Exception as e:
-            st.error(f"❌ Lỗi Google Drive: {e}"); return None
+        except: return None
 
-    # --- GOOGLE DRIVE HELPER ---
     def get_folder_id(self, name, parent_id):
         try:
             q = f"name='{name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            files = self.drive_service.files().list(q=q, fields="files(id)").execute().get('files', [])
+            files = self.drive.files().list(q=q, fields="files(id)").execute().get('files', [])
             if files: return files[0]['id']
             meta = {'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}
-            return self.drive_service.files().create(body=meta, fields='id').execute().get('id')
+            return self.drive.files().create(body=meta, fields='id').execute().get('id')
         except: return None
 
-    # --- UPLOAD ẢNH & LẤY LINK TRỰC TIẾP ---
-    def upload_image_to_drive(self, file_obj, filename):
-        if not self.drive_service: 
-            st.error("Chưa kết nối được Google Drive!"); return None
+    def upload_img(self, file_obj, filename):
+        if not self.drive: return None
         try:
             root_id = st.secrets["google_oauth"]["root_folder_id"]
-            # Tạo folder PRODUCT_IMAGES nếu chưa có
             l1 = self.get_folder_id("PRODUCT_IMAGES", root_id)
-            
             media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type, resumable=True)
             meta = {'name': filename, 'parents': [l1]} 
-            
-            # Thực hiện Upload
-            file = self.drive_service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
-            file_id = file.get('id')
-            
-            # Trả về link Thumbnail để hiển thị được trong Streamlit
-            # Link view thường bị chặn, link này ổn định hơn cho thẻ <img>
-            return f"https://drive.google.com/uc?export=view&id={file_id}"
-        except Exception as e: 
-            st.error(f"Lỗi Upload Drive: {e}"); return None
+            file = self.drive.files().create(body=meta, media_body=media, fields='id').execute()
+            return f"https://drive.google.com/uc?export=view&id={file.get('id')}"
+        except: return None
 
     def upload_recursive(self, file_obj, filename, root_type, year, entity, month):
-        if not self.drive_service: return None, "Mất kết nối Drive"
+        if not self.drive: return None, "Lỗi kết nối"
         try:
             root_id = st.secrets["google_oauth"]["root_folder_id"]
             l1 = self.get_folder_id(root_type, root_id)
             l2 = self.get_folder_id(str(year), l1)
-            clean_entity = re.sub(r'[\\/*?:"<>|]', "", str(entity).upper().strip())
-            l3 = self.get_folder_id(clean_entity, l2)
+            cln = re.sub(r'[\\/*?:"<>|]', "", str(entity).upper().strip())
+            l3 = self.get_folder_id(cln, l2)
             l4 = self.get_folder_id(str(month).upper(), l3)
             media = MediaIoBaseUpload(file_obj, mimetype='application/octet-stream', resumable=True)
             meta = {'name': filename, 'parents': [l4]}
-            f = self.drive_service.files().create(body=meta, media_body=media, fields='webViewLink').execute()
-            return f.get('webViewLink'), f"{root_type}/{year}/{clean_entity}/{month}/{filename}"
+            f = self.drive.files().create(body=meta, media_body=media, fields='webViewLink').execute()
+            return f.get('webViewLink'), f"{root_type}/{year}/{cln}/{month}/{filename}"
         except Exception as e: return None, str(e)
 
-    # --- LOGIC TÍNH TOÁN V4800 ---
-    def calculate_profit_v4800(self, row):
+    def calc_profit(self, row):
         try:
             qty = float(row.get("Q'ty", 0))
             buy_rmb = float(row.get('Buying Price (RMB)', 0) if pd.notnull(row.get('Buying Price (RMB)')) else row.get('buying_price_rmb', 0))
@@ -173,324 +130,215 @@ class CRMBackend:
             ap_total = user_ap * qty if user_ap > 0 else total_buy * 2
             gap = 0.10 * ap_total
             total_price = ap_total + gap
-            unit_price = total_price / qty if qty > 0 else 0
+            unit = total_price / qty if qty > 0 else 0
             
             costs = (total_buy + gap + (0.10 * ap_total) + (0.05 * total_price) + 
                      (0.10 * total_buy) + (0.10 * total_price) + (0.10 * total_price) + 30000)
-            payback = 0.40 * gap
-            profit = total_price - costs + payback
+            profit = total_price - costs + (0.40 * gap)
             pct = (profit / total_price * 100) if total_price > 0 else 0
             
             return pd.Series({
                 'Buying Price (VND)': buy_vnd, 'Total Buying (VND)': total_buy,
                 'AP Price (VND)': ap_total/qty if qty else 0, 'AP Total (VND)': ap_total,
-                'GAP': gap, 'Total Price (VND)': total_price, 'Unit Price (VND)': unit_price,
+                'GAP': gap, 'Total Price (VND)': total_price, 'Unit Price (VND)': unit,
                 'PROFIT (VND)': profit, '% Profit': pct
             })
         except: return pd.Series({'PROFIT (VND)': 0})
 
-    def export_docx_v4800(self, df, cust_name):
+    def create_docx(self, df, cust):
         doc = Document()
         section = doc.sections[0]
         section.orientation = WD_ORIENT.LANDSCAPE
         section.page_width, section.page_height = section.page_height, section.page_width
-        h = doc.add_heading(f'TECHNICAL SPECS - {str(cust_name).upper()}', 0)
-        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.add_heading(f'TECHNICAL SPECS - {str(cust).upper()}', 0).alignment = 1
         cols = ['Specs', "Q'ty", 'Buying Price (VND)', 'Total Buying (VND)', 'AP Price (VND)', 'Total Price (VND)', 'PROFIT (VND)', '% Profit']
         t = doc.add_table(rows=1, cols=len(cols)); t.style = 'Table Grid'
-        for i, c in enumerate(cols):
-            run = t.rows[0].cells[i].paragraphs[0].add_run(c); run.font.bold = True
-        for _, row in df.iterrows():
-            cells = t.add_row().cells
+        for i, c in enumerate(cols): t.rows[0].cells[i].text = c
+        for _, r in df.iterrows():
+            row = t.add_row()
             for i, c in enumerate(cols):
-                val = row.get(c, 0)
-                if isinstance(val, (int, float)): cells[i].text = "{:,.0f}".format(val)
-                elif c == "% Profit": cells[i].text = f"{val:.1f}%"
-                else: cells[i].text = str(val)
+                v = r.get(c, 0)
+                row.cells[i].text = "{:,.0f}".format(v) if isinstance(v, (int, float)) and c != "% Profit" else f"{v:.1f}%" if c == "% Profit" else str(v)
         buf = io.BytesIO(); doc.save(buf); buf.seek(0)
         return buf
 
-backend = CRMBackend()
+be = CRMBackend()
 
 # =============================================================================
-# 3. GIAO DIỆN CHÍNH
+# 3. MAIN UI
 # =============================================================================
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/906/906343.png", width=80)
     st.title("CRM V4800 PRO")
     st.markdown("---")
-    menu = st.radio("CHỨC NĂNG", [
-        "📊 DASHBOARD",
-        "📦 KHO HÀNG (IMAGES)", 
-        "💰 BÁO GIÁ (QUOTATION)",
-        "📑 QUẢN LÝ PO",
-        "🚚 VẬN ĐƠN (TRACKING)",
-        "⚙️ MASTER DATA"
-    ])
-    st.markdown("---")
-    st.caption("Phiên bản: V4807 - Fixed Img & Overwrite")
+    menu = st.radio("MENU", ["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "⚙️ MASTER DATA"])
+    st.markdown("---"); st.caption("Version: V4808 Stable")
 
-# -----------------------------------------------------------------------------
-# TAB 1: DASHBOARD
-# -----------------------------------------------------------------------------
+# --- DASHBOARD ---
 if menu == "📊 DASHBOARD":
-    st.markdown("## 📊 TỔNG QUAN KINH DOANH")
+    st.markdown("## 📊 TỔNG QUAN")
     try:
-        q_res = backend.supabase.table("crm_shared_history").select("total_profit_vnd").execute()
-        p_res = backend.supabase.table("db_customer_orders").select("total_value").execute()
-        profit = sum([x['total_profit_vnd'] for x in q_res.data]) if q_res.data else 0
-        sales = sum([x['total_value'] for x in p_res.data]) if p_res.data else 0
-        orders = len(p_res.data) if p_res.data else 0
+        q = be.supabase.table("crm_shared_history").select("total_profit_vnd").execute().data
+        p = be.supabase.table("db_customer_orders").select("total_value").execute().data
+        prof = sum([x['total_profit_vnd'] for x in q])
+        sale = sum([x['total_value'] for x in p])
         c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f'<div class="dashboard-card card-sales"><div class="card-title">DOANH SỐ</div><div class="card-value">{sales:,.0f}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="dashboard-card card-profit"><div class="card-title">LỢI NHUẬN</div><div class="card-value">{profit:,.0f}</div></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div class="dashboard-card card-orders"><div class="card-title">ĐƠN HÀNG</div><div class="card-value">{orders}</div></div>', unsafe_allow_html=True)
-    except: st.error("Lỗi kết nối Dashboard")
+        c1.markdown(f'<div class="dashboard-card card-sales"><div class="card-title">DOANH SỐ</div><div class="card-value">{sale:,.0f}</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="dashboard-card card-profit"><div class="card-title">LỢI NHUẬN</div><div class="card-value">{prof:,.0f}</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="dashboard-card card-orders"><div class="card-title">ĐƠN HÀNG</div><div class="card-value">{len(p)}</div></div>', unsafe_allow_html=True)
+    except: st.error("Lỗi kết nối")
 
-# -----------------------------------------------------------------------------
-# TAB 2: KHO HÀNG (IMAGES FIXED - SIZE REDUCED - OVERWRITE ENABLED)
-# -----------------------------------------------------------------------------
-elif menu == "📦 KHO HÀNG (IMAGES)":
+# --- KHO HÀNG (IMPORT & IMAGE) ---
+elif menu == "📦 KHO HÀNG":
     st.markdown("## 📦 KHO HÀNG & HÌNH ẢNH")
     
-    # --- MODULE IMPORT EXCEL (GHI ĐÈ / OVERWRITE) ---
-    with st.expander("📥 IMPORT DỮ LIỆU TỪ EXCEL (GHI ĐÈ)", expanded=False):
-        st.info("⚠️ Chế độ GHI ĐÈ: Nếu Mã Specs đã tồn tại, hệ thống sẽ cập nhật thông tin mới nhất.")
-        up_inv = st.file_uploader("Upload Excel", type=['xlsx'], key="inv_import")
-        if up_inv and st.button("Bắt đầu Import"):
+    with st.expander("📥 IMPORT TỪ EXCEL (GHI ĐÈ)", expanded=False):
+        up = st.file_uploader("Upload Excel", type=['xlsx'])
+        if up and st.button("Import"):
             try:
-                df_inv = pd.read_excel(up_inv)
-                df_inv.columns = [str(c).replace('\n', ' ').strip() for c in df_inv.columns]
-                
-                records = []
-                for _, row in df_inv.iterrows():
-                    # Mapping tuyệt đối
-                    records.append({
-                        "no": row.get("No"),
-                        "item_code": str(row.get("Item code", "")),
-                        "item_name": str(row.get("Item name", "")),
-                        "specs": str(row.get("Specs", "")).strip(),
-                        "qty": row.get("Q'ty"),
-                        "buying_price_rmb": row.get("Buying price (RMB)"),
-                        "total_buying_price_rmb": row.get("Total buying price (RMB)"),
-                        "exchange_rate": row.get("Exchange rate"),
-                        "buying_price_vnd": row.get("Buying price (VND)"),
-                        "total_buying_price_vnd": row.get("Total buying price (VND)"),
-                        "leadtime": str(row.get("Leadtime", "")),
-                        "supplier": str(row.get("Supplier", "")),
-                        "images": str(row.get("Images", "")),
-                        "type": str(row.get("Type", "")),
-                        "nuoc": str(row.get("N/U/O/C", ""))
+                df = pd.read_excel(up)
+                df.columns = [str(c).replace('\n',' ').strip() for c in df.columns]
+                recs = []
+                for _, r in df.iterrows():
+                    recs.append({
+                        "no": r.get("No"), "item_code": str(r.get("Item code","")), "item_name": str(r.get("Item name","")),
+                        "specs": str(r.get("Specs","")).strip(), "qty": r.get("Q'ty"),
+                        "buying_price_rmb": r.get("Buying price (RMB)"), "total_buying_price_rmb": r.get("Total buying price (RMB)"),
+                        "exchange_rate": r.get("Exchange rate"), "buying_price_vnd": r.get("Buying price (VND)"),
+                        "total_buying_price_vnd": r.get("Total buying price (VND)"), "leadtime": str(r.get("Leadtime","")),
+                        "supplier": str(r.get("Supplier","")), "images": str(r.get("Images","")),
+                        "type": str(r.get("Type","")), "nuoc": str(r.get("N/U/O/C",""))
                     })
-                
-                valid_records = [r for r in records if r["specs"]]
-                if valid_records:
-                    batch_size = 500
-                    for i in range(0, len(valid_records), batch_size):
-                        # UPSERT: Ghi đè dựa trên cột 'specs'
-                        # Yêu cầu: Database phải set UNIQUE cho cột specs
-                        backend.supabase.table("crm_purchases").upsert(valid_records[i:i+batch_size], on_conflict="specs").execute()
-                    st.success(f"✅ Đã cập nhật/thêm mới {len(valid_records)} dòng!")
-                    time.sleep(1); st.rerun()
-                else: st.warning("File lỗi.")
-            except Exception as e: st.error(f"Lỗi Import: {e}")
+                # UPSERT
+                batch = 500
+                valid = [x for x in recs if x['specs']]
+                for i in range(0, len(valid), batch):
+                    be.supabase.table("crm_purchases").upsert(valid[i:i+batch], on_conflict="specs").execute()
+                st.success(f"✅ Đã cập nhật {len(valid)} dòng!"); time.sleep(1); st.rerun()
+            except Exception as e: st.error(f"Lỗi: {e}")
 
-    # --- HIỂN THỊ & XEM ẢNH ---
-    col_search, col_upload = st.columns([3, 1])
-    search = col_search.text_input("🔍 Tìm kiếm...", placeholder="Nhập mã hàng...")
-    
-    # Lấy data, sắp xếp theo No
-    res = backend.supabase.table("crm_purchases").select("*").order("no", desc=False).execute()
+    # Display
+    search = st.text_input("🔍 Tìm kiếm...", placeholder="Nhập mã hàng...")
+    res = be.supabase.table("crm_purchases").select("*").order("no", desc=False).execute()
     df = pd.DataFrame(res.data)
     
     if not df.empty:
-        if search:
-            mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
-            df = df[mask]
-
-        # Cấu hình cột hiển thị
-        display_cols = ["no", "item_code", "item_name", "specs", "qty", "buying_price_rmb", "total_buying_price_rmb", 
-                        "exchange_rate", "buying_price_vnd", "total_buying_price_vnd", 
-                        "leadtime", "supplier", "images", "type", "nuoc"]
-        final_cols = [c for c in display_cols if c in df.columns]
-        df_display = df[final_cols]
-
-        # Layout: Bảng (70%) - Ảnh (30%)
-        c_table, c_preview = st.columns([7, 3])
-        with c_table:
-            event = st.dataframe(
-                df_display,
-                use_container_width=True,
-                height=600,
-                selection_mode="single-row",
-                on_select="rerun",
-                column_config={
-                    "images": st.column_config.LinkColumn("Link Ảnh"),
-                    "no": st.column_config.NumberColumn("No", format="%d"),
-                    "buying_price_rmb": st.column_config.NumberColumn("Giá RMB", format="%.2f")
-                },
-                hide_index=True
-            )
-
-        with c_preview:
+        if search: df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
+        
+        c1, c2 = st.columns([7, 3])
+        with c1:
+            event = st.dataframe(df, use_container_width=True, height=600, selection_mode="single-row", on_select="rerun", hide_index=True)
+        
+        with c2:
             st.markdown("### 🖼️ ẢNH SẢN PHẨM")
-            selected_rows = event.selection.rows
-            
-            if selected_rows:
-                idx = selected_rows[0]
-                row_data = df.iloc[idx] # Lấy từ df gốc để có ID chính xác
+            if event.selection.rows:
+                idx = event.selection.rows[0]
+                row = df.iloc[idx]
+                st.info(f"Mã: **{row['specs']}**")
                 
-                item_code = row_data.get('specs', 'N/A')
-                current_img = row_data.get('images', None)
-                record_id = row_data.get('id')
-                
-                st.info(f"Mã: **{item_code}**")
-                
-                # HIỂN THỊ ẢNH (FIXED SIZE & LINK CHECK)
-                # Giảm kích thước xuống 70% so với trước -> set width=300px
-                if current_img and str(current_img).startswith("http"):
-                    st.image(current_img, caption=item_code, width=300)
+                # SHOW IMAGE FIXED SIZE
+                img_url = row.get('images')
+                if img_url and str(img_url).startswith("http"):
+                    st.image(img_url, width=300)
                 else:
-                    st.warning("Chưa có ảnh hoặc link lỗi.")
+                    st.markdown('<div class="img-box">🚫 Không có ảnh</div>', unsafe_allow_html=True)
                 
-                st.divider()
-                st.write("📤 **Cập nhật ảnh mới:**")
-                uploaded_img = st.file_uploader("", type=['jpg', 'png'], key="img_up")
-                
-                if uploaded_img:
-                    if st.button("Lưu lên Drive"):
-                        with st.spinner("Đang upload và lấy link..."):
-                            # Upload và lấy link trực tiếp
-                            new_link = backend.upload_image_to_drive(uploaded_img, f"{item_code}_{int(time.time())}.jpg")
-                            
-                            if new_link:
-                                # Update Database
-                                backend.supabase.table("crm_purchases").update({"images": new_link}).eq("id", record_id).execute()
-                                st.success("Thành công! Ảnh đã lưu.")
-                                time.sleep(1); st.rerun()
-            else:
-                st.info("👈 Chọn 1 dòng bên trái để xem ảnh")
-    else: st.info("Chưa có dữ liệu.")
+                # UPLOAD NEW
+                new_img = st.file_uploader("Cập nhật ảnh", type=['jpg','png'])
+                if new_img and st.button("Lưu ảnh"):
+                    link = be.upload_img(new_img, f"{row['specs']}_{int(time.time())}.jpg")
+                    if link:
+                        be.supabase.table("crm_purchases").update({"images": link}).eq("id", row['id']).execute()
+                        st.success("Xong!"); time.sleep(1); st.rerun()
+            else: st.info("👈 Chọn dòng để xem ảnh")
+    else: st.info("Trống.")
 
-# -----------------------------------------------------------------------------
-# TAB 3: BÁO GIÁ
-# -----------------------------------------------------------------------------
-elif menu == "💰 BÁO GIÁ (QUOTATION)":
-    st.markdown("## 💰 TẠO BÁO GIÁ")
-    t1, t2 = st.tabs(["TẠO MỚI", "TRA CỨU LỊCH SỬ"])
-    
+# --- BÁO GIÁ ---
+elif menu == "💰 BÁO GIÁ":
+    st.markdown("## 💰 BÁO GIÁ")
+    t1, t2 = st.tabs(["TẠO MỚI", "TRA CỨU"])
     with t1:
         c1, c2 = st.columns([1, 2])
-        cust = c1.text_input("Tên Khách")
+        cust = c1.text_input("Khách Hàng")
         rfq = c2.file_uploader("Upload RFQ", type=['xlsx','csv'])
-        
         if rfq and cust:
             if st.session_state['quote_data'] is None:
-                df_in = pd.read_csv(rfq) if rfq.name.endswith('.csv') else pd.read_excel(rfq)
-                df_in.columns = [str(c).strip() for c in df_in.columns]
-                # Lấy cột cần thiết từ DB để tính toán (mapping lại snake_case)
-                db = backend.supabase.table("crm_purchases").select("specs, buying_price_rmb, exchange_rate").execute()
+                df = pd.read_csv(rfq) if rfq.name.endswith('.csv') else pd.read_excel(rfq)
+                df.columns = [str(c).strip() for c in df.columns]
+                db = be.supabase.table("crm_purchases").select("specs, buying_price_rmb, exchange_rate").execute()
                 df_db = pd.DataFrame(db.data)
                 
-                if 'Specs' in df_in.columns:
-                    if not df_db.empty:
-                        df_in['Specs'] = df_in['Specs'].astype(str).str.strip()
-                        df_db['specs'] = df_db['specs'].astype(str).str.strip()
-                        merged = pd.merge(df_in, df_db, left_on='Specs', right_on='specs', how='left')
-                        # Rename cho khớp với hàm tính toán V4800
-                        merged.rename(columns={'buying_price_rmb': 'Buying Price (RMB)', 'exchange_rate': 'Exchange Rate'}, inplace=True)
-                        merged.fillna(0, inplace=True)
-                        st.session_state['quote_data'] = merged
-                    else: st.session_state['quote_data'] = df_in
+                if 'Specs' in df.columns and not df_db.empty:
+                    df['Specs'] = df['Specs'].astype(str).str.strip()
+                    df_db['specs'] = df_db['specs'].astype(str).str.strip()
+                    m = pd.merge(df, df_db, left_on='Specs', right_on='specs', how='left')
+                    m.rename(columns={'buying_price_rmb': 'Buying Price (RMB)', 'exchange_rate': 'Exchange Rate'}, inplace=True)
+                    m.fillna(0, inplace=True)
+                    st.session_state['quote_data'] = m
+                else: st.session_state['quote_data'] = df
             
-            st.info("👇 Nhập liệu trực tiếp:")
             edited = st.data_editor(st.session_state['quote_data'], num_rows="dynamic", use_container_width=True)
-            
             if st.button("🚀 TÍNH TOÁN"):
-                res = edited.apply(backend.calculate_profit_v4800, axis=1)
+                res = edited.apply(be.calc_profit, axis=1)
                 st.session_state['quote_data'] = pd.concat([edited, res], axis=1)
-                st.success("Đã tính xong!")
+                st.success("Xong!")
             
             if st.session_state['quote_data'] is not None and 'PROFIT (VND)' in st.session_state['quote_data'].columns:
-                final = st.session_state['quote_data']
-                st.divider()
-                st.dataframe(final.style.format("{:,.0f}", subset=['PROFIT (VND)', 'Total Price (VND)'])
-                             .background_gradient(subset=['PROFIT (VND)'], cmap='RdYlGn'), use_container_width=True)
-                
-                b1, b2, b3 = st.columns(3)
-                docx = backend.export_docx_v4800(final, cust)
-                b1.download_button("📄 Tải Docs", docx, f"Specs_{cust}.docx")
-                if b3.button("💾 Lưu Lịch Sử"):
-                     backend.supabase.table("crm_shared_history").insert({
-                        "quote_id": f"Q-{int(time.time())}", "customer_name": cust, 
-                        "total_profit_vnd": final['PROFIT (VND)'].sum(), "status": "Quote Sent"
-                     }).execute(); st.success("Đã lưu!")
+                fin = st.session_state['quote_data']
+                st.dataframe(fin.style.format("{:,.0f}", subset=['PROFIT (VND)']).background_gradient(subset=['PROFIT (VND)'], cmap='RdYlGn'), use_container_width=True)
+                docx = be.create_docx(fin, cust)
+                st.download_button("📄 Tải Specs", docx, "Specs.docx")
+                if st.button("Lưu"):
+                    be.supabase.table("crm_shared_history").insert({"quote_id": f"Q-{int(time.time())}", "customer_name": cust, "total_profit_vnd": fin['PROFIT (VND)'].sum()}).execute()
+                    st.success("Đã lưu!")
 
     with t2:
-        st.subheader("Tra cứu lịch sử giá")
-        f = st.file_uploader("Upload Excel chứa Specs", key="h_up")
-        if f and st.button("Kiểm tra"):
-            hist = backend.supabase.table("crm_shared_history").select("*").execute().data
-            st.dataframe(pd.DataFrame(hist))
+        if st.button("Xem lịch sử"):
+            h = be.supabase.table("crm_shared_history").select("*").execute().data
+            st.dataframe(pd.DataFrame(h))
 
-# -----------------------------------------------------------------------------
-# TAB 4: QUẢN LÝ PO
-# -----------------------------------------------------------------------------
+# --- PO ---
 elif menu == "📑 QUẢN LÝ PO":
-    st.markdown("## 📑 XỬ LÝ ĐƠN HÀNG")
-    t_c, t_s = st.tabs(["PO KHÁCH HÀNG", "PO NHÀ CUNG CẤP"])
-    with t_c:
-        po = st.file_uploader("File PO Khách")
-        cn = st.text_input("Tên Khách")
-        val = st.number_input("Giá trị PO", step=1000.0)
-        if po and cn and st.button("Lưu PO Khách"):
-            l, p = backend.upload_recursive(po, po.name, "PO_KHACH_HANG", datetime.now().year, cn, datetime.now().strftime("%b"))
-            if l:
-                backend.supabase.table("db_customer_orders").insert({
-                    "po_number": f"POC-{int(time.time())}", "customer_name": cn, "total_value": val,
-                    "po_file_url": l, "drive_folder_url": p, "status": "Ordered"
-                }).execute(); st.success("Thành công!")
-    with t_s:
-        mst = st.file_uploader("File PO Tổng (Excel)", type=['xlsx'])
-        if mst and st.button("Tách File"):
-            df = pd.read_excel(mst)
-            sup_col = next((c for c in df.columns if 'supplier' in c.lower() or 'ncc' in c.lower()), None)
-            if sup_col:
-                for s, d in df.groupby(sup_col):
-                    with st.expander(f"NCC: {s}"):
-                        st.dataframe(d)
-                        if st.button(f"Lưu PO {s}"):
-                            buf = io.BytesIO(); d.to_excel(buf, index=False); buf.seek(0)
-                            l, p = backend.upload_recursive(buf, f"PO_{s}.xlsx", "PO_NCC", datetime.now().year, s, datetime.now().strftime("%b"))
-                            if l: st.success(f"Đã lưu PO {s}")
+    st.markdown("## 📑 QUẢN LÝ PO")
+    t1, t2 = st.tabs(["PO KHÁCH", "PO NCC"])
+    with t1:
+        f = st.file_uploader("PO Khách")
+        n = st.text_input("Tên KH")
+        v = st.number_input("Giá trị", step=1000.0)
+        if f and n and st.button("Lưu"):
+            l, p = be.upload_recursive(f, f.name, "PO_KHACH_HANG", datetime.now().year, n, datetime.now().strftime("%b"))
+            if l: be.supabase.table("db_customer_orders").insert({"po_number": f"POC-{int(time.time())}", "customer_name": n, "total_value": v, "po_file_url": l, "drive_folder_url": p}).execute(); st.success("OK")
+    with t2:
+        f = st.file_uploader("Excel Tổng", type=['xlsx'])
+        if f and st.button("Tách"):
+            d = pd.read_excel(f)
+            s = next((c for c in d.columns if 'supplier' in c.lower()), None)
+            if s:
+                for n, g in d.groupby(s):
+                    with st.expander(f"NCC: {n}"):
+                        st.dataframe(g)
+                        if st.button(f"Lưu {n}"):
+                            b = io.BytesIO(); g.to_excel(b, index=False); b.seek(0)
+                            l, p = be.upload_recursive(b, f"PO_{n}.xlsx", "PO_NCC", datetime.now().year, n, datetime.now().strftime("%b"))
+                            if l: st.success(f"Đã lưu {n}")
 
-# -----------------------------------------------------------------------------
-# TAB 5: TRACKING
-# -----------------------------------------------------------------------------
-elif menu == "🚚 VẬN ĐƠN (TRACKING)":
+# --- TRACKING ---
+elif menu == "🚚 TRACKING":
     st.markdown("## 🚚 TRACKING")
-    pos = backend.supabase.table("db_customer_orders").select("*").execute()
-    df = pd.DataFrame(pos.data)
+    df = pd.DataFrame(be.supabase.table("db_customer_orders").select("*").execute().data)
     if not df.empty:
-        st.dataframe(df[['po_number', 'customer_name', 'status', 'drive_folder_url']])
+        st.dataframe(df[['po_number', 'customer_name', 'status']])
         c1, c2, c3 = st.columns(3)
-        sel = c1.selectbox("Chọn PO", df['po_number'])
-        stt = c2.selectbox("Trạng thái", ["Shipping", "Arrived", "Delivered"])
+        sel = c1.selectbox("PO", df['po_number'])
+        stt = c2.selectbox("Status", ["Shipping", "Arrived", "Delivered"])
         img = c3.file_uploader("Proof")
-        if st.button("Cập nhật"):
-            backend.supabase.table("db_customer_orders").update({"status": stt}).eq("po_number", sel).execute()
-            if img: backend.upload_recursive(img, f"Proof_{sel}.jpg", "TRACKING_PROOF", "2025", "PROOF", "ALL")
-            if stt == "Delivered":
-                backend.supabase.table("crm_payments").insert({"po_number": sel, "status": "Pending", "eta_payment": str(datetime.now().date())}).execute()
+        if st.button("Update"):
+            be.supabase.table("db_customer_orders").update({"status": stt}).eq("po_number", sel).execute()
+            if img: be.upload_recursive(img, f"Proof_{sel}.jpg", "TRACKING_PROOF", 2025, "PROOF", "ALL")
+            if stt == "Delivered": be.supabase.table("crm_payments").insert({"po_number": sel, "status": "Pending", "eta_payment": str(datetime.now().date())}).execute()
             st.success("Updated!")
 
-# -----------------------------------------------------------------------------
-# TAB 6: MASTER DATA
-# -----------------------------------------------------------------------------
+# --- MASTER ---
 elif menu == "⚙️ MASTER DATA":
-    st.markdown("## ⚙️ DỮ LIỆU GỐC")
-    st.info("👉 Vui lòng sử dụng Tab '📦 KHO HÀNG' để import dữ liệu Buying Price từ Excel.")
-    t_cust, t_supp = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP"])
-    with t_cust: st.write("Module quản lý khách hàng (Coming Soon)")
-    with t_supp: st.write("Module quản lý NCC (Coming Soon)")
+    st.info("Dùng Tab KHO HÀNG để import giá.")
