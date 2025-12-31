@@ -151,16 +151,22 @@ with tab2:
                 # 1. QUÉT ẢNH TỪ EXCEL (OPENPYXL)
                 status_box.write("🖼️ Đang quét ảnh nhúng trong Excel...")
                 uploaded_file.seek(0)
-                wb = load_workbook(uploaded_file, data_only=True)
+                
+                # [QUAN TRỌNG] data_only=False để lấy được đối tượng ảnh
+                wb = load_workbook(uploaded_file, data_only=False) 
                 ws = wb.active
                 
                 image_map = {} 
                 if hasattr(ws, '_images'):
                     for image in ws._images:
                         try:
+                            # Lấy vị trí hàng và cột
                             row = image.anchor._from.row
                             col = image.anchor._from.col
-                            if col == 12: # Cột M (Index 12)
+                            
+                            # [QUAN TRỌNG] Mở rộng điều kiện: Lấy ảnh từ cột 10 trở đi (Column K -> Z)
+                            # Để tránh trường hợp file excel bị lệch cột
+                            if col >= 10: 
                                 img_bytes = io.BytesIO()
                                 try:
                                     pil_img = PilImage.open(image.ref).convert('RGB')
@@ -168,12 +174,17 @@ with tab2:
                                 except:
                                     img_bytes.write(image._data())
                                 img_bytes.seek(0)
+                                
                                 fname = f"IMG_ROW_{row+1}_{int(time.time())}.jpg"
                                 link = be.upload_img(img_bytes, fname)
-                                if link: image_map[row] = link 
+                                
+                                if link: 
+                                    # Ưu tiên ảnh nằm ở cột 12 (M), nếu không có thì lấy ảnh cột khác cùng dòng
+                                    if row not in image_map or col == 12:
+                                        image_map[row] = link 
                         except Exception: pass
 
-                status_box.write(f"✅ Đã xử lý {len(image_map)} ảnh.")
+                status_box.write(f"✅ Đã tìm thấy và xử lý {len(image_map)} ảnh.")
 
                 # 2. ĐỌC DỮ LIỆU TEXT (PANDAS)
                 status_box.write("📖 Đang đọc dữ liệu văn bản...")
@@ -181,12 +192,10 @@ with tab2:
                 df_raw = pd.read_excel(uploaded_file, header=0, dtype=str).fillna("")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-                # --- FIX LỖI 21000: LOẠI BỎ DUPLICATE 'SPECS' TRƯỚC KHI XỬ LÝ ---
+                # --- FIX LỖI 21000: LOẠI BỎ DUPLICATE 'SPECS' ---
                 if 'Specs' in df_raw.columns:
-                    # Chuẩn hóa cột Specs để so sánh chính xác
                     df_raw['Specs'] = df_raw['Specs'].astype(str).str.strip()
                     rows_before = len(df_raw)
-                    # Giữ dòng cuối cùng nếu trùng
                     df_raw = df_raw.drop_duplicates(subset=['Specs'], keep='last')
                     rows_dropped = rows_before - len(df_raw)
                     if rows_dropped > 0:
@@ -205,7 +214,11 @@ with tab2:
                     if not specs: continue 
 
                     final_link = ""
-                    if (idx + 1) in image_map:
+                    # Pandas index = Openpyxl row - 1. => Openpyxl row = Pandas index + 1
+                    # Lưu ý: Openpyxl row 0-indexed trong anchor._from.row
+                    if idx in image_map:  
+                        final_link = image_map[idx]
+                    elif (idx + 1) in image_map: # Fallback check
                         final_link = image_map[idx + 1]
                     else:
                         old_link = safe_str(row.get('Images') or row.iloc[12])
@@ -230,7 +243,7 @@ with tab2:
                     }
                     data_clean.append(item)
                 
-                # 3. UPSERT (Bây giờ an toàn vì đã drop duplicates)
+                # 3. UPSERT
                 if data_clean:
                     status_box.write("💾 Đang lưu vào Database...")
                     batch_size = 100
