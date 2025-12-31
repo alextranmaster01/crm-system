@@ -234,14 +234,26 @@ def calc_eta(order_date_str, leadtime_val):
 def load_data(table, order_by="id", ascending=True):
     try:
         query = supabase.table(table).select("*")
-        if table == "crm_purchases": query = query.order("row_order", desc=False)
-        else: query = query.order(order_by, desc=not ascending)
+        
+        # --- FIX LỖI IMPORT PGRST204: KHÔNG SORT ROW_ORDER NẾU CỘT KHÔNG TỒN TẠI ---
+        # Thay vì sort cứng bằng Supabase, ta sẽ tải về rồi sort bằng Pandas cho an toàn.
+        # Hoặc dùng try-except để fallback. Ở đây chọn cách đơn giản: tải hết về rồi sort.
         res = query.execute()
         df = pd.DataFrame(res.data)
-        if table != "crm_tracking" and not df.empty and 'id' in df.columns: 
-            df = df.drop(columns=['id'])
+        
+        if not df.empty:
+            # Drop cột 'id' nếu không cần thiết
+            if table != "crm_tracking" and 'id' in df.columns: 
+                df = df.drop(columns=['id'])
+            
+            # Sort bằng Pandas nếu có cột order_by
+            if order_by in df.columns:
+                df = df.sort_values(by=order_by, ascending=ascending)
+            
         return df
-    except: return pd.DataFrame()
+    except Exception as e:
+        # st.error(f"Lỗi load data {table}: {e}") # Có thể uncomment để debug
+        return pd.DataFrame()
 
 # =============================================================================
 # 3. LOGIC TÍNH TOÁN CORE
@@ -396,14 +408,31 @@ with t2:
                     chunk_ins = 100
                     codes = [b['item_code'] for b in records if b['item_code']]
                     if codes: supabase.table("crm_purchases").delete().in_("item_code", codes).execute()
-                    for k in range(0, len(records), chunk_ins):
-                        batch = records[k:k+chunk_ins]
-                        supabase.table("crm_purchases").insert(batch).execute()
+                    
+                    # --- FIX: THỬ INSERT BÌNH THƯỜNG TRƯỚC ---
+                    try:
+                        for k in range(0, len(records), chunk_ins):
+                            batch = records[k:k+chunk_ins]
+                            supabase.table("crm_purchases").insert(batch).execute()
+                    except Exception as e_ins:
+                         # NẾU LỖI DO CỘT row_order KHÔNG TỒN TẠI, XÓA NÓ ĐI VÀ INSERT LẠI
+                        if "row_order" in str(e_ins):
+                            st.warning("⚠️ Database cũ chưa có cột row_order. Đang tự động bỏ qua cột này để insert...")
+                            for rec in records:
+                                if 'row_order' in rec: del rec['row_order']
+                            
+                            for k in range(0, len(records), chunk_ins):
+                                batch = records[k:k+chunk_ins]
+                                supabase.table("crm_purchases").insert(batch).execute()
+                        else:
+                            raise e_ins
+
                     st.success(f"✅ Đã import {len(records)} dòng (đúng thứ tự Excel)!")
                     st.cache_data.clear(); time.sleep(1); st.rerun()
             except Exception as e: st.error(f"Lỗi Import: {e}")
 
     with c_view:
+        # Load data đã fix sort
         df_pur = load_data("crm_purchases", order_by="row_order", ascending=True) 
         cols_to_drop = ['created_at', 'row_order']
         df_pur = df_pur.drop(columns=[c for c in cols_to_drop if c in df_pur.columns], errors='ignore')
@@ -554,16 +583,16 @@ with t3:
                     
                     # 2. If DB empty, Try Drive (Fallback)
                     if not config_loaded:
-                         cfg_search_name = f"CONFIG_{q_no}_{cust}"
-                         fid_cfg, _, _ = search_file_in_drive_by_name(cfg_search_name)
-                         if fid_cfg:
-                             fh_cfg = download_from_drive(fid_cfg)
-                             if fh_cfg:
-                                 try:
-                                     df_cfg = pd.read_excel(fh_cfg)
-                                     if not df_cfg.empty:
-                                         config_loaded = df_cfg.iloc[0].to_dict()
-                                 except: pass
+                          cfg_search_name = f"CONFIG_{q_no}_{cust}"
+                          fid_cfg, _, _ = search_file_in_drive_by_name(cfg_search_name)
+                          if fid_cfg:
+                              fh_cfg = download_from_drive(fid_cfg)
+                              if fh_cfg:
+                                  try:
+                                      df_cfg = pd.read_excel(fh_cfg)
+                                      if not df_cfg.empty:
+                                          config_loaded = df_cfg.iloc[0].to_dict()
+                                  except: pass
 
                     # 3. Apply Config
                     if config_loaded:
@@ -594,14 +623,14 @@ with t3:
                           folder_link = f"https://drive.google.com/drive/folders/{pid}"
                           st.markdown(f"👉 **[Mở Folder chứa file này trên Google Drive]({folder_link})**", unsafe_allow_html=True)
                     if fid and st.button(f"Tải file chi tiết: {fname}"):
-                         fh = download_from_drive(fid)
-                         if fh:
-                             try:
-                                 df_csv = pd.read_csv(fh, encoding='utf-8-sig', on_bad_lines='skip')
-                                 st.success("Đã tải xong!")
-                                 st.dataframe(df_csv, use_container_width=True)
-                             except Exception as e: st.error(f"Lỗi đọc file CSV: {e}")
-                         else: st.error("Không tải được file.")
+                          fh = download_from_drive(fid)
+                          if fh:
+                              try:
+                                  df_csv = pd.read_csv(fh, encoding='utf-8-sig', on_bad_lines='skip')
+                                  st.success("Đã tải xong!")
+                                  st.dataframe(df_csv, use_container_width=True)
+                              except Exception as e: st.error(f"Lỗi đọc file CSV: {e}")
+                          else: st.error("Không tải được file.")
                     elif not fid: st.warning(f"Không tìm thấy file chi tiết trên Drive (HIST_{q_no}...).")
         else: st.info("Chưa có lịch sử.")
 
@@ -779,7 +808,7 @@ with t3:
              if idx < len(st.session_state.quote_df):
                  for c in df_data_only.columns:
                      if c in st.session_state.quote_df.columns:
-                        st.session_state.quote_df.at[idx, c] = row[c]
+                         st.session_state.quote_df.at[idx, c] = row[c]
         
         # --- VIEW TOTAL PRICE (FEATURE ADDED) ---
         total_q = st.session_state.quote_df["Total price(VND)"].apply(to_float).sum()
@@ -1083,12 +1112,12 @@ with t4:
                                     leadtime = lt_lookup.get(clean_key(code), "0")
                                     eta = calc_eta(datetime.now(), leadtime)
                                     if code:
-                                        all_recs.append({
-                                            "No.": no_val, "Item code": code, "Item name": safe_str(r.iloc[2]),
-                                            "Specs": safe_str(r.iloc[3]), "Q'ty": qty,
-                                            "Unit price(VND)": fmt_num(unit_price), "Total price(VND)": fmt_num(total),
-                                            "Customer": c_name, "ETA": eta, "Source File": f.name
-                                        })
+                                         all_recs.append({
+                                             "No.": no_val, "Item code": code, "Item name": safe_str(r.iloc[2]),
+                                             "Specs": safe_str(r.iloc[3]), "Q'ty": qty,
+                                             "Unit price(VND)": fmt_num(unit_price), "Total price(VND)": fmt_num(total),
+                                             "Customer": c_name, "ETA": eta, "Source File": f.name
+                                         })
                             except: pass
                         st.session_state.po_cust_df = pd.DataFrame(all_recs)
                     else: st.info("Chỉ load data từ Excel. PDF sẽ được lưu khi bấm 'Lưu PO'.")
