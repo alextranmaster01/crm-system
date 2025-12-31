@@ -389,6 +389,8 @@ with t2:
                 for i, r in df.iterrows():
                     d = {}
                     for idx, field in enumerate(cols_map):
+                        # --- FIX LỖI PGRST204: Bỏ qua cột 'no' vì DB không có cột này ---
+                        # (Nếu bạn đã thêm cột 'no' bằng SQL thì có thể bỏ dòng này, nhưng để an toàn cứ giữ logic map)
                         if idx < len(r): d[field] = safe_str(r.iloc[idx])
                         else: d[field] = ""
                     has_data = d['item_code'] or d['item_name'] or d['specs']
@@ -438,6 +440,19 @@ with t2:
         df_pur = load_data("crm_purchases", order_by="row_order", ascending=True) 
         cols_to_drop = ['created_at', 'row_order']
         df_pur = df_pur.drop(columns=[c for c in cols_to_drop if c in df_pur.columns], errors='ignore')
+
+        # --- FIX: ĐỔI THỨ TỰ CỘT ĐỂ CỘT 'no' HOẶC 'No' LÊN ĐẦU ---
+        current_cols = df_pur.columns.tolist()
+        # Tìm cột 'no' hoặc 'No'
+        no_col = next((c for c in current_cols if c.lower() == 'no'), None)
+        
+        if no_col:
+            # Xóa khỏi vị trí cũ
+            current_cols.remove(no_col)
+            # Chèn vào đầu
+            current_cols.insert(0, no_col)
+            # Áp dụng
+            df_pur = df_pur[current_cols]
 
         search = st.text_input("🔍 Tìm kiếm (Name, Code, Specs...)", key="search_pur")
         if not df_pur.empty:
@@ -767,7 +782,8 @@ with t3:
         # REAL-TIME CALCULATION BEFORE DISPLAY (Fixes Transportation lag)
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
 
-        cols_order = ["Cảnh báo", "No"] + [c for c in st.session_state.quote_df.columns if c not in ["Cảnh báo", "No"]]
+        # --- FIX: ĐỔI THỨ TỰ CỘT ĐỂ CỘT 'No' LÊN ĐẦU ---
+        cols_order = ["No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["No", "Cảnh báo"]]
         st.session_state.quote_df = st.session_state.quote_df[cols_order]
 
         cols_to_hide = ["Image", "Profit_Pct_Raw"]
