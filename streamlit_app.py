@@ -93,13 +93,12 @@ class CRMBackend:
             print(f"Upload Error: {e}")
             return None
 
-    # --- HÀM TẢI ẢNH TRỰC TIẾP TỪ DRIVE (BYPASS LINK ERROR) ---
+    # --- HÀM TẢI ẢNH TRỰC TIẾP TỪ DRIVE (GIÚP XEM MƯỢT HƠN) ---
     def get_image_bytes(self, url):
         """Tải dữ liệu binary của ảnh từ Google Drive thông qua API"""
         if not self.drive or not url or "http" not in str(url): return None
         try:
             file_id = None
-            # Trích xuất ID từ các dạng link Drive phổ biến
             if "id=" in url:
                 file_id = url.split("id=")[1].split("&")[0]
             elif "/d/" in url:
@@ -124,6 +123,7 @@ class CRMBackend:
             return pd.DataFrame(res.data)
         except: return pd.DataFrame()
 
+# KHỞI TẠO BACKEND (Thay thế cho 'import backend')
 be = CRMBackend()
 
 # =============================================================================
@@ -137,121 +137,129 @@ with tab1:
     st.subheader("DASHBOARD")
     if st.button("🔄 CẬP NHẬT DATA", type="primary"): st.rerun()
 
-# TAB 2: DB GIÁ NCC
+# TAB 2: DATABASE GIÁ NCC
 with tab2:
-    st.subheader("Database Giá NCC")
+    st.subheader("Database Giá NCC (Hybrid Engine)")
     
     col_tool, col_search = st.columns([1, 1])
     with col_tool:
-        uploaded_file = st.file_uploader("📥 Import Excel (Có chứa ảnh)", type=['xlsx'], key="uploader_pur")
+        uploaded_file = st.file_uploader("📥 Import Excel (Tự động tách ảnh & Upload)", type=['xlsx'], key="uploader_pur")
+        
         if uploaded_file and st.button("🚀 BẮT ĐẦU IMPORT", type="primary"):
-            status_box = st.status("Đang xử lý...", expanded=True)
+            status_box = st.status("Đang xử lý dữ liệu...", expanded=True)
             try:
-                status_box.write("🖼️ Quét ảnh...")
+                # 1. QUÉT ẢNH TỪ EXCEL (OPENPYXL)
+                status_box.write("🖼️ Đang quét ảnh nhúng trong Excel...")
                 uploaded_file.seek(0)
-                wb = load_workbook(uploaded_file, data_only=False); ws = wb.active
-                image_map = {}
-                if hasattr(ws, '_images'):
-                    for img in ws._images:
-                        image_map[img.anchor._from.row + 1] = img._data()
                 
-                status_box.write("📖 Đọc dữ liệu...")
+                # [QUAN TRỌNG] data_only=False để lấy được đối tượng ảnh
+                wb = load_workbook(uploaded_file, data_only=False) 
+                ws = wb.active
+                
+                image_map = {} 
+                if hasattr(ws, '_images'):
+                    for image in ws._images:
+                        try:
+                            # Lấy vị trí hàng và cột
+                            row = image.anchor._from.row
+                            col = image.anchor._from.col
+                            
+                            # Mở rộng điều kiện: Lấy ảnh từ cột 10 trở đi (Column K -> Z)
+                            if col >= 10: 
+                                img_bytes = io.BytesIO()
+                                try:
+                                    pil_img = PilImage.open(image.ref).convert('RGB')
+                                    pil_img.save(img_bytes, format='JPEG')
+                                except:
+                                    img_bytes.write(image._data())
+                                img_bytes.seek(0)
+                                
+                                fname = f"IMG_ROW_{row+1}_{int(time.time())}.jpg"
+                                link = be.upload_img(img_bytes, fname)
+                                
+                                if link: 
+                                    # Ưu tiên ảnh nằm ở cột 12 (M), nếu không có thì lấy ảnh cột khác
+                                    if row not in image_map or col == 12:
+                                        image_map[row] = link 
+                        except Exception: pass
+
+                status_box.write(f"✅ Đã tìm thấy và xử lý {len(image_map)} ảnh.")
+
+                # 2. ĐỌC DỮ LIỆU TEXT (PANDAS)
+                status_box.write("📖 Đang đọc dữ liệu văn bản...")
                 uploaded_file.seek(0)
                 df_raw = pd.read_excel(uploaded_file, header=0, dtype=str).fillna("")
-                
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
+                # --- FIX LỖI 21000: LOẠI BỎ DUPLICATE 'SPECS' ---
+                if 'Specs' in df_raw.columns:
+                    df_raw['Specs'] = df_raw['Specs'].astype(str).str.strip()
+                    rows_before = len(df_raw)
+                    df_raw = df_raw.drop_duplicates(subset=['Specs'], keep='last')
+                    rows_dropped = rows_before - len(df_raw)
+                    if rows_dropped > 0:
+                        status_box.write(f"⚠️ Đã tự động loại bỏ {rows_dropped} dòng trùng lặp mã 'Specs'.")
+
                 data_clean = []
-                prog_bar = status_box.progress(0); total = len(df_raw)
-                
-                for i, row in df_raw.iterrows():
+                prog_bar = status_box.progress(0)
+                total = len(df_raw)
+
+                for i, (idx, row) in enumerate(df_raw.iterrows()):
                     prog_bar.progress(min((i + 1) / total, 1.0))
-                    excel_row_idx = i + 2
-                    def get(c): return safe_str(row.get(c, ""))
-                    code = safe_str(row.iloc[1])
-                    if not code: continue
+                    
+                    code = safe_str(row.get('Item code') or row.iloc[1]) 
+                    specs = safe_str(row.get('Specs') or row.iloc[3])    
+                    
+                    if not specs: continue 
 
                     final_link = ""
-                    if excel_row_idx in image_map:
-                        status_box.write(f"☁️ Up ảnh: {code}...")
-                        link = backend.upload_to_drive(io.BytesIO(image_map[excel_row_idx]), f"{safe_filename(code)}.png", "images")
-                        if link: final_link = link
+                    # Mapping ảnh theo index
+                    if idx in image_map:  
+                        final_link = image_map[idx]
+                    elif (idx + 1) in image_map: 
+                        final_link = image_map[idx + 1]
                     else:
-                        old = safe_str(row.iloc[12]) if len(row) > 12 else ""
-                        if "http" in old: final_link = old
+                        old_link = safe_str(row.get('Images') or row.iloc[12])
+                        if "http" in old_link: final_link = old_link
 
                     item = {
-                        "no": safe_str(row.iloc[0]), "item_code": code, "item_name": safe_str(row.iloc[2]), 
-                        "specs": safe_str(row.iloc[3]), "qty": fmt_num(to_float(row.iloc[4])), 
-                        "buying_price_rmb": fmt_num(to_float(row.iloc[5])), 
-                        "total_buying_price_rmb": fmt_num(to_float(row.iloc[6])), 
-                        "exchange_rate": fmt_num(to_float(row.iloc[7])), 
-                        "buying_price_vnd": fmt_num(to_float(row.iloc[8])), 
-                        "total_buying_price_vnd": fmt_num(to_float(row.iloc[9])), 
-                        "leadtime": safe_str(row.iloc[10]), "supplier_name": safe_str(row.iloc[11]), 
-                        "image_path": final_link,
-                        "_clean_code": clean_lookup_key(code), "_clean_specs": clean_lookup_key(safe_str(row.iloc[3])), "_clean_name": clean_lookup_key(safe_str(row.iloc[2]))
+                        "no": safe_str(row.iloc[0]), 
+                        "item_code": code, 
+                        "item_name": safe_str(row.iloc[2]), 
+                        "specs": specs, 
+                        "qty": to_float(row.iloc[4]), 
+                        "buying_price_rmb": to_float(row.iloc[5]), 
+                        "total_buying_price_rmb": to_float(row.iloc[6]), 
+                        "exchange_rate": to_float(row.iloc[7]), 
+                        "buying_price_vnd": to_float(row.iloc[8]), 
+                        "total_buying_price_vnd": to_float(row.iloc[9]), 
+                        "leadtime": safe_str(row.iloc[10]), 
+                        "supplier": safe_str(row.iloc[11]), 
+                        "images": final_link, 
+                        "type": safe_str(row.iloc[13]) if len(row) > 13 else "",
+                        "nuoc": safe_str(row.iloc[14]) if len(row) > 14 else ""
                     }
                     data_clean.append(item)
                 
+                # 3. UPSERT
                 if data_clean:
-                    backend.save_data("purchases", pd.DataFrame(data_clean))
-                    status_box.update(label="✅ Hoàn tất!", state="complete", expanded=False)
+                    status_box.write("💾 Đang lưu vào Database...")
+                    batch_size = 100
+                    for k in range(0, len(data_clean), batch_size):
+                        batch = data_clean[k:k+batch_size]
+                        be.supabase.table("crm_purchases").upsert(batch, on_conflict="specs").execute()
+                    
+                    status_box.update(label="✅ Hoàn tất Import!", state="complete", expanded=False)
                     time.sleep(1); st.rerun()
-            except Exception as e: st.error(f"Lỗi: {e}")
-
-    # CHIA CỘT: 80% BẢNG - 20% ẢNH
-    col_table, col_gallery = st.columns([7, 3])
-    df_pur = backend.load_data("purchases")
-    
-    with col_table:
-        search = st.text_input("🔍 Tìm kiếm...", key="search_pur")
-        if search and not df_pur.empty:
-            df_pur = df_pur[df_pur.apply(lambda x: x.astype(str).str.contains(search, case=False, na=False)).any(axis=1)]
-
-        cfg = {
-            "image_path": st.column_config.LinkColumn("Link Ảnh"), # Chỉ hiện link text, ko hiện ảnh nhỏ để tránh lỗi
-            "total_buying_price_vnd": st.column_config.NumberColumn("Tổng Mua", format="%d"),
-            "_clean_code": None, "_clean_specs": None, "_clean_name": None, "id": None, "created_at": None
-        }
-        order = ["no", "item_code", "item_name", "specs", "qty", "buying_price_rmb", "total_buying_price_rmb", "exchange_rate", "buying_price_vnd", "total_buying_price_vnd", "leadtime", "supplier_name"]
-        
-        edited_pur = st.data_editor(
-            df_pur, column_config=cfg, column_order=order, 
-            use_container_width=True, height=600, key="ed_pur", num_rows="dynamic"
-        )
-        if st.button("💾 Lưu thay đổi"): backend.save_data("purchases", edited_pur)
-
-    # KHUNG XEM ẢNH TRỰC TIẾP (DÙNG SELECTBOX CHO CHẮC ĂN)
-    with col_gallery:
-        st.info("📷 KHUNG XEM ẢNH")
-        if not df_pur.empty:
-            # Tạo list mã hàng để chọn
-            item_list = df_pur["item_code"].unique().tolist()
-            selected_code = st.selectbox("👉 Chọn mã hàng để xem ảnh:", item_list)
-            
-            if selected_code:
-                row = df_pur[df_pur["item_code"] == selected_code].iloc[0]
-                img_link = row.get("image_path", "")
-                
-                st.markdown(f"**{row['item_name']}**")
-                
-                if img_link and "http" in str(img_link):
-                    with st.spinner("Đang tải ảnh từ Drive..."):
-                        # GỌI HÀM BACKEND ĐỂ TẢI DỮ LIỆU ẢNH THẬT
-                        img_bytes = backend.get_image_bytes(img_link)
-                        if img_bytes:
-                            st.image(img_bytes, caption=f"Mã: {selected_code}", use_container_width=True)
-                        else:
-                            st.error("Không tải được ảnh (File có thể bị xóa hoặc lỗi quyền).")
-                else:
-                    st.warning("Sản phẩm này chưa có link ảnh.")
-                
-                st.write("---")
-                st.write(f"**Thông số:** {row['specs']}")
-                st.write(f"**Giá:** {row['buying_price_vnd']}")
-                st.write(f"**NCC:** {row['supplier_name']}")
+                    
+            except Exception as e: 
+                status_box.update(label="❌ Có lỗi xảy ra", state="error")
+                st.error(f"Chi tiết lỗi: {e}")
 
     # --- GIAO DIỆN HIỂN THỊ (CỘT ẢNH NHỎ 9:1) ---
     col_table, col_gallery = st.columns([9, 1])
+    
+    # [SỬA LỖI] Dùng 'be.load_data' thay vì 'backend.load_data'
     df_pur = be.load_data("purchases")
     
     with col_table:
@@ -293,11 +301,11 @@ with tab2:
             
             # --- LOGIC HIỂN THỊ ẢNH MƯỢT MÀ BẰNG BYTES ---
             if img_link and "http" in str(img_link):
-                # Hiển thị spinner nhỏ trong lúc tải
                 with st.spinner("."):
+                    # Dùng 'be.get_image_bytes' thay vì 'backend.get_image_bytes'
                     img_bytes = be.get_image_bytes(img_link)
                     if img_bytes:
-                        # Width=100px để đảm bảo nhỏ gọn (giảm ~70% so với khổ 300px)
+                        # Width=100px (Giảm 70% so với khổ tiêu chuẩn)
                         st.image(img_bytes, caption=item_code, width=100) 
                     else:
                         st.image("https://placehold.co/100x100?text=Error", width=100, caption="Lỗi tải")
