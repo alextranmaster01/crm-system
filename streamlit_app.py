@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6023 - FINAL FIX CONFIG & FORMULA"
+APP_VERSION = "V6024 - FIX IMPORT PROGRESS & DYNAMIC MASTER DATA"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -694,7 +694,17 @@ with t3:
             res = []
             cols_found = {clean_key(c): c for c in df_rfq.columns}
             
+            # --- FIX: PROGRESS BAR CHO MATCHING ---
+            prog_match = st.progress(0)
+            status_match = st.empty()
+            total_rows = len(df_rfq)
+            
             for i, r in df_rfq.iterrows():
+                # --- UPDATE PROGRESS ---
+                pct = (i + 1) / total_rows
+                prog_match.progress(pct)
+                status_match.text(f"Đang xử lý: {int(pct*100)}%")
+
                 def get_val(keywords):
                     for k in keywords:
                         real_col = cols_found.get(k)
@@ -747,6 +757,12 @@ with t3:
                 }
                 res.append(item)
             
+            # --- DONE PROGRESS ---
+            prog_match.progress(100)
+            status_match.text("Done! Hoàn tất Matching.")
+            time.sleep(1)
+            status_match.empty() # Ẩn text Done để sạch giao diện
+
             st.session_state.quote_df = pd.DataFrame(res)
     
     # --- FORMULA BUTTONS (ONE CLICK FIX) ---
@@ -1210,22 +1226,77 @@ with t5:
 # --- TAB 6: MASTER DATA ---
 with t6:
     tc, ts, tt = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE"])
+    
+    # --- FIX: DYNAMIC CUSTOMER IMPORT ---
     with tc:
-        df = load_data("crm_customers"); st.data_editor(df, num_rows="dynamic", use_container_width=True, key="editor_customers")
-        up = st.file_uploader("Import KH", key="uck")
-        if up and st.button("Import KH"):
-            d = pd.read_excel(up, dtype=str).fillna("")
-            recs = []
-            for i,r in d.iterrows(): recs.append({"short_name": safe_str(r.iloc[0]), "full_name": safe_str(r.iloc[1]), "address": safe_str(r.iloc[2])})
-            supabase.table("crm_customers").insert(recs).execute(); st.rerun()
+        df_c = load_data("crm_customers")
+        st.write("Dữ liệu hiện tại:")
+        st.dataframe(df_c, use_container_width=True, hide_index=True)
+        
+        up = st.file_uploader("Import CUSTOMER LIST", type=["xlsx"], key="uck")
+        if up and st.button("🚀 Import KH (Đồng bộ tuyệt đối)"):
+            try:
+                # Đọc Excel (Lấy luôn header từ file)
+                df_new = pd.read_excel(up, dtype=str).fillna("")
+                
+                # Clean tên cột (xóa khoảng trắng thừa)
+                df_new.columns = [str(c).strip() for c in df_new.columns]
+                
+                # Chuyển thành list dict để insert
+                records = df_new.to_dict('records')
+                
+                if records:
+                    # 1. XÓA SẠCH DỮ LIỆU CŨ (Để đồng bộ tuyệt đối như yêu cầu)
+                    supabase.table("crm_customers").delete().neq("id", 0).execute()
+                    
+                    # 2. INSERT DỮ LIỆU MỚI (DYNAMIC COLUMNS)
+                    # Lưu ý: Database Supabase PHẢI có các cột tương ứng với header trong Excel
+                    chunk_size = 100
+                    for k in range(0, len(records), chunk_size):
+                        batch = records[k:k+chunk_size]
+                        supabase.table("crm_customers").insert(batch).execute()
+                        
+                    st.success(f"✅ Đã đồng bộ {len(records)} khách hàng! (Cấu trúc cột theo Excel)")
+                    time.sleep(1); st.rerun()
+                else: st.warning("File rỗng!")
+            except Exception as e:
+                st.error(f"Lỗi Import: {e}")
+                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
+
+    # --- FIX: DYNAMIC SUPPLIER IMPORT ---
     with ts:
-        df = load_data("crm_suppliers"); st.data_editor(df, num_rows="dynamic", use_container_width=True, key="editor_suppliers")
-        up = st.file_uploader("Import NCC", key="usn")
-        if up and st.button("Import NCC"):
-            d = pd.read_excel(up, dtype=str).fillna("")
-            recs = []
-            for i,r in d.iterrows(): recs.append({"short_name": safe_str(r.iloc[0]), "full_name": safe_str(r.iloc[1]), "address": safe_str(r.iloc[2])})
-            supabase.table("crm_suppliers").insert(recs).execute(); st.rerun()
+        df_s = load_data("crm_suppliers")
+        st.write("Dữ liệu hiện tại:")
+        st.dataframe(df_s, use_container_width=True, hide_index=True)
+        
+        up_s = st.file_uploader("Import SUPPLIER LIST", type=["xlsx"], key="usn")
+        if up_s and st.button("🚀 Import NCC (Đồng bộ tuyệt đối)"):
+            try:
+                # Đọc Excel
+                df_new = pd.read_excel(up_s, dtype=str).fillna("")
+                
+                # Clean tên cột
+                df_new.columns = [str(c).strip() for c in df_new.columns]
+                
+                records = df_new.to_dict('records')
+                
+                if records:
+                    # 1. XÓA SẠCH DỮ LIỆU CŨ
+                    supabase.table("crm_suppliers").delete().neq("id", 0).execute()
+                    
+                    # 2. INSERT DỮ LIỆU MỚI
+                    chunk_size = 100
+                    for k in range(0, len(records), chunk_size):
+                        batch = records[k:k+chunk_size]
+                        supabase.table("crm_suppliers").insert(batch).execute()
+                        
+                    st.success(f"✅ Đã đồng bộ {len(records)} nhà cung cấp! (Cấu trúc cột theo Excel)")
+                    time.sleep(1); st.rerun()
+                else: st.warning("File rỗng!")
+            except Exception as e:
+                st.error(f"Lỗi Import: {e}")
+                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
+
     with tt:
         st.write("Upload Template Excel")
         up_t = st.file_uploader("File Template (.xlsx)", type=["xlsx"])
