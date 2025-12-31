@@ -11,7 +11,7 @@ try:
     from supabase import create_client
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseUpload
+    from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 except ImportError:
     st.error("⚠️ Thiếu thư viện! Chạy lệnh: pip install supabase google-api-python-client google-auth-httplib2 google-auth-oauthlib openpyxl pillow pandas streamlit")
     st.stop()
@@ -25,8 +25,9 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 8px; } 
     .stTabs [data-baseweb="tab"] { background-color: #f0f2f6; border-radius: 4px 4px 0 0; padding: 8px 16px; font-weight: 600; font-size: 14px; } 
     .stTabs [aria-selected="true"] { background-color: #2980b9; color: white; }
-    /* Giảm kích thước padding của block ảnh */
-    div[data-testid="stImage"] { margin-top: -20px; }
+    /* Tinh chỉnh hiển thị ảnh */
+    div[data-testid="stImage"] { margin-top: -10px; }
+    div[data-testid="stImage"] img { border-radius: 5px; border: 1px solid #ddd; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -36,7 +37,6 @@ def safe_filename(s): return re.sub(r"[\\/:*?\"<>|]+", "_", safe_str(s))
 def to_float(val):
     """Chuyển đổi chuỗi có dấu phẩy thành số thực (Float) để lưu DB"""
     try: 
-        # Xóa dấu phẩy, % và khoảng trắng trước khi ép kiểu
         clean_val = str(val).replace(",", "").replace("%", "").strip()
         return float(clean_val) if clean_val else 0.0
     except: 
@@ -87,10 +87,35 @@ class CRMBackend:
             media = MediaIoBaseUpload(file_obj, mimetype=mime_type, resumable=True)
             meta = {'name': filename, 'parents': [l1]} 
             file = self.drive.files().create(body=meta, media_body=media, fields='id').execute()
-            # Trả về link thumbnail để hiển thị nhanh
+            # Trả về link thumbnail
             return f"https://drive.google.com/thumbnail?id={file.get('id')}&sz=w1000"
         except Exception as e: 
             print(f"Upload Error: {e}")
+            return None
+
+    # --- HÀM TẢI ẢNH TRỰC TIẾP TỪ DRIVE (BYPASS LINK ERROR) ---
+    def get_image_bytes(self, url):
+        """Tải dữ liệu binary của ảnh từ Google Drive thông qua API"""
+        if not self.drive or not url or "http" not in str(url): return None
+        try:
+            file_id = None
+            # Trích xuất ID từ các dạng link Drive phổ biến
+            if "id=" in url:
+                file_id = url.split("id=")[1].split("&")[0]
+            elif "/d/" in url:
+                file_id = url.split("/d/")[1].split("/")[0]
+            elif "open?id=" in url:
+                file_id = url.split("open?id=")[1].split("&")[0]
+            
+            if file_id:
+                request = self.drive.files().get_media(fileId=file_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while done is False:
+                    status, done = downloader.next_chunk()
+                return fh.getvalue() # Trả về bytes
+        except Exception:
             return None
 
     def load_data(self, table):
@@ -112,7 +137,7 @@ with tab1:
     st.subheader("DASHBOARD")
     if st.button("🔄 CẬP NHẬT DATA", type="primary"): st.rerun()
 
-# TAB 2: DATABASE GIÁ NCC (UPDATED LOGIC)
+# TAB 2: DATABASE GIÁ NCC
 with tab2:
     st.subheader("Database Giá NCC (Hybrid Engine)")
     
@@ -129,30 +154,26 @@ with tab2:
                 wb = load_workbook(uploaded_file, data_only=True)
                 ws = wb.active
                 
-                image_map = {} # Mapping: Row Index -> Drive Link
-                
+                image_map = {} 
                 if hasattr(ws, '_images'):
                     for image in ws._images:
                         try:
                             row = image.anchor._from.row
                             col = image.anchor._from.col
-                            # Chỉ lấy ảnh ở cột M (Cột 12 - 0-indexed)
-                            if col == 12: 
+                            if col == 12: # Cột M (Index 12)
                                 img_bytes = io.BytesIO()
                                 try:
                                     pil_img = PilImage.open(image.ref).convert('RGB')
                                     pil_img.save(img_bytes, format='JPEG')
                                 except:
                                     img_bytes.write(image._data())
-                                
                                 img_bytes.seek(0)
                                 fname = f"IMG_ROW_{row+1}_{int(time.time())}.jpg"
                                 link = be.upload_img(img_bytes, fname)
                                 if link: image_map[row] = link 
-                        except Exception as e:
-                            print(f"Lỗi ảnh: {e}")
+                        except Exception: pass
 
-                status_box.write(f"✅ Đã tách và upload {len(image_map)} ảnh thành công!")
+                status_box.write(f"✅ Đã xử lý {len(image_map)} ảnh.")
 
                 # 2. ĐỌC DỮ LIỆU TEXT (PANDAS)
                 status_box.write("📖 Đang đọc dữ liệu văn bản...")
@@ -160,24 +181,16 @@ with tab2:
                 df_raw = pd.read_excel(uploaded_file, header=0, dtype=str).fillna("")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-                # ====================================================
-                # FIX LỖI 21000: LOẠI BỎ DÒNG TRÙNG LẶP (DUPLICATE) TRƯỚC KHI IMPORT
-                # ====================================================
+                # --- FIX LỖI 21000: LOẠI BỎ DUPLICATE 'SPECS' TRƯỚC KHI XỬ LÝ ---
                 if 'Specs' in df_raw.columns:
-                    # Chuẩn hóa cột Specs (xóa khoảng trắng thừa)
+                    # Chuẩn hóa cột Specs để so sánh chính xác
                     df_raw['Specs'] = df_raw['Specs'].astype(str).str.strip()
-                    
-                    # Đếm số dòng trước khi xóa trùng
                     rows_before = len(df_raw)
-                    
-                    # Xóa các dòng có Specs trùng nhau, giữ lại dòng cuối cùng (keep='last')
+                    # Giữ dòng cuối cùng nếu trùng
                     df_raw = df_raw.drop_duplicates(subset=['Specs'], keep='last')
-                    
-                    # Nếu dòng bị xóa thì thông báo
                     rows_dropped = rows_before - len(df_raw)
                     if rows_dropped > 0:
-                        status_box.write(f"⚠️ Đã tự động loại bỏ {rows_dropped} dòng trùng lặp 'Specs'.")
-                # ====================================================
+                        status_box.write(f"⚠️ Đã tự động loại bỏ {rows_dropped} dòng trùng lặp mã 'Specs'.")
 
                 data_clean = []
                 prog_bar = status_box.progress(0)
@@ -198,7 +211,6 @@ with tab2:
                         old_link = safe_str(row.get('Images') or row.iloc[12])
                         if "http" in old_link: final_link = old_link
 
-                    # Sử dụng to_float() để lấy số thực
                     item = {
                         "no": safe_str(row.iloc[0]), 
                         "item_code": code, 
@@ -218,7 +230,7 @@ with tab2:
                     }
                     data_clean.append(item)
                 
-                # 3. UPSERT VÀO SUPABASE
+                # 3. UPSERT (Bây giờ an toàn vì đã drop duplicates)
                 if data_clean:
                     status_box.write("💾 Đang lưu vào Database...")
                     batch_size = 100
@@ -233,8 +245,8 @@ with tab2:
                 status_box.update(label="❌ Có lỗi xảy ra", state="error")
                 st.error(f"Chi tiết lỗi: {e}")
 
-    # --- GIAO DIỆN HIỂN THỊ ---
-    col_table, col_gallery = st.columns([8.5, 1.5])
+    # --- GIAO DIỆN HIỂN THỊ (CỘT ẢNH NHỎ 9:1) ---
+    col_table, col_gallery = st.columns([9, 1])
     df_pur = be.load_data("purchases")
     
     with col_table:
@@ -247,7 +259,6 @@ with tab2:
         if search and not df_pur.empty:
             df_pur = df_pur[df_pur.apply(lambda x: x.astype(str).str.contains(search, case=False, na=False)).any(axis=1)]
 
-        # Config hiển thị cột
         cfg = {
             "images": st.column_config.LinkColumn("Link Ảnh"),
             "buying_price_vnd": st.column_config.NumberColumn("Giá VND", format="%d"),
@@ -263,9 +274,9 @@ with tab2:
             selection_mode="single-row", on_select="rerun", hide_index=True
         )
 
-    # --- KHUNG XEM ẢNH MINI (REDUCED SIZE) ---
+    # --- KHUNG XEM ẢNH MINI (THU NHỎ 70%) ---
     with col_gallery:
-        st.caption("📷 PREVIEW")
+        st.caption("📷 VIEW")
         selected_row = None
         if event.selection.rows:
             idx = event.selection.rows[0]
@@ -275,18 +286,26 @@ with tab2:
             img_link = selected_row.get("images", "")
             item_code = selected_row.get("item_code", "N/A")
             
+            # --- LOGIC HIỂN THỊ ẢNH MƯỢT MÀ BẰNG BYTES ---
             if img_link and "http" in str(img_link):
-                # Width 130px theo yêu cầu giảm kích thước
-                st.image(img_link, caption=item_code, width=130) 
+                # Hiển thị spinner nhỏ trong lúc tải
+                with st.spinner("."):
+                    img_bytes = be.get_image_bytes(img_link)
+                    if img_bytes:
+                        # Width=100px để đảm bảo nhỏ gọn (giảm ~70% so với khổ 300px)
+                        st.image(img_bytes, caption=item_code, width=100) 
+                    else:
+                        st.image("https://placehold.co/100x100?text=Error", width=100, caption="Lỗi tải")
             else:
                 st.info("No Img")
                 
             st.markdown("---")
-            st.markdown(f"<div style='font-size:12px'><b>Specs:</b> {selected_row.get('specs','')}</div>", unsafe_allow_html=True)
+            # Thông tin rút gọn
+            st.markdown(f"<div style='font-size:10px'><b>{selected_row.get('specs','')}</b></div>", unsafe_allow_html=True)
             price_display = fmt_num(selected_row.get('buying_price_vnd', 0))
-            st.markdown(f"<div style='font-size:12px; color:blue'><b>Giá:</b> {price_display}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:11px; color:blue; font-weight:bold'>{price_display}</div>", unsafe_allow_html=True)
         else:
-            st.markdown("<div style='font-size:11px; color:grey'>Chọn 1 dòng để xem</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:10px; color:grey'>Chọn dòng</div>", unsafe_allow_html=True)
 
 # TAB 3: BÁO GIÁ KH
 with tab3:
