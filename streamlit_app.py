@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6024 - FIX IMPORT PROGRESS & DYNAMIC MASTER DATA"
+APP_VERSION = "V6025 - FIX QUOTE TOTAL & EXPORT ROW"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -52,6 +52,17 @@ st.markdown("""
         text-align: right;
         margin-top: 10px;
         border: 1px solid #4e4e4e;
+    }
+
+    /* --- FIX: STYLE CHO DÒNG TOTAL (DÒNG CUỐI CÙNG TRONG TABLE) MÀU VÀNG --- */
+    /* Lưu ý: Đây là CSS hack để highlight dòng cuối của bảng hiển thị */
+    [data-testid="stDataFrame"] table tbody tr:last-child {
+        background-color: #FFD700 !important; /* Màu vàng */
+        color: #000000 !important; /* Chữ đen */
+        font-weight: 900 !important;
+    }
+    [data-testid="stDataFrame"] table tbody tr:last-child td {
+        color: #000000 !important;
     }
     </style>""", unsafe_allow_html=True)
 
@@ -107,6 +118,7 @@ def get_or_create_folder_hierarchy(srv, path_list, parent_id):
             file_metadata = {
                 'name': folder_name,
                 'mimeType': 'application/vnd.google-apps.folder',
+                
                 'parents': [current_parent_id]
             }
             folder = srv.files().create(body=file_metadata, fields='id').execute()
@@ -746,7 +758,7 @@ with t3:
                     supplier = ""; image = ""; leadtime = ""
 
                 item = {
-                    "No": i+1, "Cảnh báo": warning_msg, 
+                    "Select": False, "No": i+1, "Cảnh báo": warning_msg, 
                     "Item code": code_excel, "Item name": name_excel, "Specs": specs_excel, "Q'ty": qty, 
                     "Buying price(RMB)": fmt_float_2(buy_rmb), "Total buying price(rmb)": fmt_float_2(buy_rmb * qty),
                     "Exchange rate": fmt_float_2(ex_rate), "Buying price(VND)": fmt_float_2(buy_vnd), "Total buying price(VND)": fmt_float_2(buy_vnd * qty),
@@ -795,11 +807,15 @@ with t3:
         st.markdown('</div>', unsafe_allow_html=True)
     
     if not st.session_state.quote_df.empty:
+        # --- FIX: ENSURE SELECT COLUMN EXISTS ---
+        if "Select" not in st.session_state.quote_df.columns:
+            st.session_state.quote_df.insert(0, "Select", False)
+
         # REAL-TIME CALCULATION BEFORE DISPLAY (Fixes Transportation lag)
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
 
-        # --- FIX: ĐỔI THỨ TỰ CỘT ĐỂ CỘT 'No' LÊN ĐẦU ---
-        cols_order = ["No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["No", "Cảnh báo"]]
+        # --- FIX: ĐỔI THỨ TỰ CỘT ĐỂ CỘT 'Select' -> 'No' LÊN ĐẦU ---
+        cols_order = ["Select", "No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["Select", "No", "Cảnh báo"]]
         st.session_state.quote_df = st.session_state.quote_df[cols_order]
 
         cols_to_hide = ["Image", "Profit_Pct_Raw"]
@@ -810,24 +826,37 @@ with t3:
         
         # Calculate sums for relevant columns
         cols_to_sum = ["Buying price(RMB)", "Total buying price(rmb)", "Buying price(VND)", 
-                       "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
-                       "Unit price(VND)", "Total price(VND)", "GAP", "End user(%)", "Buyer(%)", 
-                       "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
+                        "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
+                        "Unit price(VND)", "Total price(VND)", "GAP", "End user(%)", "Buyer(%)", 
+                        "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
         
-        total_row = {"No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
+        total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
+        
+        # Tính tổng số lượng
+        if "Q'ty" in df_display.columns:
+             total_row["Q'ty"] = df_display["Q'ty"].apply(to_float).sum()
+
         for c in cols_to_sum:
             if c in df_display.columns:
                 total_val = df_display[c].apply(to_float).sum()
                 total_row[c] = fmt_float_2(total_val)
         
+        # Recalculate Profit % for Total Row
+        t_profit = to_float(total_row.get("Profit(VND)", 0))
+        t_price = to_float(total_row.get("Total price(VND)", 0))
+        t_pct = (t_profit / t_price * 100) if t_price > 0 else 0
+        total_row["Profit(%)"] = f"{t_pct:.1f}%"
+        
         # Append Total Row to dataframe for display
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
+        # --- DATA EDITOR ---
         edited_df = st.data_editor(
             df_display,
             column_config={
-                "Buying price(RMB)": st.column_config.TextColumn("Buying(RMB)", disabled=True),
-                "Buying price(VND)": st.column_config.TextColumn("Buying(VND)", disabled=True),
+                "Select": st.column_config.CheckboxColumn("✅", width="small"),
+                "Buying price(RMB)": st.column_config.TextColumn("Buying(RMB)"),
+                "Buying price(VND)": st.column_config.TextColumn("Buying(VND)"),
                 "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
                 "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"),
             },
@@ -835,15 +864,65 @@ with t3:
             hide_index=True 
         )
         
-        # Sync edits back (Exclude Total Row)
+        # --- SYNC EDITS BACK (Exclude Total Row) ---
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
+        
+        # Check if data changed to trigger recalculation next run
         # Update main dataframe with edited values (mapped back)
+        data_changed = False
         for idx, row in df_data_only.iterrows():
              if idx < len(st.session_state.quote_df):
                  for c in df_data_only.columns:
                      if c in st.session_state.quote_df.columns:
-                         st.session_state.quote_df.at[idx, c] = row[c]
+                         old_val = st.session_state.quote_df.at[idx, c]
+                         new_val = row[c]
+                         # Basic check to avoid unnecessary updates if types differ but value same
+                         if str(old_val) != str(new_val):
+                             st.session_state.quote_df.at[idx, c] = new_val
+                             data_changed = True
         
+        if data_changed:
+            st.rerun()
+
+        # --- QUICK TOOLBAR LOGIC ---
+        # Get selected rows from the edited dataframe (excluding Total row if selected)
+        selected_rows = df_data_only[df_data_only["Select"] == True]
+        
+        if not selected_rows.empty:
+            st.info(f"Đang chọn {len(selected_rows)} dòng.")
+            tb_col1, tb_col2, tb_col3, tb_col4 = st.columns(4)
+            
+            with tb_col1:
+                if st.button("🗑️ DELETE"):
+                    # Get indices of selected rows
+                    indices_to_drop = selected_rows.index
+                    st.session_state.quote_df = st.session_state.quote_df.drop(indices_to_drop).reset_index(drop=True)
+                    # Re-assign No.
+                    st.session_state.quote_df["No"] = st.session_state.quote_df.index + 1
+                    st.rerun()
+            
+            with tb_col2:
+                # Download CSV of selected
+                csv = selected_rows.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="⬇️ DOWNLOAD",
+                    data=csv,
+                    file_name="selected_items.csv",
+                    mime="text/csv",
+                )
+
+            with tb_col3:
+                if st.button("⛶ FULL SCREEN"):
+                    st.toast("Chế độ toàn màn hình đã được kích hoạt (Giả lập)", icon="🖥️")
+            
+            with tb_col4:
+                if st.button("👁️ HIDE"):
+                     # Remove from view but maybe keep in backend? For now, simpler to just uncheck.
+                     # Or assume hide means remove selection
+                     for idx in selected_rows.index:
+                         st.session_state.quote_df.at[idx, "Select"] = False
+                     st.rerun()
+
         # --- VIEW TOTAL PRICE (FEATURE ADDED) ---
         total_q = st.session_state.quote_df["Total price(VND)"].apply(to_float).sum()
         st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ BÁO GIÁ (TOTAL VIEW): {fmt_float_2(total_q)} VND</div>', unsafe_allow_html=True)
@@ -878,7 +957,8 @@ with t3:
                             if not fh: st.error("Lỗi tải template!")
                             else:
                                 wb = load_workbook(fh); ws = wb.active
-                                start_row = 10
+                                # --- FIX: IMPORT TỪ DÒNG 11 (Start row = 11) ---
+                                start_row = 11
                                 first_leadtime = st.session_state.quote_df.iloc[0]['Leadtime'] if not st.session_state.quote_df.empty else ""
                                 ws['H8'] = safe_str(first_leadtime)
                                 for idx, row in st.session_state.quote_df.iterrows():
