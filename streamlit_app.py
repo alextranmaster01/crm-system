@@ -1,8 +1,8 @@
 # =============================================================================
-# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4808 - FINAL STABLE)
-# - FIXED: UPSERT CONFLICT ERROR
-# - FIXED: EXCEL STRICT MAPPING
-# - FIXED: IMAGE SIZE & DISPLAY
+# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4809 - FINAL STABLE)
+# - FIXED: ERROR 21000 (DUPLICATE ROWS IN EXCEL INPUT)
+# - FIXED: UPSERT LOGIC
+# - FIXED: IMAGE DISPLAY
 # =============================================================================
 
 import streamlit as st
@@ -173,7 +173,7 @@ with st.sidebar:
     st.title("CRM V4800 PRO")
     st.markdown("---")
     menu = st.radio("MENU", ["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "⚙️ MASTER DATA"])
-    st.markdown("---"); st.caption("Version: V4808 Stable")
+    st.markdown("---"); st.caption("Version: V4809 Stable")
 
 # --- DASHBOARD ---
 if menu == "📊 DASHBOARD":
@@ -181,12 +181,12 @@ if menu == "📊 DASHBOARD":
     try:
         q = be.supabase.table("crm_shared_history").select("total_profit_vnd").execute().data
         p = be.supabase.table("db_customer_orders").select("total_value").execute().data
-        prof = sum([x['total_profit_vnd'] for x in q])
-        sale = sum([x['total_value'] for x in p])
+        prof = sum([x['total_profit_vnd'] for x in q]) if q else 0
+        sale = sum([x['total_value'] for x in p]) if p else 0
         c1, c2, c3 = st.columns(3)
         c1.markdown(f'<div class="dashboard-card card-sales"><div class="card-title">DOANH SỐ</div><div class="card-value">{sale:,.0f}</div></div>', unsafe_allow_html=True)
         c2.markdown(f'<div class="dashboard-card card-profit"><div class="card-title">LỢI NHUẬN</div><div class="card-value">{prof:,.0f}</div></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="dashboard-card card-orders"><div class="card-title">ĐƠN HÀNG</div><div class="card-value">{len(p)}</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="dashboard-card card-orders"><div class="card-title">ĐƠN HÀNG</div><div class="card-value">{len(p) if p else 0}</div></div>', unsafe_allow_html=True)
     except: st.error("Lỗi kết nối")
 
 # --- KHO HÀNG (IMPORT & IMAGE) ---
@@ -198,7 +198,19 @@ elif menu == "📦 KHO HÀNG":
         if up and st.button("Import"):
             try:
                 df = pd.read_excel(up)
+                # Chuẩn hóa header
                 df.columns = [str(c).replace('\n',' ').strip() for c in df.columns]
+                
+                # --- FIX: LOẠI BỎ TRÙNG LẶP TRONG EXCEL TRƯỚC KHI UPSERT ---
+                # Tìm cột Specs
+                specs_col = next((c for c in df.columns if c.lower() == 'specs'), 'Specs')
+                if specs_col in df.columns:
+                    # Chuẩn hóa dữ liệu Specs (xóa khoảng trắng)
+                    df[specs_col] = df[specs_col].astype(str).str.strip()
+                    # Loại bỏ dòng trùng lặp trong chính file Excel (giữ dòng cuối)
+                    df = df.drop_duplicates(subset=[specs_col], keep='last')
+                # -------------------------------------------------------------
+
                 recs = []
                 for _, r in df.iterrows():
                     recs.append({
@@ -210,9 +222,10 @@ elif menu == "📦 KHO HÀNG":
                         "supplier": str(r.get("Supplier","")), "images": str(r.get("Images","")),
                         "type": str(r.get("Type","")), "nuoc": str(r.get("N/U/O/C",""))
                     })
+                
                 # UPSERT
                 batch = 500
-                valid = [x for x in recs if x['specs']]
+                valid = [x for x in recs if x['specs']] # Chỉ lấy dòng có specs
                 for i in range(0, len(valid), batch):
                     be.supabase.table("crm_purchases").upsert(valid[i:i+batch], on_conflict="specs").execute()
                 st.success(f"✅ Đã cập nhật {len(valid)} dòng!"); time.sleep(1); st.rerun()
