@@ -2,7 +2,7 @@
 # CRM SYSTEM - ULTIMATE HYBRID EDITION (V4810 - FINAL STABLE)
 # - FIXED: KEEP EXCEL COLUMN ORDER & NAMES
 # - FIXED: SORT BY 'NO' COLUMN
-# - FIXED: IMAGE DISPLAY & UPSERT
+# - FIXED: EXTRACT EMBEDDED IMAGES FROM EXCEL & UPLOAD TO DRIVE
 # =============================================================================
 
 import streamlit as st
@@ -26,8 +26,11 @@ try:
     from docx.enum.section import WD_ORIENT
     import xlsxwriter
     import plotly.express as px
+    # NEW FOR IMAGE EXTRACTION
+    from openpyxl import load_workbook
+    from PIL import Image as PilImage
 except ImportError:
-    st.error("⚠️ Cần cài đặt thư viện: pip install -r requirements.txt")
+    st.error("⚠️ Cần cài đặt thư viện: pip install -r requirements.txt (Thêm: openpyxl, pillow)")
     st.stop()
 
 # =============================================================================
@@ -92,16 +95,19 @@ class CRMBackend:
             return self.drive.files().create(body=meta, fields='id').execute().get('id')
         except: return None
 
-    def upload_img(self, file_obj, filename):
+    def upload_img(self, file_obj, filename, mime_type='image/jpeg'):
         if not self.drive: return None
         try:
             root_id = st.secrets["google_oauth"]["root_folder_id"]
             l1 = self.get_folder_id("PRODUCT_IMAGES", root_id)
-            media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type, resumable=True)
+            media = MediaIoBaseUpload(file_obj, mimetype=mime_type, resumable=True)
             meta = {'name': filename, 'parents': [l1]} 
-            file = self.drive.files().create(body=meta, media_body=media, fields='id').execute()
-            return f"https://drive.google.com/uc?export=view&id={file.get('id')}"
-        except: return None
+            file = self.drive.files().create(body=meta, media_body=media, fields='id, webViewLink, webContentLink').execute()
+            # Trả về link thumbnail để hiển thị được ngay
+            return f"https://drive.google.com/thumbnail?id={file.get('id')}&sz=w1000"
+        except Exception as e: 
+            print(f"Upload Error: {e}")
+            return None
 
     def upload_recursive(self, file_obj, filename, root_type, year, entity, month):
         if not self.drive: return None, "Lỗi kết nối"
@@ -173,7 +179,7 @@ with st.sidebar:
     st.title("CRM V4810 PRO")
     st.markdown("---")
     menu = st.radio("MENU", ["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "⚙️ MASTER DATA"])
-    st.markdown("---"); st.caption("Version: V4810 Stable")
+    st.markdown("---"); st.caption("Version: V4810 Hybrid")
 
 # --- DASHBOARD ---
 if menu == "📊 DASHBOARD":
@@ -214,21 +220,93 @@ elif menu == "📦 KHO HÀNG":
         "images": "Images", "type": "Type", "nuoc": "N/U/O/C"
     }
 
-    with st.expander("📥 IMPORT TỪ EXCEL (GHI ĐÈ)", expanded=False):
+    with st.expander("📥 IMPORT TỪ EXCEL (GHI ĐÈ & TỰ ĐỘNG UPLOAD ẢNH)", expanded=False):
+        st.info("💡 Lưu ý: Cột M (Images) là cột thứ 13 (A=1...M=13). Hệ thống sẽ quét ảnh ở cột này.")
+        extract_images = st.checkbox("🔍 Trích xuất ảnh dán trong Excel và Upload lên Drive (Chậm hơn)", value=True)
         up = st.file_uploader("Upload Excel", type=['xlsx'])
-        if up and st.button("Import"):
+        
+        if up and st.button("Import & Xử lý Ảnh"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
             try:
+                # A. XỬ LÝ ẢNH NHÚNG (EMBEDDED) BẰNG OPENPYXL
+                image_map = {} # Mapping Row Index -> Drive Link
+                if extract_images:
+                    status_text.text("⏳ Đang quét ảnh trong file Excel...")
+                    wb = load_workbook(up, data_only=True)
+                    ws = wb.active
+                    
+                    # Tìm ảnh neo ở cột M (Index ~ 12 trong 0-based hoặc kiểm tra col)
+                    # OpenPyXL 0-indexed: A=0, B=1 ... M=12. 
+                    total_imgs = len(ws._images)
+                    processed_imgs = 0
+                    
+                    for image in ws._images:
+                        # Lấy vị trí neo (Anchor)
+                        try:
+                            # Tùy phiên bản openpyxl, anchor có thể khác nhau. Thường là _from
+                            row = image.anchor._from.row # 0-indexed header=0, data start=1
+                            col = image.anchor._from.col # M = 12
+                            
+                            if col == 12: # Chỉ lấy ảnh cột M
+                                processed_imgs += 1
+                                status_text.text(f"📤 Đang upload ảnh dòng {row+1} lên Google Drive...")
+                                
+                                # Convert ảnh sang Bytes
+                                img_bytes = io.BytesIO()
+                                # image.ref là BytesIO hoặc image._data
+                                try:
+                                    pil_img = PilImage.open(image.ref).convert('RGB')
+                                    pil_img.save(img_bytes, format='JPEG')
+                                except:
+                                    # Fallback cho các loại ảnh khác
+                                    img_bytes.write(image._data())
+                                
+                                img_bytes.seek(0)
+                                fname = f"IMG_ROW_{row+1}_{int(time.time())}.jpg"
+                                
+                                # Upload lên Drive
+                                link = be.upload_img(img_bytes, fname)
+                                if link:
+                                    image_map[row] = link # Map row index (openpyxl) to link
+                        except Exception as e:
+                            print(f"Skip image: {e}")
+                    
+                    status_text.text(f"✅ Đã upload {len(image_map)} ảnh lên Drive.")
+
+                # B. ĐỌC DỮ LIỆU BẰNG PANDAS
+                up.seek(0) # Reset con trỏ file
                 df_imp = pd.read_excel(up)
-                # Chuẩn hóa tên cột
                 df_imp.columns = [str(c).replace('\n',' ').strip() for c in df_imp.columns]
                 
-                # Loại bỏ trùng lặp trong file Excel
+                # Loại bỏ trùng lặp Specs
                 if 'Specs' in df_imp.columns:
                     df_imp['Specs'] = df_imp['Specs'].astype(str).str.strip()
                     df_imp = df_imp.drop_duplicates(subset=['Specs'], keep='last')
 
                 recs = []
-                for _, r in df_imp.iterrows():
+                # Pandas index bắt đầu từ 0. Header là dòng 0 của file (tương ứng row 1 openpyxl).
+                # Dữ liệu bắt đầu từ dòng index 0 (tương ứng row 1 header, row 2 data trong Excel).
+                # OpenPyXL: Header row = 0. Data row start = 1.
+                # Pandas Index i corresponds to OpenPyXL row i + 1.
+                
+                total_rows = len(df_imp)
+                for idx, r in df_imp.iterrows():
+                    # Logic lấy link ảnh:
+                    # 1. Ưu tiên ảnh vừa upload từ Excel (image_map)
+                    # 2. Nếu không có, lấy text từ cột Images (nếu là link)
+                    
+                    img_link = ""
+                    # Check Map (Pandas idx = Openpyxl row - 1. So Openpyxl row = idx + 1)
+                    if (idx + 1) in image_map:
+                        img_link = image_map[idx + 1]
+                    else:
+                        # Clean text link
+                        raw_link = str(r.get("Images", "")).replace("nan", "").strip()
+                        if len(raw_link) > 5: # Có dữ liệu text
+                            img_link = raw_link
+
                     recs.append({
                         "no": r.get("No"), 
                         "item_code": str(r.get("Item code","")), 
@@ -242,17 +320,28 @@ elif menu == "📦 KHO HÀNG":
                         "total_buying_price_vnd": r.get("Total buying price (VND)"), 
                         "leadtime": str(r.get("Leadtime","")),
                         "supplier": str(r.get("Supplier","")), 
-                        "images": str(r.get("Images","")),
+                        "images": img_link, # LINK ĐÃ XỬ LÝ
                         "type": str(r.get("Type","")), 
                         "nuoc": str(r.get("N/U/O/C",""))
                     })
-                
+                    if idx % 50 == 0:
+                        progress_bar.progress((idx / total_rows))
+
+                # Upsert Database
                 batch = 500
                 valid = [x for x in recs if x['specs']]
+                status_text.text("💾 Đang lưu vào Database...")
                 for i in range(0, len(valid), batch):
                     be.supabase.table("crm_purchases").upsert(valid[i:i+batch], on_conflict="specs").execute()
-                st.success(f"✅ Đã cập nhật {len(valid)} dòng chuẩn Excel!"); time.sleep(1); st.rerun()
-            except Exception as e: st.error(f"Lỗi: {e}")
+                
+                progress_bar.progress(100)
+                st.success(f"✅ Đã Import {len(valid)} dòng & Upload {len(image_map)} ảnh mới!")
+                time.sleep(2)
+                st.rerun()
+                
+            except Exception as e: 
+                st.error(f"Lỗi Import: {e}")
+                st.write(e)
 
     # --- HIỂN THỊ ---
     search = st.text_input("🔍 Tìm kiếm...", placeholder="Nhập mã hàng...")
@@ -260,7 +349,7 @@ elif menu == "📦 KHO HÀNG":
     df = pd.DataFrame(res.data)
     
     if not df.empty:
-        # Sắp xếp theo cột No (chuyển sang số)
+        # Sắp xếp theo cột No
         if 'no' in df.columns:
             df['no_numeric'] = pd.to_numeric(df['no'], errors='coerce')
             df = df.sort_values('no_numeric').reset_index(drop=True)
@@ -280,28 +369,36 @@ elif menu == "📦 KHO HÀNG":
             event = st.dataframe(view_df, use_container_width=True, height=600, selection_mode="single-row", on_select="rerun", hide_index=True)
         
         with c2:
-            st.markdown("### 🖼️ ẢNH SẢN PHẨM")
+            st.markdown("### 🖼️ CHI TIẾT SẢN PHẨM")
             if event.selection.rows:
                 idx = event.selection.rows[0]
-                # Truy ngược về df gốc để lấy link ảnh & id
                 row = df.iloc[idx]
                 st.info(f"Mã: **{row.get('specs', 'N/A')}**")
                 
-                img_url = row.get('images')
-                if img_url and str(img_url).startswith("http"):
-                    st.image(img_url, width=300)
-                else:
+                img_url = str(row.get('images', '')).strip()
+                
+                # Logic hiển thị ảnh linh hoạt hơn
+                has_image = False
+                if img_url and img_url.lower() != 'nan' and len(img_url) > 10:
+                    try:
+                        st.image(img_url, width=300, caption="Ảnh hiện tại")
+                        has_image = True
+                    except:
+                        st.warning("⚠️ Link ảnh hỏng hoặc không quyền truy cập")
+                
+                if not has_image:
                     st.markdown('<div class="img-box">🚫 Không có ảnh</div>', unsafe_allow_html=True)
                 
-                new_img = st.file_uploader("Cập nhật ảnh", type=['jpg','png'])
-                if new_img and st.button("Lưu ảnh"):
+                st.markdown("---")
+                new_img = st.file_uploader("📤 Cập nhật ảnh thủ công", type=['jpg','png', 'jpeg'])
+                if new_img and st.button("Lưu ảnh mới"):
                     fname = f"{re.sub(r'[^a-zA-Z0-9]', '', str(row.get('specs','')))}_{int(time.time())}.jpg"
                     link = be.upload_img(new_img, fname)
                     if link:
                         be.supabase.table("crm_purchases").update({"images": link}).eq("id", row['id']).execute()
                         st.success("Đã lưu!"); time.sleep(1); st.rerun()
             else:
-                st.info("👈 Chọn dòng để xem ảnh")
+                st.info("👈 Chọn 1 dòng bên trái để xem ảnh & chỉnh sửa")
     else: st.info("Chưa có dữ liệu.")
 
 # --- BÁO GIÁ ---
@@ -391,4 +488,4 @@ elif menu == "🚚 TRACKING":
 
 # --- MASTER ---
 elif menu == "⚙️ MASTER DATA":
-    st.info("Dùng Tab KHO HÀNG để import giá.")
+    st.info("Dùng Tab KHO HÀNG để import giá & hình ảnh.")
