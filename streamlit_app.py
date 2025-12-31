@@ -3,7 +3,6 @@ import pandas as pd
 import io
 import time
 import re
-from datetime import datetime
 from openpyxl import load_workbook
 from PIL import Image as PilImage
 
@@ -33,10 +32,18 @@ st.markdown("""
 
 def safe_str(val): return str(val).strip() if val is not None and str(val) != 'nan' else ""
 def safe_filename(s): return re.sub(r"[\\/:*?\"<>|]+", "_", safe_str(s))
+
 def to_float(val):
-    try: return float(str(val).replace(",", "").replace("%", "").strip())
-    except: return 0.0
+    """Chuyển đổi chuỗi có dấu phẩy thành số thực (Float) để lưu DB"""
+    try: 
+        # Xóa dấu phẩy, % và khoảng trắng trước khi ép kiểu
+        clean_val = str(val).replace(",", "").replace("%", "").strip()
+        return float(clean_val) if clean_val else 0.0
+    except: 
+        return 0.0
+
 def fmt_num(x):
+    """Format số thành chuỗi có dấu phẩy (Chỉ dùng để hiển thị UI)"""
     try: return "{:,.0f}".format(float(x))
     except: return "0"
 
@@ -92,10 +99,6 @@ class CRMBackend:
             return pd.DataFrame(res.data)
         except: return pd.DataFrame()
 
-    def save_data(self, table, df):
-        # Hàm save data cho edit trực tiếp (logic cũ)
-        pass 
-
 be = CRMBackend()
 
 # =============================================================================
@@ -108,7 +111,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Tổng quan", "💰 Báo gi�
 with tab1:
     st.subheader("DASHBOARD")
     if st.button("🔄 CẬP NHẬT DATA", type="primary"): st.rerun()
-    # (Có thể thêm các card thống kê ở đây nếu cần)
 
 # TAB 2: DATABASE GIÁ NCC (UPDATED LOGIC)
 with tab2:
@@ -116,7 +118,6 @@ with tab2:
     
     col_tool, col_search = st.columns([1, 1])
     with col_tool:
-        # LOGIC IMPORT MỚI: QUÉT ẢNH EMBEDDED + GHI ĐÈ
         uploaded_file = st.file_uploader("📥 Import Excel (Tự động tách ảnh & Upload)", type=['xlsx'], key="uploader_pur")
         
         if uploaded_file and st.button("🚀 BẮT ĐẦU IMPORT", type="primary"):
@@ -130,14 +131,11 @@ with tab2:
                 
                 image_map = {} # Mapping: Row Index -> Drive Link
                 
-                # Quét tất cả ảnh trong sheet
                 if hasattr(ws, '_images'):
                     for image in ws._images:
                         try:
-                            # Lấy tọa độ hàng (0-indexed)
                             row = image.anchor._from.row
                             col = image.anchor._from.col
-                            
                             # Chỉ lấy ảnh ở cột M (Cột 12 - 0-indexed)
                             if col == 12: 
                                 img_bytes = io.BytesIO()
@@ -148,15 +146,11 @@ with tab2:
                                     img_bytes.write(image._data())
                                 
                                 img_bytes.seek(0)
-                                # Tạo tên file unique
                                 fname = f"IMG_ROW_{row+1}_{int(time.time())}.jpg"
-                                
-                                # Upload lên Drive ngay lập tức
                                 link = be.upload_img(img_bytes, fname)
-                                if link:
-                                    image_map[row] = link # Lưu link vào map theo row index
+                                if link: image_map[row] = link 
                         except Exception as e:
-                            print(f"Lỗi ảnh tại row {row}: {e}")
+                            print(f"Lỗi ảnh: {e}")
 
                 status_box.write(f"✅ Đã tách và upload {len(image_map)} ảnh thành công!")
 
@@ -164,8 +158,6 @@ with tab2:
                 status_box.write("📖 Đang đọc dữ liệu văn bản...")
                 uploaded_file.seek(0)
                 df_raw = pd.read_excel(uploaded_file, header=0, dtype=str).fillna("")
-                
-                # Chuẩn hóa tên cột để tránh lỗi
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
                 data_clean = []
@@ -175,45 +167,42 @@ with tab2:
                 for i, (idx, row) in enumerate(df_raw.iterrows()):
                     prog_bar.progress(min((i + 1) / total, 1.0))
                     
-                    # Logic Mapping cột Excel -> Database
-                    # Giả định cột theo thứ tự file mẫu của bạn
-                    code = safe_str(row.get('Item code') or row.iloc[1]) # Cột B
-                    specs = safe_str(row.get('Specs') or row.iloc[3])    # Cột D
+                    code = safe_str(row.get('Item code') or row.iloc[1]) 
+                    specs = safe_str(row.get('Specs') or row.iloc[3])    
                     
-                    if not specs: continue # Bắt buộc phải có specs để làm khóa chính
+                    if not specs: continue 
 
-                    # Xử lý Link ảnh: Ưu tiên ảnh vừa tách -> Link trong Excel -> Rỗng
                     final_link = ""
-                    # Pandas index idx tương ứng với Openpyxl row idx + 1 (header)
                     if (idx + 1) in image_map:
                         final_link = image_map[idx + 1]
                     else:
                         old_link = safe_str(row.get('Images') or row.iloc[12])
                         if "http" in old_link: final_link = old_link
 
+                    # --- QUAN TRỌNG: SỬA LỖI FORMAT SỐ ---
+                    # Sử dụng to_float() để lấy số thực, KHÔNG dùng fmt_num()
                     item = {
                         "no": safe_str(row.iloc[0]), 
                         "item_code": code, 
                         "item_name": safe_str(row.iloc[2]), 
                         "specs": specs, 
-                        "qty": fmt_num(to_float(row.iloc[4])), 
-                        "buying_price_rmb": fmt_num(to_float(row.iloc[5])), 
-                        "total_buying_price_rmb": fmt_num(to_float(row.iloc[6])), 
-                        "exchange_rate": fmt_num(to_float(row.iloc[7])), 
-                        "buying_price_vnd": fmt_num(to_float(row.iloc[8])), 
-                        "total_buying_price_vnd": fmt_num(to_float(row.iloc[9])), 
+                        "qty": to_float(row.iloc[4]), 
+                        "buying_price_rmb": to_float(row.iloc[5]), 
+                        "total_buying_price_rmb": to_float(row.iloc[6]), 
+                        "exchange_rate": to_float(row.iloc[7]), 
+                        "buying_price_vnd": to_float(row.iloc[8]), 
+                        "total_buying_price_vnd": to_float(row.iloc[9]), 
                         "leadtime": safe_str(row.iloc[10]), 
-                        "supplier": safe_str(row.iloc[11]), # Lưu ý tên cột trong DB là 'supplier'
-                        "images": final_link, # Tên cột trong DB là 'images'
+                        "supplier": safe_str(row.iloc[11]), 
+                        "images": final_link, 
                         "type": safe_str(row.iloc[13]) if len(row) > 13 else "",
                         "nuoc": safe_str(row.iloc[14]) if len(row) > 14 else ""
                     }
                     data_clean.append(item)
                 
-                # 3. UPSERT VÀO SUPABASE (GHI ĐÈ DỰA TRÊN 'SPECS')
+                # 3. UPSERT VÀO SUPABASE
                 if data_clean:
                     status_box.write("💾 Đang lưu vào Database...")
-                    # Chia nhỏ batch để gửi tránh lỗi request quá lớn
                     batch_size = 100
                     for k in range(0, len(data_clean), batch_size):
                         batch = data_clean[k:k+batch_size]
@@ -226,18 +215,13 @@ with tab2:
                 status_box.update(label="❌ Có lỗi xảy ra", state="error")
                 st.error(f"Chi tiết lỗi: {e}")
 
-    # --- GIAO DIỆN HIỂN THỊ (ĐÃ TỐI ƯU KÍCH THƯỚC ẢNH) ---
-    # Thay đổi tỷ lệ cột: 8.5 phần Bảng - 1.5 phần Ảnh (Giảm kích thước cột ảnh)
+    # --- GIAO DIỆN HIỂN THỊ ---
     col_table, col_gallery = st.columns([8.5, 1.5])
-    
-    # Load data từ DB (bảng crm_purchases)
     df_pur = be.load_data("purchases")
     
-    # Xử lý hiển thị bảng
     with col_table:
-        search = st.text_input("🔍 Tìm kiếm (Mã/Tên/Thông số)...", key="search_pur")
+        search = st.text_input("🔍 Tìm kiếm...", key="search_pur")
         
-        # Sắp xếp theo cột No (chuyển về số để sort đúng)
         if not df_pur.empty and 'no' in df_pur.columns:
             df_pur['no_num'] = pd.to_numeric(df_pur['no'], errors='coerce')
             df_pur = df_pur.sort_values('no_num')
@@ -245,26 +229,25 @@ with tab2:
         if search and not df_pur.empty:
             df_pur = df_pur[df_pur.apply(lambda x: x.astype(str).str.contains(search, case=False, na=False)).any(axis=1)]
 
-        # Config cột cho đẹp
+        # Config hiển thị cột (Format số có dấu phẩy TẠI ĐÂY)
         cfg = {
             "images": st.column_config.LinkColumn("Link Ảnh"),
+            "buying_price_vnd": st.column_config.NumberColumn("Giá VND", format="%d"),
             "total_buying_price_vnd": st.column_config.NumberColumn("Tổng Tiền", format="%d"),
-            "id": None, "created_at": None, "no_num": None # Ẩn cột kỹ thuật
+            "exchange_rate": st.column_config.NumberColumn("Tỷ giá", format="%d"),
+            "id": None, "created_at": None, "no_num": None
         }
-        # Thứ tự cột hiển thị
         order = ["no", "item_code", "item_name", "specs", "qty", "buying_price_rmb", "exchange_rate", "buying_price_vnd", "leadtime", "supplier"]
         
-        # Bảng dữ liệu chính
         event = st.dataframe(
             df_pur, column_config=cfg, column_order=order, 
             use_container_width=True, height=600, 
             selection_mode="single-row", on_select="rerun", hide_index=True
         )
 
-    # --- KHUNG XEM ẢNH MINI (GIẢM 70% KÍCH THƯỚC) ---
+    # --- KHUNG XEM ẢNH MINI (REDUCED SIZE) ---
     with col_gallery:
-        st.caption("📷 PREVIEW") # Dùng caption cho nhỏ
-        
+        st.caption("📷 PREVIEW")
         selected_row = None
         if event.selection.rows:
             idx = event.selection.rows[0]
@@ -274,30 +257,31 @@ with tab2:
             img_link = selected_row.get("images", "")
             item_code = selected_row.get("item_code", "N/A")
             
-            # Hiển thị ảnh với width nhỏ (130px) -> Giảm khoảng 70% so với full width cũ
             if img_link and "http" in str(img_link):
+                # Width 130px theo yêu cầu giảm kích thước
                 st.image(img_link, caption=item_code, width=130) 
             else:
                 st.info("No Img")
                 
             st.markdown("---")
-            # Hiển thị thông tin tóm tắt dạng nhỏ
             st.markdown(f"<div style='font-size:12px'><b>Specs:</b> {selected_row.get('specs','')}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size:12px; color:blue'><b>Giá:</b> {fmt_num(selected_row.get('buying_price_vnd',0))}</div>", unsafe_allow_html=True)
+            # Hiển thị giá có format dấu phẩy
+            price_display = fmt_num(selected_row.get('buying_price_vnd', 0))
+            st.markdown(f"<div style='font-size:12px; color:blue'><b>Giá:</b> {price_display}</div>", unsafe_allow_html=True)
         else:
             st.markdown("<div style='font-size:11px; color:grey'>Chọn 1 dòng để xem</div>", unsafe_allow_html=True)
 
 # TAB 3: BÁO GIÁ KH
 with tab3:
-    st.info("Chức năng Báo giá KH (Giữ nguyên logic cũ hoặc phát triển thêm)")
+    st.info("Chức năng Báo giá KH")
 
 # TAB 4: ĐƠN HÀNG
 with tab4:
-    st.info("Chức năng Đơn hàng (Giữ nguyên logic cũ)")
+    st.info("Chức năng Đơn hàng")
 
 # TAB 5: TRACKING
 with tab5:
-    st.info("Chức năng Tracking (Giữ nguyên logic cũ)")
+    st.info("Chức năng Tracking")
 
 # TAB 6: MASTER DATA
 with tab6:
