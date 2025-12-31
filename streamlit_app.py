@@ -1,6 +1,8 @@
 # =============================================================================
-# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4806 - FIXED ORDER ERROR)
-# DATA SOURCE: BUYING PRICE-ALL-OK.xlsx (Strict Mapping)
+# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4807 - FIXED IMAGES & UPSERT)
+# 1. FIXED IMAGE DISPLAY & SIZE (300px)
+# 2. FIXED DRIVE UPLOAD
+# 3. ENABLED DATA OVERWRITE (UPSERT MODE)
 # =============================================================================
 
 import streamlit as st
@@ -61,10 +63,19 @@ st.markdown("""
     .card-orders { background: linear-gradient(45deg, #8E2DE2, #4A00E0); }
     .card-value { font-size: 32px; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
     .card-title { font-size: 16px; font-weight: 600; opacity: 0.9; text-transform: uppercase; }
-    .img-preview-box {
-        border: 2px dashed #4b6cb7; border-radius: 10px; padding: 10px; text-align: center;
-        background-color: white; min-height: 200px; display: flex; align-items: center; justify-content: center;
+    
+    /* Image Preview Box - Fixed Size */
+    .img-preview-container {
+        border: 2px solid #ddd;
+        border-radius: 10px;
+        padding: 5px;
+        background: white;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 200px;
     }
+    
     [data-testid="stDataFrame"] { border: 2px solid #000851; border-radius: 8px; }
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
@@ -78,7 +89,7 @@ st.markdown("""
 if 'quote_data' not in st.session_state: st.session_state['quote_data'] = None
 
 # =============================================================================
-# 2. CORE BACKEND (STRICT MAPPING LOGIC)
+# 2. CORE BACKEND
 # =============================================================================
 
 class CRMBackend:
@@ -102,7 +113,7 @@ class CRMBackend:
         except Exception as e:
             st.error(f"❌ Lỗi Google Drive: {e}"); return None
 
-    # --- GOOGLE DRIVE ---
+    # --- GOOGLE DRIVE HELPER ---
     def get_folder_id(self, name, parent_id):
         try:
             q = f"name='{name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -112,17 +123,27 @@ class CRMBackend:
             return self.drive_service.files().create(body=meta, fields='id').execute().get('id')
         except: return None
 
+    # --- UPLOAD ẢNH & LẤY LINK TRỰC TIẾP ---
     def upload_image_to_drive(self, file_obj, filename):
-        if not self.drive_service: return None
+        if not self.drive_service: 
+            st.error("Chưa kết nối được Google Drive!"); return None
         try:
             root_id = st.secrets["google_oauth"]["root_folder_id"]
+            # Tạo folder PRODUCT_IMAGES nếu chưa có
             l1 = self.get_folder_id("PRODUCT_IMAGES", root_id)
+            
             media = MediaIoBaseUpload(file_obj, mimetype=file_obj.type, resumable=True)
             meta = {'name': filename, 'parents': [l1]} 
+            
+            # Thực hiện Upload
             file = self.drive_service.files().create(body=meta, media_body=media, fields='id, webViewLink').execute()
             file_id = file.get('id')
+            
+            # Trả về link Thumbnail để hiển thị được trong Streamlit
+            # Link view thường bị chặn, link này ổn định hơn cho thẻ <img>
             return f"https://drive.google.com/uc?export=view&id={file_id}"
-        except Exception as e: st.error(f"Upload lỗi: {e}"); return None
+        except Exception as e: 
+            st.error(f"Lỗi Upload Drive: {e}"); return None
 
     def upload_recursive(self, file_obj, filename, root_type, year, entity, month):
         if not self.drive_service: return None, "Mất kết nối Drive"
@@ -139,27 +160,23 @@ class CRMBackend:
             return f.get('webViewLink'), f"{root_type}/{year}/{clean_entity}/{month}/{filename}"
         except Exception as e: return None, str(e)
 
-    # --- LOGIC TÍNH TOÁN V4800 (Dùng cột từ DB Mới) ---
+    # --- LOGIC TÍNH TOÁN V4800 ---
     def calculate_profit_v4800(self, row):
         try:
             qty = float(row.get("Q'ty", 0))
-            # Mapping cột Buying Price từ DB (snake_case)
             buy_rmb = float(row.get('Buying Price (RMB)', 0) if pd.notnull(row.get('Buying Price (RMB)')) else row.get('buying_price_rmb', 0))
             rate = float(row.get('Exchange Rate', 3600) if pd.notnull(row.get('Exchange Rate')) else row.get('exchange_rate', 3600))
             
             buy_vnd = buy_rmb * rate
             total_buy = buy_vnd * qty
-            
             user_ap = float(row.get('AP Price (VND)', 0))
             ap_total = user_ap * qty if user_ap > 0 else total_buy * 2
-            
             gap = 0.10 * ap_total
             total_price = ap_total + gap
             unit_price = total_price / qty if qty > 0 else 0
             
             costs = (total_buy + gap + (0.10 * ap_total) + (0.05 * total_price) + 
                      (0.10 * total_buy) + (0.10 * total_price) + (0.10 * total_price) + 30000)
-            
             payback = 0.40 * gap
             profit = total_price - costs + payback
             pct = (profit / total_price * 100) if total_price > 0 else 0
@@ -212,7 +229,7 @@ with st.sidebar:
         "⚙️ MASTER DATA"
     ])
     st.markdown("---")
-    st.caption("Phiên bản: V4806 - Order Fixed")
+    st.caption("Phiên bản: V4807 - Fixed Img & Overwrite")
 
 # -----------------------------------------------------------------------------
 # TAB 1: DASHBOARD
@@ -232,24 +249,23 @@ if menu == "📊 DASHBOARD":
     except: st.error("Lỗi kết nối Dashboard")
 
 # -----------------------------------------------------------------------------
-# TAB 2: KHO HÀNG (MAPPING TUYỆT ĐỐI THEO EXCEL)
+# TAB 2: KHO HÀNG (IMAGES FIXED - SIZE REDUCED - OVERWRITE ENABLED)
 # -----------------------------------------------------------------------------
 elif menu == "📦 KHO HÀNG (IMAGES)":
-    st.markdown("## 📦 KHO HÀNG (EXCEL MAPPING)")
+    st.markdown("## 📦 KHO HÀNG & HÌNH ẢNH")
     
-    # --- IMPORT TUYỆT ĐỐI THEO CỘT EXCEL ---
-    with st.expander("📥 IMPORT DỮ LIỆU TỪ EXCEL (CẤU TRÚC CHUẨN)", expanded=False):
-        st.info("Yêu cầu file Excel có đúng các cột như file mẫu (No, Item code, Specs, Images...)")
+    # --- MODULE IMPORT EXCEL (GHI ĐÈ / OVERWRITE) ---
+    with st.expander("📥 IMPORT DỮ LIỆU TỪ EXCEL (GHI ĐÈ)", expanded=False):
+        st.info("⚠️ Chế độ GHI ĐÈ: Nếu Mã Specs đã tồn tại, hệ thống sẽ cập nhật thông tin mới nhất.")
         up_inv = st.file_uploader("Upload Excel", type=['xlsx'], key="inv_import")
         if up_inv and st.button("Bắt đầu Import"):
             try:
                 df_inv = pd.read_excel(up_inv)
-                # Chuẩn hóa tên cột để tránh lỗi xuống dòng
                 df_inv.columns = [str(c).replace('\n', ' ').strip() for c in df_inv.columns]
                 
                 records = []
                 for _, row in df_inv.iterrows():
-                    # MAPPING TUYỆT ĐỐI: Lấy đúng tên cột từ file Excel -> DB
+                    # Mapping tuyệt đối
                     records.append({
                         "no": row.get("No"),
                         "item_code": str(row.get("Item code", "")),
@@ -262,28 +278,29 @@ elif menu == "📦 KHO HÀNG (IMAGES)":
                         "buying_price_vnd": row.get("Buying price (VND)"),
                         "total_buying_price_vnd": row.get("Total buying price (VND)"),
                         "leadtime": str(row.get("Leadtime", "")),
-                        "supplier": str(row.get("Supplier", "")), # Đổi tên cột trong DB thành 'supplier' cho khớp
-                        "images": str(row.get("Images", "")),     # Map cột Images của Excel
+                        "supplier": str(row.get("Supplier", "")),
+                        "images": str(row.get("Images", "")),
                         "type": str(row.get("Type", "")),
                         "nuoc": str(row.get("N/U/O/C", ""))
                     })
                 
-                # Làm sạch data (bỏ dòng trống) & Insert
                 valid_records = [r for r in records if r["specs"]]
                 if valid_records:
                     batch_size = 500
                     for i in range(0, len(valid_records), batch_size):
-                        backend.supabase.table("crm_purchases").insert(valid_records[i:i+batch_size]).execute()
-                    st.success(f"✅ Đã import {len(valid_records)} dòng theo đúng cấu trúc!")
+                        # UPSERT: Ghi đè dựa trên cột 'specs'
+                        # Yêu cầu: Database phải set UNIQUE cho cột specs
+                        backend.supabase.table("crm_purchases").upsert(valid_records[i:i+batch_size], on_conflict="specs").execute()
+                    st.success(f"✅ Đã cập nhật/thêm mới {len(valid_records)} dòng!")
                     time.sleep(1); st.rerun()
-                else: st.warning("File không có dữ liệu Specs hợp lệ.")
+                else: st.warning("File lỗi.")
             except Exception as e: st.error(f"Lỗi Import: {e}")
 
-    # --- HIỂN THỊ DỮ LIỆU (THEO THỨ TỰ EXCEL) ---
+    # --- HIỂN THỊ & XEM ẢNH ---
     col_search, col_upload = st.columns([3, 1])
     search = col_search.text_input("🔍 Tìm kiếm...", placeholder="Nhập mã hàng...")
     
-    # FIXED ERROR HERE: use desc=False instead of nulls_first
+    # Lấy data, sắp xếp theo No
     res = backend.supabase.table("crm_purchases").select("*").order("no", desc=False).execute()
     df = pd.DataFrame(res.data)
     
@@ -292,15 +309,14 @@ elif menu == "📦 KHO HÀNG (IMAGES)":
             mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
             df = df[mask]
 
-        # SẮP XẾP CỘT HIỂN THỊ TUYỆT ĐỐI THEO EXCEL
+        # Cấu hình cột hiển thị
         display_cols = ["no", "item_code", "item_name", "specs", "qty", "buying_price_rmb", "total_buying_price_rmb", 
                         "exchange_rate", "buying_price_vnd", "total_buying_price_vnd", 
                         "leadtime", "supplier", "images", "type", "nuoc"]
-        
-        # Chỉ lấy các cột có trong data
         final_cols = [c for c in display_cols if c in df.columns]
         df_display = df[final_cols]
 
+        # Layout: Bảng (70%) - Ảnh (30%)
         c_table, c_preview = st.columns([7, 3])
         with c_table:
             event = st.dataframe(
@@ -320,34 +336,41 @@ elif menu == "📦 KHO HÀNG (IMAGES)":
         with c_preview:
             st.markdown("### 🖼️ ẢNH SẢN PHẨM")
             selected_rows = event.selection.rows
+            
             if selected_rows:
                 idx = selected_rows[0]
-                row_data = df.iloc[idx] # Dùng df gốc để lấy ID
+                row_data = df.iloc[idx] # Lấy từ df gốc để có ID chính xác
                 
                 item_code = row_data.get('specs', 'N/A')
-                # Lấy ảnh từ cột 'images' (đã map từ Excel)
                 current_img = row_data.get('images', None)
                 record_id = row_data.get('id')
                 
                 st.info(f"Mã: **{item_code}**")
                 
-                if current_img and "http" in str(current_img):
-                    st.image(current_img, caption=item_code, use_column_width=True)
+                # HIỂN THỊ ẢNH (FIXED SIZE & LINK CHECK)
+                # Giảm kích thước xuống 70% so với trước -> set width=300px
+                if current_img and str(current_img).startswith("http"):
+                    st.image(current_img, caption=item_code, width=300)
                 else:
-                    st.markdown("""<div class="img-preview-box">📵 Không có ảnh</div>""", unsafe_allow_html=True)
+                    st.warning("Chưa có ảnh hoặc link lỗi.")
                 
                 st.divider()
-                st.write("Cập nhật ảnh:")
+                st.write("📤 **Cập nhật ảnh mới:**")
                 uploaded_img = st.file_uploader("", type=['jpg', 'png'], key="img_up")
-                if uploaded_img and st.button("Lưu Ảnh"):
-                    with st.spinner("Đang xử lý..."):
-                        new_link = backend.upload_image_to_drive(uploaded_img, f"{item_code}_{int(time.time())}.jpg")
-                        if new_link:
-                            # Update vào cột 'images'
-                            backend.supabase.table("crm_purchases").update({"images": new_link}).eq("id", record_id).execute()
-                            st.success("Xong!")
-                            time.sleep(1); st.rerun()
-            else: st.info("👈 Chọn 1 dòng để xem ảnh")
+                
+                if uploaded_img:
+                    if st.button("Lưu lên Drive"):
+                        with st.spinner("Đang upload và lấy link..."):
+                            # Upload và lấy link trực tiếp
+                            new_link = backend.upload_image_to_drive(uploaded_img, f"{item_code}_{int(time.time())}.jpg")
+                            
+                            if new_link:
+                                # Update Database
+                                backend.supabase.table("crm_purchases").update({"images": new_link}).eq("id", record_id).execute()
+                                st.success("Thành công! Ảnh đã lưu.")
+                                time.sleep(1); st.rerun()
+            else:
+                st.info("👈 Chọn 1 dòng bên trái để xem ảnh")
     else: st.info("Chưa có dữ liệu.")
 
 # -----------------------------------------------------------------------------
