@@ -1195,7 +1195,7 @@ with t5:
 with t6:
     tc, ts, tt = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE"])
     with tc:
-        df = load_data("crm_customers"); st.data_editor(df, num_rows="dynamic", use_container_width=True)
+        df = load_data("crm_customers"); st.data_editor(df, num_rows="dynamic", use_container_width=True, key="editor_customers")
         up = st.file_uploader("Import KH", key="uck")
         if up and st.button("Import KH"):
             d = pd.read_excel(up, dtype=str).fillna("")
@@ -1203,7 +1203,7 @@ with t6:
             for i,r in d.iterrows(): recs.append({"short_name": safe_str(r.iloc[0]), "full_name": safe_str(r.iloc[1]), "address": safe_str(r.iloc[2])})
             supabase.table("crm_customers").insert(recs).execute(); st.rerun()
     with ts:
-        df = load_data("crm_suppliers"); st.data_editor(df, num_rows="dynamic", use_container_width=True)
+        df = load_data("crm_suppliers"); st.data_editor(df, num_rows="dynamic", use_container_width=True, key="editor_suppliers")
         up = st.file_uploader("Import NCC", key="usn")
         if up and st.button("Import NCC"):
             d = pd.read_excel(up, dtype=str).fillna("")
