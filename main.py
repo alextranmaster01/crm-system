@@ -1,6 +1,6 @@
 # =============================================================================
-# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4805 - STRICT EXCEL MAPPING)
-# DATA SOURCE: BUYING PRICE-ALL-OK.xlsx (15 Columns Absolute Mapping)
+# CRM SYSTEM - ULTIMATE HYBRID EDITION (V4806 - FIXED ORDER ERROR)
+# DATA SOURCE: BUYING PRICE-ALL-OK.xlsx (Strict Mapping)
 # =============================================================================
 
 import streamlit as st
@@ -212,7 +212,7 @@ with st.sidebar:
         "⚙️ MASTER DATA"
     ])
     st.markdown("---")
-    st.caption("Phiên bản: V4805 - Strict Mapping")
+    st.caption("Phiên bản: V4806 - Order Fixed")
 
 # -----------------------------------------------------------------------------
 # TAB 1: DASHBOARD
@@ -283,8 +283,8 @@ elif menu == "📦 KHO HÀNG (IMAGES)":
     col_search, col_upload = st.columns([3, 1])
     search = col_search.text_input("🔍 Tìm kiếm...", placeholder="Nhập mã hàng...")
     
-    # Order by 'no' để giống file Excel
-    res = backend.supabase.table("crm_purchases").select("*").order("no", nulls_first=False).execute()
+    # FIXED ERROR HERE: use desc=False instead of nulls_first
+    res = backend.supabase.table("crm_purchases").select("*").order("no", desc=False).execute()
     df = pd.DataFrame(res.data)
     
     if not df.empty:
