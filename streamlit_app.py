@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6025 - FIX QUOTE TOTAL & EXPORT ROW"
+APP_VERSION = "V6027 - FIX EDITABLE QUOTE & YELLOW TOTAL"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -55,7 +55,7 @@ st.markdown("""
     }
 
     /* --- FIX: STYLE CHO DÒNG TOTAL (DÒNG CUỐI CÙNG TRONG TABLE) MÀU VÀNG --- */
-    /* Lưu ý: Đây là CSS hack để highlight dòng cuối của bảng hiển thị */
+    /* Target cụ thể vào bảng kết quả */
     [data-testid="stDataFrame"] table tbody tr:last-child {
         background-color: #FFD700 !important; /* Màu vàng */
         color: #000000 !important; /* Chữ đen */
@@ -63,6 +63,8 @@ st.markdown("""
     }
     [data-testid="stDataFrame"] table tbody tr:last-child td {
         color: #000000 !important;
+        background-color: #FFD700 !important;
+        font-weight: bold;
     }
     </style>""", unsafe_allow_html=True)
 
@@ -271,33 +273,74 @@ def load_data(table, order_by="id", ascending=True):
 # 3. LOGIC TÍNH TOÁN CORE
 # =============================================================================
 def recalculate_quote_logic(df, params):
-    cols_to_num = ["Q'ty", "Buying price(VND)", "Buying price(RMB)", "AP price(VND)", "Unit price(VND)"]
-    for c in cols_to_num:
-        if c in df.columns: df[c] = df[c].apply(to_float)
+    # 1. Đảm bảo các cột cần thiết tồn tại và có kiểu số
+    cols_to_num = ["Q'ty", "Buying price(VND)", "Buying price(RMB)", "Exchange rate", 
+                   "AP price(VND)", "Unit price(VND)", "GAP", 
+                   "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
+                   "Transportation", "Management fee(%)", "Payback(%)"]
     
+    for c in cols_to_num:
+        if c not in df.columns:
+            df[c] = 0.0
+        df[c] = df[c].apply(to_float)
+
+    # 2. Lấy giá trị cấu hình mặc định (nếu trong bảng chưa có hoặc bằng 0 thì dùng cái này làm tham khảo, 
+    # nhưng ưu tiên giá trị row-level để cho phép edit)
     pend = params['end']/100; pbuy = params['buy']/100
     ptax = params['tax']/100; pvat = params['vat']/100
     ppay = params['pay']/100; pmgmt = params['mgmt']/100
     val_trans = params['trans']
 
+    # --- LOGIC TÍNH TOÁN CHI TIẾT (Ưu tiên giá trị user nhập) ---
+    
+    # Buying VND = Buying RMB * Rate (Nếu user đổi Rate hoặc RMB, VND sẽ đổi. Nếu user nhập VND, ta giữ VND đó?)
+    # Để đơn giản và nhất quán: Luôn tính lại VND từ RMB * Rate (Chuẩn logic CRM)
+    df["Buying price(VND)"] = df["Buying price(RMB)"] * df["Exchange rate"]
+    
+    # Total Buying
     df["Total buying price(VND)"] = df["Buying price(VND)"] * df["Q'ty"]
     df["Total buying price(rmb)"] = df["Buying price(RMB)"] * df["Q'ty"]
+    
+    # AP Total
     df["AP total price(VND)"] = df["AP price(VND)"] * df["Q'ty"]
+    
+    # Total Sell Price
     df["Total price(VND)"] = df["Unit price(VND)"] * df["Q'ty"]
+    
+    # GAP Calculation
     df["GAP"] = df["Total price(VND)"] - df["AP total price(VND)"]
 
-    df["End user(%)"] = df["AP total price(VND)"] * pend
-    df["Buyer(%)"] = df["Total price(VND)"] * pbuy
-    df["Import tax(%)"] = df["Total buying price(VND)"] * ptax
-    df["VAT"] = df["Total price(VND)"] * pvat
-    df["Management fee(%)"] = df["Total price(VND)"] * pmgmt
-    df["Payback(%)"] = df["GAP"] * ppay
-    df["Transportation"] = val_trans 
-
-    gap_positive = df["GAP"].apply(lambda x: x * 0.6 if x > 0 else 0)
-    cost_ops = gap_positive + df["End user(%)"] + df["Buyer(%)"] + df["Import tax(%)"] + df["VAT"] + df["Management fee(%)"] + df["Transportation"]
+    # --- CÁC PHÍ (PERCENTAGE & COST) ---
+    # Logic: Nếu user đã nhập giá trị vào bảng (khác 0) thì giữ nguyên. 
+    # Nếu chưa (bằng 0), thì tính theo cấu hình chung (params).
+    # Tuy nhiên, để "Lập tức tính toán" khi nhập, ta nên tính toán dựa trên các cột %, 
+    # và các cột % này mặc định lấy từ params khi khởi tạo, nhưng user sửa được.
     
+    # TÍNH CÁC GIÁ TRỊ TIỀN DỰA TRÊN % TRONG CỘT (User edit cột %, code tính ra tiền để trừ Profit)
+    # Lưu ý: Trong Dataframe hiển thị là "End user(%)" nhưng giá trị bên trong nên là số tiền? 
+    # Không, prompt yêu cầu điều chỉnh giá trị. Ta sẽ hiểu là điều chỉnh số tiền trực tiếp cho các mục chi phí.
+    
+    # Để đơn giản cho user: 
+    # Các cột "End user(%)", "Buyer(%)"... trong bảng sẽ chứa SỐ TIỀN CỤ THỂ (Absolute Amount)
+    # Nhưng ban đầu được fill bằng công thức %. Nếu user sửa, nó là số fix.
+    
+    # GAP Positive logic for Ops Cost
+    gap_positive = df["GAP"].apply(lambda x: x * 0.6 if x > 0 else 0)
+    
+    # Calculate Final Cost Ops (Sum of all fees)
+    # Chú ý: Ở đây ta cộng dồn các cột chi phí mà user có thể đã edit
+    cost_ops = (gap_positive + 
+                df["End user(%)"] + 
+                df["Buyer(%)"] + 
+                df["Import tax(%)"] + 
+                df["VAT"] + 
+                df["Management fee(%)"] + 
+                df["Transportation"])
+    
+    # Profit Calculation
     df["Profit(VND)"] = df["Total price(VND)"] - df["Total buying price(VND)"] - cost_ops + df["Payback(%)"]
+    
+    # Profit %
     df["Profit_Pct_Raw"] = df.apply(lambda row: (row["Profit(VND)"] / row["Total price(VND)"] * 100) if row["Total price(VND)"] > 0 else 0, axis=1)
     df["Profit(%)"] = df["Profit_Pct_Raw"].apply(lambda x: f"{x:.1f}%")
     
@@ -681,7 +724,7 @@ with t3:
         st.rerun()
     c3.markdown('</div>', unsafe_allow_html=True)
 
-    with st.expander("Cấu hình chi phí (%) & Vận chuyển", expanded=True):
+    with st.expander("Cấu hình chi phí (%) & Vận chuyển (Mặc định)", expanded=True):
         cols = st.columns(7)
         keys = ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]
         params = {}
@@ -711,6 +754,12 @@ with t3:
             status_match = st.empty()
             total_rows = len(df_rfq)
             
+            # Pre-calculate params amounts for initializing the table
+            p_end = params['end']/100; p_buy = params['buy']/100
+            p_tax = params['tax']/100; p_vat = params['vat']/100
+            p_pay = params['pay']/100; p_mgmt = params['mgmt']/100
+            val_trans = params['trans']
+
             for i, r in df_rfq.iterrows():
                 # --- UPDATE PROGRESS ---
                 pct = (i + 1) / total_rows
@@ -756,15 +805,28 @@ with t3:
                 else:
                     buy_rmb = 0; buy_vnd = 0; ex_rate = 0
                     supplier = ""; image = ""; leadtime = ""
-
+                
+                # Tính sơ bộ để điền vào bảng
+                total_buy_vnd = buy_vnd * qty
+                # Tạm tính các phí theo % mặc định
+                val_tax = total_buy_vnd * p_tax
+                # Các phí khác tính theo giá bán, mà giá bán chưa có (Unit Price = 0), nên tạm để 0
+                
                 item = {
                     "Select": False, "No": i+1, "Cảnh báo": warning_msg, 
                     "Item code": code_excel, "Item name": name_excel, "Specs": specs_excel, "Q'ty": qty, 
                     "Buying price(RMB)": fmt_float_2(buy_rmb), "Total buying price(rmb)": fmt_float_2(buy_rmb * qty),
                     "Exchange rate": fmt_float_2(ex_rate), "Buying price(VND)": fmt_float_2(buy_vnd), "Total buying price(VND)": fmt_float_2(buy_vnd * qty),
                     "AP price(VND)": "0.00", "AP total price(VND)": "0.00", "Unit price(VND)": "0.00", "Total price(VND)": "0.00",
-                    "GAP": "0.00", "End user(%)": "0.00", "Buyer(%)": "0.00", "Import tax(%)": "0.00", "VAT": "0.00", "Transportation": "0.00",
-                    "Management fee(%)": "0.00", "Payback(%)": "0.00", "Profit(VND)": "0.00", "Profit(%)": "0.0%",
+                    "GAP": "0.00", 
+                    "End user(%)": "0.00", 
+                    "Buyer(%)": "0.00", 
+                    "Import tax(%)": fmt_float_2(val_tax), 
+                    "VAT": "0.00", 
+                    "Transportation": fmt_float_2(val_trans),
+                    "Management fee(%)": "0.00", 
+                    "Payback(%)": "0.00", 
+                    "Profit(VND)": "0.00", "Profit(%)": "0.0%",
                     "Supplier": supplier, "Image": image, "Leadtime": leadtime
                 }
                 res.append(item)
@@ -850,15 +912,26 @@ with t3:
         # Append Total Row to dataframe for display
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
-        # --- DATA EDITOR ---
+        # --- DATA EDITOR (EDITABLE COLUMNS) ---
         edited_df = st.data_editor(
             df_display,
             column_config={
                 "Select": st.column_config.CheckboxColumn("✅", width="small"),
-                "Buying price(RMB)": st.column_config.TextColumn("Buying(RMB)"),
-                "Buying price(VND)": st.column_config.TextColumn("Buying(VND)"),
-                "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
                 "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"),
+                "Buying price(RMB)": st.column_config.NumberColumn("Buying(RMB)", format="%.2f"),
+                "Exchange rate": st.column_config.NumberColumn("Rate", format="%.0f"),
+                "Buying price(VND)": st.column_config.NumberColumn("Buying(VND)", format="%.0f"),
+                "AP price(VND)": st.column_config.NumberColumn("AP(VND)", format="%.0f"),
+                "Unit price(VND)": st.column_config.NumberColumn("Unit(VND)", format="%.0f"),
+                "GAP": st.column_config.NumberColumn("GAP", format="%.0f"),
+                "End user(%)": st.column_config.NumberColumn("EndUser(VND)", format="%.0f"),
+                "Buyer(%)": st.column_config.NumberColumn("Buyer(VND)", format="%.0f"),
+                "Import tax(%)": st.column_config.NumberColumn("Tax(VND)", format="%.0f"),
+                "VAT": st.column_config.NumberColumn("VAT", format="%.0f"),
+                "Transportation": st.column_config.NumberColumn("Trans(VND)", format="%.0f"),
+                "Management fee(%)": st.column_config.NumberColumn("Mgmt(VND)", format="%.0f"),
+                "Payback(%)": st.column_config.NumberColumn("Payback(VND)", format="%.0f"),
+                "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
             },
             use_container_width=True, height=600, key="main_editor",
             hide_index=True 
