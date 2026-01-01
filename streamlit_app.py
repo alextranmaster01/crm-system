@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6027 - FIX EDITABLE QUOTE & YELLOW TOTAL"
+APP_VERSION = "V6028 - FIX EDITABLE CALCULATIONS & YELLOW TOTAL"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -55,7 +55,7 @@ st.markdown("""
     }
 
     /* --- FIX: STYLE CHO DÒNG TOTAL (DÒNG CUỐI CÙNG TRONG TABLE) MÀU VÀNG --- */
-    /* Target cụ thể vào bảng kết quả */
+    /* Target cụ thể vào dòng cuối cùng của bảng hiển thị */
     [data-testid="stDataFrame"] table tbody tr:last-child {
         background-color: #FFD700 !important; /* Màu vàng */
         color: #000000 !important; /* Chữ đen */
@@ -284,51 +284,29 @@ def recalculate_quote_logic(df, params):
             df[c] = 0.0
         df[c] = df[c].apply(to_float)
 
-    # 2. Lấy giá trị cấu hình mặc định (nếu trong bảng chưa có hoặc bằng 0 thì dùng cái này làm tham khảo, 
-    # nhưng ưu tiên giá trị row-level để cho phép edit)
-    pend = params['end']/100; pbuy = params['buy']/100
-    ptax = params['tax']/100; pvat = params['vat']/100
-    ppay = params['pay']/100; pmgmt = params['mgmt']/100
-    val_trans = params['trans']
+    # --- LOGIC TÍNH TOÁN (ƯU TIÊN GIÁ TRỊ NHẬP TAY) ---
+    # Trong phiên bản này, ta KHÔNG ghi đè các cột phí (Fees) bằng Params mặc định 
+    # nếu dòng đó đã có dữ liệu. Việc này cho phép người dùng sửa tay (Manual Edit).
+    # Chỉ tính toán lại các giá trị tổng và Profit dựa trên những gì đang có trong ô.
 
-    # --- LOGIC TÍNH TOÁN CHI TIẾT (Ưu tiên giá trị user nhập) ---
-    
-    # Buying VND = Buying RMB * Rate (Nếu user đổi Rate hoặc RMB, VND sẽ đổi. Nếu user nhập VND, ta giữ VND đó?)
-    # Để đơn giản và nhất quán: Luôn tính lại VND từ RMB * Rate (Chuẩn logic CRM)
+    # 1. Buying VND = Buying RMB * Rate (Đây là logic cứng, nếu đổi Rate thì VND đổi)
     df["Buying price(VND)"] = df["Buying price(RMB)"] * df["Exchange rate"]
     
-    # Total Buying
+    # 2. Các giá trị Tổng
     df["Total buying price(VND)"] = df["Buying price(VND)"] * df["Q'ty"]
     df["Total buying price(rmb)"] = df["Buying price(RMB)"] * df["Q'ty"]
-    
-    # AP Total
     df["AP total price(VND)"] = df["AP price(VND)"] * df["Q'ty"]
-    
-    # Total Sell Price
     df["Total price(VND)"] = df["Unit price(VND)"] * df["Q'ty"]
     
-    # GAP Calculation
+    # 3. GAP (Total Sell - AP Total)
     df["GAP"] = df["Total price(VND)"] - df["AP total price(VND)"]
 
-    # --- CÁC PHÍ (PERCENTAGE & COST) ---
-    # Logic: Nếu user đã nhập giá trị vào bảng (khác 0) thì giữ nguyên. 
-    # Nếu chưa (bằng 0), thì tính theo cấu hình chung (params).
-    # Tuy nhiên, để "Lập tức tính toán" khi nhập, ta nên tính toán dựa trên các cột %, 
-    # và các cột % này mặc định lấy từ params khi khởi tạo, nhưng user sửa được.
+    # 4. Tính toán chi phí vận hành (Ops Cost)
+    # Lưu ý: Ta chỉ cộng dồn các giá trị hiện có trong cột. 
+    # Nếu người dùng sửa cột "Transportation" thành 1 số cụ thể, nó sẽ được dùng.
     
-    # TÍNH CÁC GIÁ TRỊ TIỀN DỰA TRÊN % TRONG CỘT (User edit cột %, code tính ra tiền để trừ Profit)
-    # Lưu ý: Trong Dataframe hiển thị là "End user(%)" nhưng giá trị bên trong nên là số tiền? 
-    # Không, prompt yêu cầu điều chỉnh giá trị. Ta sẽ hiểu là điều chỉnh số tiền trực tiếp cho các mục chi phí.
-    
-    # Để đơn giản cho user: 
-    # Các cột "End user(%)", "Buyer(%)"... trong bảng sẽ chứa SỐ TIỀN CỤ THỂ (Absolute Amount)
-    # Nhưng ban đầu được fill bằng công thức %. Nếu user sửa, nó là số fix.
-    
-    # GAP Positive logic for Ops Cost
     gap_positive = df["GAP"].apply(lambda x: x * 0.6 if x > 0 else 0)
     
-    # Calculate Final Cost Ops (Sum of all fees)
-    # Chú ý: Ở đây ta cộng dồn các cột chi phí mà user có thể đã edit
     cost_ops = (gap_positive + 
                 df["End user(%)"] + 
                 df["Buyer(%)"] + 
@@ -337,10 +315,10 @@ def recalculate_quote_logic(df, params):
                 df["Management fee(%)"] + 
                 df["Transportation"])
     
-    # Profit Calculation
+    # 5. Profit
     df["Profit(VND)"] = df["Total price(VND)"] - df["Total buying price(VND)"] - cost_ops + df["Payback(%)"]
     
-    # Profit %
+    # 6. Profit %
     df["Profit_Pct_Raw"] = df.apply(lambda row: (row["Profit(VND)"] / row["Total price(VND)"] * 100) if row["Total price(VND)"] > 0 else 0, axis=1)
     df["Profit(%)"] = df["Profit_Pct_Raw"].apply(lambda x: f"{x:.1f}%")
     
