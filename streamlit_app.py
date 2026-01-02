@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6025 - FIX QUOTE TOTAL & EXPORT ROW"
+APP_VERSION = "V6025 - UPDATE TAB 5 TRACKING & PAYMENTS"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -258,7 +258,7 @@ def load_data(table, order_by="id", ascending=True):
         
         if not df.empty:
             # Drop cột 'id' nếu không cần thiết
-            if table != "crm_tracking" and 'id' in df.columns: 
+            if table != "crm_tracking" and table != "crm_payments" and 'id' in df.columns: 
                 df = df.drop(columns=['id'])
             
             # Sort bằng Pandas nếu có cột order_by
@@ -1063,9 +1063,9 @@ with t3:
 
             # 2. Format các dòng dữ liệu TRƯỚC khi thêm Total
             if "Unit price(VND)" in df_review.columns:
-                 df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(fmt_num)
+                 df_review["Unit price(VND)"].apply(fmt_num)
             if "Total price(VND)" in df_review.columns:
-                 df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(fmt_num)
+                 df_review["Total price(VND)"].apply(fmt_num)
             
             # 3. Tạo dòng Total (Đã format sẵn)
             total_review = {
@@ -1079,6 +1079,12 @@ with t3:
             # 4. Gộp vào bảng
             df_review = pd.concat([df_review, pd.DataFrame([total_review])], ignore_index=True)
             
+            # Format các dòng (ngoại trừ Total đã format)
+            if "Unit price(VND)" in df_review.columns:
+                 df_review["Unit price(VND)"] = df_review.apply(lambda r: fmt_num(r["Unit price(VND)"]) if r['No'] != "TOTAL" else r["Unit price(VND)"], axis=1)
+            if "Total price(VND)" in df_review.columns:
+                 df_review["Total price(VND)"] = df_review.apply(lambda r: fmt_num(r["Total price(VND)"]) if r['No'] != "TOTAL" else r["Total price(VND)"], axis=1)
+
             st.dataframe(df_review, use_container_width=True, hide_index=True)
             
             # Show Total in Review as well
@@ -1411,118 +1417,285 @@ with t4:
                         if saved_links:
                              st.markdown(f"📂 **[Mở Folder PO Khách: {c_name}/{curr_month}]({saved_links[0]})**", unsafe_allow_html=True)
 
-# --- TAB 5: TRACKING ---
+# --- TAB 5: TRACKING, PAYMENTS, HISTORY ---
 with t5:
-    st.subheader("THEO DÕI ĐƠN HÀNG (TRACKING)")
-    if st.button("🔄 Refresh Tracking"): st.cache_data.clear(); st.rerun()
-    df_track = load_data("crm_tracking", order_by="id")
-    if not df_track.empty:
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            st.markdown("#### Cập nhật trạng thái / Ảnh")
-            po_list = df_track['po_no'].unique()
-            sel_po = st.selectbox("Chọn PO", po_list, key="tr_po")
-            new_status = st.selectbox("Trạng thái mới", ["Ordered", "Shipping", "Arrived", "Delivered", "Waiting"], key="tr_st")
-            proof_img = st.file_uploader("Upload Ảnh Proof", type=['png', 'jpg'], key="tr_img")
-            if st.button("Cập nhật Tracking"):
-                upd_data = {"status": new_status, "last_update": datetime.now().strftime("%d/%m/%Y")}
-                if proof_img:
-                    lnk, _ = upload_to_drive_simple(proof_img, "CRM_PROOF", f"PRF_{sel_po}_{int(time.time())}.png")
-                    upd_data["proof_image"] = lnk
-                supabase.table("crm_tracking").update(upd_data).eq("po_no", sel_po).execute()
-                st.success("Updated!"); time.sleep(1); st.rerun()
-        with c2:
-            st.markdown("#### Danh sách đơn hàng")
-            st.dataframe(
-                df_track, 
-                column_config={
-                    "proof_image": st.column_config.ImageColumn("Proof"), 
-                    "status": st.column_config.TextColumn("Status"),
-                    "po_no": "PO No.", "partner": "Partner", "eta": "ETA"
-                }, 
-                use_container_width=True, hide_index=True
-            )
-    else: st.info("Chưa có dữ liệu Tracking. Hãy tạo PO ở Tab 4.")
+    t5_1, t5_2, t5_3 = st.tabs(["📦 THEO DÕI ĐƠN HÀNG", "💸 THANH TOÁN", "📜 LỊCH SỬ"])
+    
+    # ---------------- TAB 5.1: ĐƠN HÀNG (ACTIVE) ----------------
+    with t5_1:
+        st.subheader("5.1: THEO DÕI ĐƠN HÀNG (ACTIVE)")
+        if st.button("🔄 Refresh Orders"): st.cache_data.clear(); st.rerun()
+        
+        with st.expander("🔐 Admin: Reset Orders (Xóa hết dữ liệu Tracking)"):
+            adm_tr = st.text_input("Pass Admin", type="password", key="pass_tr")
+            if st.button("⚠️ XÓA HẾT TRACKING"):
+                if adm_tr == "admin":
+                    supabase.table("crm_tracking").delete().neq("id", 0).execute()
+                    st.success("Deleted All Tracking!"); time.sleep(1); st.rerun()
+                else: st.error("Sai Pass!")
+
+        # Load data
+        df_track = load_data("crm_tracking", order_by="id")
+        
+        # Filter Active Orders (Exclude History conditions)
+        # History Logic: (NCC + Arrived + Proof) OR (KH + Delivered + Proof)
+        if not df_track.empty:
+            def is_history(row):
+                has_proof = pd.notna(row['proof_image']) and str(row['proof_image']) != ''
+                cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
+                cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
+                return cond_ncc or cond_kh
+
+            mask_active = ~df_track.apply(is_history, axis=1)
+            df_active = df_track[mask_active].copy()
+        else:
+            df_active = pd.DataFrame()
+
+        if not df_active.empty:
+            c_up, c_list = st.columns([1, 2])
+            
+            # --- FORM CẬP NHẬT ---
+            with c_up:
+                st.markdown("#### 📝 Cập nhật trạng thái")
+                po_list = df_active['po_no'].unique()
+                sel_po = st.selectbox("Chọn PO", po_list, key="tr_po_active")
+                curr_row = df_active[df_active['po_no'] == sel_po].iloc[0]
+                
+                new_status = st.selectbox("Trạng thái mới", 
+                                          ["Ordered", "Shipping", "Arrived", "Delivered", "Waiting"], 
+                                          index=["Ordered", "Shipping", "Arrived", "Delivered", "Waiting"].index(curr_row['status']) if curr_row['status'] in ["Ordered", "Shipping", "Arrived", "Delivered", "Waiting"] else 0,
+                                          key="tr_st_active")
+                
+                proof_img = st.file_uploader("Upload Ảnh Proof (Bắt buộc để hoàn thành)", type=['png', 'jpg'], key="tr_img_active")
+                
+                if st.button("💾 Cập nhật"):
+                    upd_data = {"status": new_status, "last_update": datetime.now().strftime("%d/%m/%Y")}
+                    if proof_img:
+                        lnk, _ = upload_to_drive_simple(proof_img, "CRM_PROOF", f"PRF_{sel_po}_{int(time.time())}.png")
+                        upd_data["proof_image"] = lnk
+                    
+                    supabase.table("crm_tracking").update(upd_data).eq("po_no", sel_po).execute()
+                    
+                    # --- TRIGGER LOGIC: AUTOMATIC INSERT TO PAYMENTS ---
+                    if new_status == "Delivered" and curr_row['order_type'] == 'KH':
+                        # Check payment exists
+                        pay_check = supabase.table("crm_payments").select("*").eq("po_no", sel_po).execute()
+                        if not pay_check.data:
+                            eta_pay = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+                            pay_rec = {
+                                "po_no": sel_po, 
+                                "partner": curr_row['partner'],
+                                "payment_status": "Đợi xuất hóa đơn",
+                                "eta_payment": eta_pay,
+                                "invoice_no": ""
+                            }
+                            supabase.table("crm_payments").insert([pay_rec]).execute()
+                            st.toast("✅ Đã tự động tạo lịch thanh toán!", icon="💸")
+
+                    st.success("Đã cập nhật!"); time.sleep(1); st.rerun()
+
+                st.divider()
+                # --- DELETE ROW FUNCTION ---
+                st.markdown("#### 🗑️ Xóa đơn hàng")
+                po_to_del = st.selectbox("Chọn PO để xóa", [""] + list(po_list), key="del_po_active")
+                if po_to_del and st.button("Xóa PO này"):
+                    supabase.table("crm_tracking").delete().eq("po_no", po_to_del).execute()
+                    st.warning(f"Đã xóa {po_to_del}"); time.sleep(1); st.rerun()
+
+            # --- DISPLAY LIST ---
+            with c_list:
+                st.markdown("#### 📋 Danh sách đang hoạt động")
+                st.dataframe(
+                    df_active, 
+                    column_config={
+                        "proof_image": st.column_config.ImageColumn("Proof"), 
+                        "status": st.column_config.TextColumn("Status"),
+                        "po_no": "PO No.", "partner": "Partner", "eta": "ETA"
+                    }, 
+                    use_container_width=True, hide_index=True
+                )
+        else: st.info("Không có đơn hàng nào đang hoạt động.")
+
+    # ---------------- TAB 5.2: THANH TOÁN ----------------
+    with t5_2:
+        st.subheader("5.2: QUẢN LÝ THANH TOÁN (PAYMENTS)")
+        if st.button("🔄 Refresh Payments"): st.cache_data.clear(); st.rerun()
+        
+        with st.expander("🔐 Admin: Reset Payments"):
+            adm_pay = st.text_input("Pass Admin", type="password", key="pass_pay")
+            if st.button("⚠️ XÓA HẾT PAYMENTS"):
+                if adm_pay == "admin":
+                    supabase.table("crm_payments").delete().neq("id", 0).execute()
+                    st.success("Deleted All Payments!"); time.sleep(1); st.rerun()
+                else: st.error("Sai Pass!")
+
+        df_pay = load_data("crm_payments", order_by="id")
+        
+        if not df_pay.empty:
+            c_p_up, c_p_list = st.columns([1, 2])
+            
+            with c_p_up:
+                st.markdown("#### 📝 Cập nhật thanh toán")
+                # Filter rows not fully paid? Assuming we show all here to manage
+                p_po_list = df_pay['po_no'].unique()
+                sel_p_po = st.selectbox("Chọn PO Thanh toán", p_po_list, key="pay_po_sel")
+                curr_p_row = df_pay[df_pay['po_no'] == sel_p_po].iloc[0]
+                
+                inv_no = st.text_input("Số Hóa Đơn (Invoice No)", value=safe_str(curr_p_row.get('invoice_no', '')))
+                
+                curr_status = safe_str(curr_p_row.get('payment_status', 'Đợi xuất hóa đơn'))
+                status_opts = ["Đợi xuất hóa đơn", "Đợi thanh toán", "Đã nhận thanh toán"]
+                idx_st = status_opts.index(curr_status) if curr_status in status_opts else 0
+                new_p_status = st.selectbox("Trạng thái", status_opts, index=idx_st, key="pay_st_sel")
+                
+                if st.button("💾 Lưu Thanh Toán"):
+                    upd_p = {"invoice_no": inv_no, "payment_status": new_p_status}
+                    # TRIGGER: Update payment date if paid
+                    if new_p_status == "Đã nhận thanh toán":
+                        upd_p["payment_date"] = datetime.now().strftime("%d/%m/%Y")
+                    
+                    supabase.table("crm_payments").update(upd_p).eq("po_no", sel_p_po).execute()
+                    st.success("Updated Payment!"); time.sleep(1); st.rerun()
+                
+                st.divider()
+                # --- DELETE PAYMENT ROW ---
+                st.markdown("#### 🗑️ Xóa dòng thanh toán")
+                if st.button("Xóa dòng này"):
+                    supabase.table("crm_payments").delete().eq("po_no", sel_p_po).execute()
+                    st.warning("Deleted!"); time.sleep(1); st.rerun()
+
+            with c_p_list:
+                st.markdown("#### 💰 Danh sách cần thanh toán")
+                st.dataframe(
+                    df_pay,
+                    column_config={
+                        "po_no": "PO No.", "partner": "Khách hàng",
+                        "payment_status": "Trạng thái", "eta_payment": "Hạn TT",
+                        "invoice_no": "Invoice", "payment_date": "Ngày TT"
+                    },
+                    use_container_width=True, hide_index=True
+                )
+        else: st.info("Chưa có dữ liệu thanh toán. (Dữ liệu sẽ tự động qua đây khi đơn Khách Hàng chuyển trạng thái Delivered)")
+
+    # ---------------- TAB 5.3: LỊCH SỬ ----------------
+    with t5_3:
+        st.subheader("5.3: LỊCH SỬ ĐƠN HÀNG (HISTORY)")
+        if st.button("🔄 Refresh History"): st.cache_data.clear(); st.rerun()
+        
+        # Re-load tracking to get history
+        df_track_h = load_data("crm_tracking", order_by="id")
+        
+        if not df_track_h.empty:
+            def is_history_check(row):
+                has_proof = pd.notna(row['proof_image']) and str(row['proof_image']) != ''
+                cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
+                cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
+                return cond_ncc or cond_kh
+            
+            mask_hist = df_track_h.apply(is_history_check, axis=1)
+            df_history = df_track_h[mask_hist].copy()
+            
+            if not df_history.empty:
+                st.dataframe(
+                    df_history,
+                    column_config={
+                        "proof_image": st.column_config.ImageColumn("Proof"), 
+                        "status": st.column_config.TextColumn("Status"),
+                        "po_no": "PO No.", "partner": "Partner", "eta": "ETA"
+                    },
+                    use_container_width=True, hide_index=True
+                )
+                
+                with st.expander("🗑️ Xóa Lịch Sử"):
+                    h_po_list = df_history['po_no'].unique()
+                    po_del_h = st.selectbox("Chọn PO Lịch sử để xóa", h_po_list, key="del_hist_sel")
+                    if st.button("Xóa Vĩnh Viễn PO Lịch Sử"):
+                        supabase.table("crm_tracking").delete().eq("po_no", po_del_h).execute()
+                        st.warning("Deleted!"); time.sleep(1); st.rerun()
+            else:
+                st.info("Chưa có đơn hàng nào hoàn tất quy trình (Có Proof + Đúng trạng thái đích).")
+        else:
+            st.info("No Data.")
 
 # --- TAB 6: MASTER DATA ---
 with t6:
-    tc, ts, tt = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE"])
-    
-    # --- FIX: DYNAMIC CUSTOMER IMPORT ---
-    with tc:
-        df_c = load_data("crm_customers")
-        st.write("Dữ liệu hiện tại:")
-        st.dataframe(df_c, use_container_width=True, hide_index=True)
-        
-        up = st.file_uploader("Import CUSTOMER LIST", type=["xlsx"], key="uck")
-        if up and st.button("🚀 Import KH (Đồng bộ tuyệt đối)"):
-            try:
-                # Đọc Excel (Lấy luôn header từ file)
-                df_new = pd.read_excel(up, dtype=str).fillna("")
-                
-                # Clean tên cột (xóa khoảng trắng thừa)
-                df_new.columns = [str(c).strip() for c in df_new.columns]
-                
-                # Chuyển thành list dict để insert
-                records = df_new.to_dict('records')
-                
-                if records:
-                    # 1. XÓA SẠCH DỮ LIỆU CŨ (Để đồng bộ tuyệt đối như yêu cầu)
-                    supabase.table("crm_customers").delete().neq("id", 0).execute()
-                    
-                    # 2. INSERT DỮ LIỆU MỚI (DYNAMIC COLUMNS)
-                    # Lưu ý: Database Supabase PHẢI có các cột tương ứng với header trong Excel
-                    chunk_size = 100
-                    for k in range(0, len(records), chunk_size):
-                        batch = records[k:k+chunk_size]
-                        supabase.table("crm_customers").insert(batch).execute()
-                        
-                    st.success(f"✅ Đã đồng bộ {len(records)} khách hàng! (Cấu trúc cột theo Excel)")
-                    time.sleep(1); st.rerun()
-                else: st.warning("File rỗng!")
-            except Exception as e:
-                st.error(f"Lỗi Import: {e}")
-                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
+    tc, ts, tt = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE"])
+    
+    # --- FIX: DYNAMIC CUSTOMER IMPORT ---
+    with tc:
+        df_c = load_data("crm_customers")
+        st.write("Dữ liệu hiện tại:")
+        st.dataframe(df_c, use_container_width=True, hide_index=True)
+        
+        up = st.file_uploader("Import CUSTOMER LIST", type=["xlsx"], key="uck")
+        if up and st.button("🚀 Import KH (Đồng bộ tuyệt đối)"):
+            try:
+                # Đọc Excel (Lấy luôn header từ file)
+                df_new = pd.read_excel(up, dtype=str).fillna("")
+                
+                # Clean tên cột (xóa khoảng trắng thừa)
+                df_new.columns = [str(c).strip() for c in df_new.columns]
+                
+                # Chuyển thành list dict để insert
+                records = df_new.to_dict('records')
+                
+                if records:
+                    # 1. XÓA SẠCH DỮ LIỆU CŨ (Để đồng bộ tuyệt đối như yêu cầu)
+                    supabase.table("crm_customers").delete().neq("id", 0).execute()
+                    
+                    # 2. INSERT DỮ LIỆU MỚI (DYNAMIC COLUMNS)
+                    # Lưu ý: Database Supabase PHẢI có các cột tương ứng với header trong Excel
+                    chunk_size = 100
+                    for k in range(0, len(records), chunk_size):
+                        batch = records[k:k+chunk_size]
+                        supabase.table("crm_customers").insert(batch).execute()
+                        
+                    st.success(f"✅ Đã đồng bộ {len(records)} khách hàng! (Cấu trúc cột theo Excel)")
+                    time.sleep(1); st.rerun()
+                else: st.warning("File rỗng!")
+            except Exception as e:
+                st.error(f"Lỗi Import: {e}")
+                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
 
-    # --- FIX: DYNAMIC SUPPLIER IMPORT ---
-    with ts:
-        df_s = load_data("crm_suppliers")
-        st.write("Dữ liệu hiện tại:")
-        st.dataframe(df_s, use_container_width=True, hide_index=True)
-        
-        up_s = st.file_uploader("Import SUPPLIER LIST", type=["xlsx"], key="usn")
-        if up_s and st.button("🚀 Import NCC (Đồng bộ tuyệt đối)"):
-            try:
-                # Đọc Excel
-                df_new = pd.read_excel(up_s, dtype=str).fillna("")
-                
-                # Clean tên cột
-                df_new.columns = [str(c).strip() for c in df_new.columns]
-                
-                records = df_new.to_dict('records')
-                
-                if records:
-                    # 1. XÓA SẠCH DỮ LIỆU CŨ
-                    supabase.table("crm_suppliers").delete().neq("id", 0).execute()
-                    
-                    # 2. INSERT DỮ LIỆU MỚI
-                    chunk_size = 100
-                    for k in range(0, len(records), chunk_size):
-                        batch = records[k:k+chunk_size]
-                        supabase.table("crm_suppliers").insert(batch).execute()
-                        
-                    st.success(f"✅ Đã đồng bộ {len(records)} nhà cung cấp! (Cấu trúc cột theo Excel)")
-                    time.sleep(1); st.rerun()
-                else: st.warning("File rỗng!")
-            except Exception as e:
-                st.error(f"Lỗi Import: {e}")
-                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
+    # --- FIX: DYNAMIC SUPPLIER IMPORT ---
+    with ts:
+        df_s = load_data("crm_suppliers")
+        st.write("Dữ liệu hiện tại:")
+        st.dataframe(df_s, use_container_width=True, hide_index=True)
+        
+        up_s = st.file_uploader("Import SUPPLIER LIST", type=["xlsx"], key="usn")
+        if up_s and st.button("🚀 Import NCC (Đồng bộ tuyệt đối)"):
+            try:
+                # Đọc Excel
+                df_new = pd.read_excel(up_s, dtype=str).fillna("")
+                
+                # Clean tên cột
+                df_new.columns = [str(c).strip() for c in df_new.columns]
+                
+                records = df_new.to_dict('records')
+                
+                if records:
+                    # 1. XÓA SẠCH DỮ LIỆU CŨ
+                    supabase.table("crm_suppliers").delete().neq("id", 0).execute()
+                    
+                    # 2. INSERT DỮ LIỆU MỚI
+                    chunk_size = 100
+                    for k in range(0, len(records), chunk_size):
+                        batch = records[k:k+chunk_size]
+                        supabase.table("crm_suppliers").insert(batch).execute()
+                        
+                    st.success(f"✅ Đã đồng bộ {len(records)} nhà cung cấp! (Cấu trúc cột theo Excel)")
+                    time.sleep(1); st.rerun()
+                else: st.warning("File rỗng!")
+            except Exception as e:
+                st.error(f"Lỗi Import: {e}")
+                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
 
-    with tt:
-        st.write("Upload Template Excel")
-        up_t = st.file_uploader("File Template (.xlsx)", type=["xlsx"])
-        t_name = st.text_input("Tên Template (Nhập: AAA-QUOTATION)")
-        if up_t and t_name and st.button("Lưu Template"):
-            lnk, fid = upload_to_drive_simple(up_t, "CRM_TEMPLATES", f"TMP_{t_name}.xlsx")
-            if fid: supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute(); st.success("OK"); st.rerun()
-        st.dataframe(load_data("crm_templates"))
+    with tt:
+        st.write("Upload Template Excel")
+        up_t = st.file_uploader("File Template (.xlsx)", type=["xlsx"])
+        t_name = st.text_input("Tên Template (Nhập: AAA-QUOTATION)")
+        if up_t and t_name and st.button("Lưu Template"):
+            lnk, fid = upload_to_drive_simple(up_t, "CRM_TEMPLATES", f"TMP_{t_name}.xlsx")
+            if fid: supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute(); st.success("OK"); st.rerun()
+        st.dataframe(load_data("crm_templates"))
