@@ -970,10 +970,23 @@ with t3:
                      if c in st.session_state.quote_df.columns:
                          old_val = st.session_state.quote_df.at[idx, c]
                          new_val = row[c]
-                         # Basic check to avoid unnecessary updates if types differ but value same
-                         if str(old_val) != str(new_val):
-                             st.session_state.quote_df.at[idx, c] = new_val
-                             data_changed = True
+                         
+                         # --- FIX FLICKERING: COMPARE VALUES NOT STRINGS ---
+                         # Các cột số liệu (Money/Percent)
+                         numeric_cols = ["Q'ty", "Buying price(RMB)", "Exchange rate", "Buying price(VND)", 
+                                         "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
+                                         "Transportation", "Management fee(%)", "Payback(%)"]
+                         
+                         if c in numeric_cols:
+                             # So sánh số (tránh lỗi 100000.0 != 100,000)
+                             if abs(to_float(old_val) - to_float(new_val)) > 0.001:
+                                 st.session_state.quote_df.at[idx, c] = new_val
+                                 data_changed = True
+                         else:
+                             # Các cột Text/Checkbox
+                             if str(old_val) != str(new_val):
+                                 st.session_state.quote_df.at[idx, c] = new_val
+                                 data_changed = True
         
         if data_changed:
             st.rerun()
