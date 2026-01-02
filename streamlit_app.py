@@ -56,6 +56,7 @@ st.markdown("""
 
     /* --- FIX: STYLE CHO DÒNG TOTAL (DÒNG CUỐI CÙNG TRONG TABLE) MÀU VÀNG --- */
     /* Lưu ý: Đây là CSS hack để highlight dòng cuối của bảng hiển thị */
+    /* Áp dụng cho cả st.dataframe và st.data_editor */
     [data-testid="stDataFrame"] table tbody tr:last-child {
         background-color: #FFD700 !important; /* Màu vàng */
         color: #000000 !important; /* Chữ đen */
@@ -63,6 +64,8 @@ st.markdown("""
     }
     [data-testid="stDataFrame"] table tbody tr:last-child td {
         color: #000000 !important;
+        background-color: #FFD700 !important; /* Force nền vàng cho từng ô */
+        font-weight: bold !important;
     }
     </style>""", unsafe_allow_html=True)
 
@@ -268,7 +271,7 @@ def load_data(table, order_by="id", ascending=True):
         return pd.DataFrame()
 
 # =============================================================================
-# 3. LOGIC TÍNH TOÁN CORE (UPDATED: MANUAL OVERRIDE SUPPORT)
+# 3. LOGIC TÍNH TOÁN CORE (UPDATED: MANUAL OVERRIDE SUPPORT & NEW PROFIT FORMULA)
 # =============================================================================
 def recalculate_quote_logic(df, params):
     # 1. Chuyển đổi dữ liệu sang số (Float) để tính toán
@@ -297,22 +300,23 @@ def recalculate_quote_logic(df, params):
     df["GAP"] = df["Total price(VND)"] - df["AP total price(VND)"]
 
     # 3. TÍNH LỢI NHUẬN (PROFIT)
-    # Logic MỚI: cost_ops là TỔNG CỦA CÁC CỘT TRÊN BẢNG (Giá trị thực tế, cho phép sửa tay)
+    # --- UPDATED FORMULA ---
+    # Profit = Total price - (Total buying price VND + GAP + End user + Buyer + Import tax + VAT + Transportation + Management fee) + Payback
     
-    # Xử lý GAP Positive (Logic ẩn của bạn)
-    gap_ops = df["GAP"].apply(lambda x: x * 0.6 if x > 0 else 0)
+    # Lưu ý: GAP trong công thức này là giá trị GAP thô (Total - AP Total) như yêu cầu.
     
-    # Cộng dồn tất cả chi phí đang hiển thị trên bảng
-    cost_ops = (gap_ops + 
+    # Cộng dồn các chi phí (bao gồm GAP)
+    cost_ops = (df["Total buying price(VND)"] + 
+                df["GAP"] +
                 df["End user(%)"] + 
                 df["Buyer(%)"] + 
                 df["Import tax(%)"] + 
                 df["VAT"] + 
-                df["Management fee(%)"] + 
-                df["Transportation"])
+                df["Transportation"] + 
+                df["Management fee(%)"])
 
-    # Lợi nhuận = Doanh thu - Giá vốn - Chi phí + Payback
-    df["Profit(VND)"] = df["Total price(VND)"] - df["Total buying price(VND)"] - cost_ops + df["Payback(%)"]
+    # Lợi nhuận = Doanh thu - Chi phí + Payback
+    df["Profit(VND)"] = df["Total price(VND)"] - cost_ops + df["Payback(%)"]
     
     # Tính % Lợi nhuận
     df["Profit_Pct_Raw"] = df.apply(lambda row: (row["Profit(VND)"] / row["Total price(VND)"] * 100) if row["Total price(VND)"] > 0 else 0, axis=1)
@@ -868,18 +872,17 @@ with t3:
         # --- ADD TOTAL ROW LOGIC ---
         df_display = df_show.copy()
         
-        # Calculate sums for relevant columns
-        cols_to_sum = ["Buying price(RMB)", "Total buying price(rmb)", "Buying price(VND)", 
-                        "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
-                        "Unit price(VND)", "Total price(VND)", "GAP", "End user(%)", "Buyer(%)", 
-                        "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
+        # Calculate sums for relevant columns (UPDATED LIST)
+        cols_to_sum = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
+                       "Buying price(VND)", "Total buying price(VND)", 
+                       "AP price(VND)", "AP total price(VND)", 
+                       "Unit price(VND)", "Total price(VND)", 
+                       "GAP", "End user(%)", "Buyer(%)", "Import tax(%)", 
+                       "VAT", "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
         
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
-        # Tính tổng số lượng
-        if "Q'ty" in df_display.columns:
-             total_row["Q'ty"] = df_display["Q'ty"].apply(to_float).sum()
-
+        # Calculate sums for ALL requested columns
         for c in cols_to_sum:
             if c in df_display.columns:
                 total_val = df_display[c].apply(to_float).sum()
@@ -1045,7 +1048,34 @@ with t3:
             st.write("### 📋 BẢNG REVIEW")
             cols_review = ["No", "Item code", "Item name", "Specs", "Q'ty", "Unit price(VND)", "Total price(VND)", "Leadtime"]
             valid_cols = [c for c in cols_review if c in st.session_state.quote_df.columns]
-            st.dataframe(st.session_state.quote_df[valid_cols], use_container_width=True, hide_index=True)
+            
+            # --- REVIEW TABLE WITH TOTAL ROW ---
+            df_review = st.session_state.quote_df[valid_cols].copy()
+            
+            # Calculate Total Row for Review Table
+            total_review = {"No": "TOTAL", "Item code": "", "Item name": "", "Specs": "", "Leadtime": ""}
+            
+            # Sum specific columns
+            if "Q'ty" in df_review.columns:
+                total_review["Q'ty"] = df_review["Q'ty"].apply(to_float).sum()
+            
+            # Unit Price total doesn't make sense to sum usually, but per request:
+            if "Unit price(VND)" in df_review.columns:
+                total_review["Unit price(VND)"] = fmt_float_2(df_review["Unit price(VND)"].apply(to_float).sum())
+                
+            if "Total price(VND)" in df_review.columns:
+                total_review["Total price(VND)"] = fmt_float_2(df_review["Total price(VND)"].apply(to_float).sum())
+            
+            # Append Total Row
+            df_review = pd.concat([df_review, pd.DataFrame([total_review])], ignore_index=True)
+            
+            # Formatting for display
+            if "Unit price(VND)" in df_review.columns:
+                 df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(fmt_num)
+            if "Total price(VND)" in df_review.columns:
+                 df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(fmt_num)
+            
+            st.dataframe(df_review, use_container_width=True, hide_index=True)
             
             # Show Total in Review as well
             st.markdown(f'<div class="total-view">💰 TỔNG CỘNG: {fmt_float_2(total_q)} VND</div>', unsafe_allow_html=True)
