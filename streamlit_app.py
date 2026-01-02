@@ -1530,6 +1530,9 @@ with t6:
         if up_t and t_name and st.button("Lưu Template"):
             lnk, fid = upload_to_drive_simple(up_t, "CRM_TEMPLATES", f"TMP_{t_name}.xlsx")
             if fid: supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute(); st.success("OK"); st.rerun()
-        st.dataframe(load_data("crm_templates"))"
+        st.dataframe(load_data("crm_templates"))".
 chú ý: Đoạn code đã có coi như một thư viện (blackbox). Khi sửa code, chỉ cần giả định là hàm X đã tồn tại và gọi nó ra, không cần viết lại nội dung hàm. chỉ sửa phần code liên quan đến lỗi, còn lại không liên quan thì giữ nguyên 100% không được tự ý bỏ đi hoặc tự ý gộp, xóa code.
-- hãy sửa lỗi sau: 1/tab báo giá, phần ''BẢNG REVIEW'', vẫn không hiện số tiền tổng ở phía dưới cùng của bảng của 2 cột "Unit price VND" và "Total price VND" (lỗi như trong ảnh)
+- hãy sửa lỗi sau: ''File "/mount/src/crm-system/streamlit_app.py", line 1212
+      if 'show_ncc_upload' not in st.session_state: st.session_state.show_ncc_upload = False
+  ^
+SyntaxError: invalid non-printable character U+00A0''
