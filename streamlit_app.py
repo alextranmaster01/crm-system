@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6026 - FINAL FIX ALL"
+APP_VERSION = "V6025 - FIX QUOTE TOTAL & EXPORT ROW"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -711,12 +711,7 @@ with t3:
             default_val = st.session_state.get(f"pct_{k}", "0")
             # --- WIDGET INPUT ---
             # Quan trọng: key=f"input_{k}" để khớp với logic load lịch sử
-            val = cols[i].text_input(k.upper(), key=f"input_{k}")
-            
-            # Khởi tạo giá trị nếu chưa có trong session_state
-            if f"input_{k}" not in st.session_state:
-                st.session_state[f"input_{k}"] = default_val
-
+            val = cols[i].text_input(k.upper(), value=default_val, key=f"input_{k}")
             st.session_state[f"pct_{k}"] = val
             params[k] = to_float(val)
 
