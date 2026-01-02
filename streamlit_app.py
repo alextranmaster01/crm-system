@@ -271,43 +271,70 @@ def load_data(table, order_by="id", ascending=True):
 # 3. LOGIC TÍNH TOÁN CORE
 # =============================================================================
 def recalculate_quote_logic(df, params):
-    cols_to_num = ["Q'ty", "Buying price(VND)", "Buying price(RMB)", "AP price(VND)", "Unit price(VND)"]
-    for c in cols_to_num:
-        if c in df.columns: df[c] = df[c].apply(to_float)
+    # 1. Chuyển đổi dữ liệu sang số (Float) để tính toán
+    cols_money_input = [
+        "Q'ty", "Buying price(VND)", "Buying price(RMB)", "Exchange rate",
+        "AP price(VND)", "Unit price(VND)", 
+        "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
+        "Transportation", "Management fee(%)", "Payback(%)"
+    ]
     
-    pend = params['end']/100; pbuy = params['buy']/100
-    ptax = params['tax']/100; pvat = params['vat']/100
-    ppay = params['pay']/100; pmgmt = params['mgmt']/100
-    val_trans = params['trans']
+    # Tạo cột nếu chưa có (để tránh lỗi) và chuyển sang số
+    for c in cols_money_input:
+        if c not in df.columns: df[c] = 0.0
+        df[c] = df[c].apply(to_float)
 
+    # 2. TÍNH TOÁN CÁC CỘT TOTAL & LOGIC CƠ BẢN (Luôn chạy)
+    # Buying VND luôn = RMB * Rate (Trừ khi bạn muốn sửa tay cả VND thì bỏ dòng này đi, nhưng nên giữ để logic)
+    df["Buying price(VND)"] = df["Buying price(RMB)"] * df["Exchange rate"]
+    
     df["Total buying price(VND)"] = df["Buying price(VND)"] * df["Q'ty"]
     df["Total buying price(rmb)"] = df["Buying price(RMB)"] * df["Q'ty"]
     df["AP total price(VND)"] = df["AP price(VND)"] * df["Q'ty"]
     df["Total price(VND)"] = df["Unit price(VND)"] * df["Q'ty"]
+    
+    # GAP là kết quả tính toán
     df["GAP"] = df["Total price(VND)"] - df["AP total price(VND)"]
 
-    df["End user(%)"] = df["AP total price(VND)"] * pend
-    df["Buyer(%)"] = df["Total price(VND)"] * pbuy
-    df["Import tax(%)"] = df["Total buying price(VND)"] * ptax
-    df["VAT"] = df["Total price(VND)"] * pvat
-    df["Management fee(%)"] = df["Total price(VND)"] * pmgmt
-    df["Payback(%)"] = df["GAP"] * ppay
-    df["Transportation"] = val_trans 
-
-    gap_positive = df["GAP"].apply(lambda x: x * 0.6 if x > 0 else 0)
-    cost_ops = gap_positive + df["End user(%)"] + df["Buyer(%)"] + df["Import tax(%)"] + df["VAT"] + df["Management fee(%)"] + df["Transportation"]
+    # 3. TÍNH LỢI NHUẬN (PROFIT)
+    # Logic cũ: cost_ops được tính bằng công thức % Global. 
+    # Logic MỚI: cost_ops là TỔNG CỦA CÁC CỘT TRÊN BẢNG (Giá trị thực tế)
     
+    # Xử lý GAP Positive (Logic ẩn của bạn)
+    gap_ops = df["GAP"].apply(lambda x: x * 0.6 if x > 0 else 0)
+    
+    # Cộng dồn tất cả chi phí đang hiển thị trên bảng
+    cost_ops = (gap_ops + 
+                df["End user(%)"] + 
+                df["Buyer(%)"] + 
+                df["Import tax(%)"] + 
+                df["VAT"] + 
+                df["Management fee(%)"] + 
+                df["Transportation"])
+
+    # Lợi nhuận = Doanh thu - Giá vốn - Chi phí + Payback
     df["Profit(VND)"] = df["Total price(VND)"] - df["Total buying price(VND)"] - cost_ops + df["Payback(%)"]
+    
+    # Tính % Lợi nhuận
     df["Profit_Pct_Raw"] = df.apply(lambda row: (row["Profit(VND)"] / row["Total price(VND)"] * 100) if row["Total price(VND)"] > 0 else 0, axis=1)
     df["Profit(%)"] = df["Profit_Pct_Raw"].apply(lambda x: f"{x:.1f}%")
     
+    # 4. FORMAT HIỂN THỊ (Tạo cột _Display để show lên bảng đẹp hơn, giữ cột gốc là số để tính)
+    cols_to_fmt = cols_money_input + ["Total buying price(VND)", "Total buying price(rmb)", "AP total price(VND)", "Total price(VND)", "GAP", "Profit(VND)"]
+    for c in cols_to_fmt:
+        if c in df.columns:
+            # Lưu ý: Data Editor của Streamlit hiển thị trực tiếp cột gốc. 
+            # Nên ta sẽ format ở bước cuối cùng trước khi return, nhưng vì st.data_editor cần sửa số, 
+            # ta sẽ giữ nguyên float ở backend, chỉ format string khi hiển thị ở Bước 3.
+            pass 
+
+    # Cảnh báo
     def set_warning(row):
         if "KHÔNG KHỚP" in str(row["Cảnh báo"]): return row["Cảnh báo"]
         return "⚠️ LOW" if row["Profit_Pct_Raw"] < 10 else "✅ OK"
     df["Cảnh báo"] = df.apply(set_warning, axis=1)
 
     return df
-
 # --- IMPROVED FORMULA PARSER ---
 def parse_formula(formula, buying_price, ap_price):
     if not formula: return 0.0
@@ -768,6 +795,50 @@ with t3:
                     "Supplier": supplier, "Image": image, "Leadtime": leadtime
                 }
                 res.append(item)
+		# ... (giữ nguyên phần code tìm candidate bên trên) ...
+
+                # --- LẤY GIÁ TRỊ GLOBAL PARAM HIỆN TẠI ---
+                p_end = params['end']/100; p_buy = params['buy']/100
+                p_tax = params['tax']/100; p_vat = params['vat']/100
+                p_pay = params['pay']/100; p_mgmt = params['mgmt']/100
+                v_trans = params['trans']
+
+                # Tính toán giá trị khởi tạo (Mặc định là 0 nếu chưa nhập giá)
+                # Lưu ý: Các giá trị này là khởi điểm, sau đó User sửa thoải mái
+                # Tạm tính các giá trị dựa trên Buying Price (hoặc logic của bạn)
+                # Ở đây tôi set mặc định là 0.00 cho các cột tính theo % bán vì chưa có giá bán
+                # Tuy nhiên, Import Tax tính theo giá mua nên có thể tính ngay:
+                
+                val_import_tax = (buy_vnd * qty) * p_tax
+                
+                item = {
+                    "Select": False, "No": i+1, "Cảnh báo": warning_msg, 
+                    "Item code": code_excel, "Item name": name_excel, "Specs": specs_excel, 
+                    "Q'ty": qty, 
+                    "Buying price(RMB)": fmt_float_2(buy_rmb), 
+                    "Total buying price(rmb)": fmt_float_2(buy_rmb * qty),
+                    "Exchange rate": fmt_float_2(ex_rate), 
+                    "Buying price(VND)": fmt_float_2(buy_vnd), 
+                    "Total buying price(VND)": fmt_float_2(buy_vnd * qty),
+                    
+                    "AP price(VND)": "0.00", "AP total price(VND)": "0.00", 
+                    "Unit price(VND)": "0.00", "Total price(VND)": "0.00",
+                    "GAP": "0.00",
+                    
+                    # --- CÁC CỘT CẦN LINH HOẠT (KHỞI TẠO BẰNG GLOBAL) ---
+                    "End user(%)": "0.00",      # Sẽ tính lại khi có giá bán
+                    "Buyer(%)": "0.00",         # Sẽ tính lại khi có giá bán
+                    "Import tax(%)": fmt_float_2(val_import_tax), # Tính luôn vì đã có giá mua
+                    "VAT": "0.00",              # Sẽ tính lại khi có giá bán
+                    "Transportation": fmt_num(v_trans), # Lấy Global
+                    "Management fee(%)": "0.00",# Sẽ tính lại khi có giá bán
+                    "Payback(%)": "0.00",       # Sẽ tính lại khi có GAP
+                    # ----------------------------------------------------
+
+                    "Profit(VND)": "0.00", "Profit(%)": "0.0%",
+                    "Supplier": supplier, "Image": image, "Leadtime": leadtime
+                }
+                res.append(item)
             
             # --- DONE PROGRESS ---
             prog_match.progress(100)
@@ -851,7 +922,71 @@ with t3:
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
         # --- DATA EDITOR ---
-        edited_df = st.data_editor(
+       # --- NÚT CHỨC NĂNG MỚI: ÁP DỤNG LẠI CONFIG ---
+    st.markdown("---")
+    c_tool1, c_tool2 = st.columns([1, 3])
+    with c_tool1:
+        if st.button("⚡ ÁP DỤNG GLOBAL CONFIG", help="Tính lại toàn bộ các cột Tax, VAT, Fee... theo % Global đang nhập ở trên."):
+            if not st.session_state.quote_df.empty:
+                # Lấy params hiện tại
+                p_end = params['end']/100; p_buy = params['buy']/100
+                p_tax = params['tax']/100; p_vat = params['vat']/100
+                p_pay = params['pay']/100; p_mgmt = params['mgmt']/100
+                v_trans = params['trans']
+                
+                # Duyệt qua từng dòng và tính lại giá trị
+                for idx, row in st.session_state.quote_df.iterrows():
+                    # Lấy các giá trị cơ sở (Số thực)
+                    val_ap_total = to_float(row["AP total price(VND)"])
+                    val_total = to_float(row["Total price(VND)"])
+                    val_buy_total = to_float(row["Total buying price(VND)"])
+                    val_gap = to_float(row["GAP"])
+                    
+                    # Áp dụng công thức Global
+                    st.session_state.quote_df.at[idx, "End user(%)"] = fmt_float_2(val_ap_total * p_end)
+                    st.session_state.quote_df.at[idx, "Buyer(%)"] = fmt_float_2(val_total * p_buy)
+                    st.session_state.quote_df.at[idx, "Import tax(%)"] = fmt_float_2(val_buy_total * p_tax)
+                    st.session_state.quote_df.at[idx, "VAT"] = fmt_float_2(val_total * p_vat)
+                    st.session_state.quote_df.at[idx, "Management fee(%)"] = fmt_float_2(val_total * p_mgmt)
+                    st.session_state.quote_df.at[idx, "Payback(%)"] = fmt_float_2(val_gap * p_pay)
+                    st.session_state.quote_df.at[idx, "Transportation"] = fmt_num(v_trans)
+                
+                st.toast("✅ Đã áp dụng Global Config cho toàn bộ bảng!", icon="⚡")
+                st.rerun()
+
+    # --- CẤU HÌNH HIỂN THỊ BẢNG (CHO PHÉP SỬA MỌI CỘT) ---
+    # Convert sang string format đẹp để hiển thị
+    df_display = df_show.copy()
+    cols_display_fmt = ["Exchange rate", "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
+    for c in cols_display_fmt:
+        if c in df_display.columns:
+            df_display[c] = df_display[c].apply(fmt_num) # Format có dấu phẩy
+
+    edited_df = st.data_editor(
+        df_display,
+        column_config={
+            "Select": st.column_config.CheckboxColumn("✅", width="small"),
+            "Buying price(RMB)": st.column_config.TextColumn("Buying(RMB)"),
+            "Exchange rate": st.column_config.TextColumn("Rate", width="small"),
+            "Buying price(VND)": st.column_config.TextColumn("Buying(VND)"),
+            
+            # --- CÁC CỘT MỚI CHO PHÉP SỬA ---
+            "End user(%)": st.column_config.TextColumn("EndUser(VNĐ)"),
+            "Buyer(%)": st.column_config.TextColumn("Buyer(VNĐ)"),
+            "Import tax(%)": st.column_config.TextColumn("Tax(VNĐ)"),
+            "VAT": st.column_config.TextColumn("VAT(VNĐ)"),
+            "Transportation": st.column_config.TextColumn("Trans(VNĐ)"),
+            "Management fee(%)": st.column_config.TextColumn("Mgmt(VNĐ)"),
+            "Payback(%)": st.column_config.TextColumn("Payback(VNĐ)"),
+            # --------------------------------
+            
+            "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
+            "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"),
+        },
+        use_container_width=True, height=600, key="main_editor",
+        hide_index=True 
+    )
+ edited_df = st.data_editor(
             df_display,
             column_config={
                 "Select": st.column_config.CheckboxColumn("✅", width="small"),
