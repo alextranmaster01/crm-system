@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6030 - RESTORED MASTER DATA V6025"
+APP_VERSION = "V6031 - FIX REVIEW DOUBLE FORMAT"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -879,12 +879,12 @@ with t3:
                     
                     # --- KHỞI TẠO GIÁ TRỊ TỪ GLOBAL CONFIG ---
                     "End user(%)": "0.00",        
-                    "Buyer(%)": "0.00",             
+                    "Buyer(%)": "0.00",              
                     "Import tax(%)": fmt_float_2(val_import_tax), # Tính luôn vì đã có giá mua
-                    "VAT": "0.00",                  
+                    "VAT": "0.00",                   
                     "Transportation": fmt_num(v_trans), # Khởi tạo bằng Global
                     "Management fee(%)": "0.00",
-                    "Payback(%)": "0.00",           
+                    "Payback(%)": "0.00",            
                     # ----------------------------------------
 
                     "Profit(VND)": "0.00", "Profit(%)": "0.0%",
@@ -1140,6 +1140,7 @@ with t3:
             if "Unit price(VND)" in df_review.columns:
                  df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(fmt_num)
             if "Total price(VND)" in df_review.columns:
+                 df_review["Total price(VND)"].apply(fmt_num) # Bug fix logic: apply here doesn't change in place if not assigned, but next line does assignment correctly if meant to display
                  df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(fmt_num)
             
             # 3. Tạo dòng Total (Đã format sẵn)
@@ -1154,11 +1155,7 @@ with t3:
             # 4. Gộp vào bảng
             df_review = pd.concat([df_review, pd.DataFrame([total_review])], ignore_index=True)
             
-            # Format các dòng (ngoại trừ Total đã format)
-            if "Unit price(VND)" in df_review.columns:
-                 df_review["Unit price(VND)"] = df_review.apply(lambda r: fmt_num(r["Unit price(VND)"]) if r['No'] != "TOTAL" else r["Unit price(VND)"], axis=1)
-            if "Total price(VND)" in df_review.columns:
-                 df_review["Total price(VND)"] = df_review.apply(lambda r: fmt_num(r["Total price(VND)"]) if r['No'] != "TOTAL" else r["Total price(VND)"], axis=1)
+            # --- ĐÃ XÓA ĐOẠN FORMAT LẦN 2 GÂY LỖI TẠI ĐÂY ---
 
             st.dataframe(df_review, use_container_width=True, hide_index=True)
             
@@ -1387,8 +1384,8 @@ with t4:
                             ws.append(headers)
                             for r in group.to_dict('records'):
                                 ws.append([r["No"], r["Item code"], r["Item name"], r["Specs"], r["Q'ty"], 
-                                             r["Buying price(RMB)"], r["Total buying price(RMB)"], r["Exchange rate"],
-                                             r["Buying price(VND)"], r["Total buying price(VND)"], r["Supplier"], r["ETA"]])
+                                           r["Buying price(RMB)"], r["Total buying price(RMB)"], r["Exchange rate"],
+                                           r["Buying price(VND)"], r["Total buying price(VND)"], r["Supplier"], r["ETA"]])
                             out = io.BytesIO(); wb.save(out); out.seek(0)
                             curr_year = datetime.now().strftime("%Y")
                             curr_month = datetime.now().strftime("%b").upper()
