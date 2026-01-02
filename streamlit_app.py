@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6025 - FIX SYNTAX ERROR U00A0"
+APP_VERSION = "V6026 - FIX DUPLICATE KEY 23505"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -249,10 +249,6 @@ def calc_eta(order_date_str, leadtime_val):
 def load_data(table, order_by="id", ascending=True):
     try:
         query = supabase.table(table).select("*")
-        
-        # --- FIX LỖI IMPORT PGRST204: KHÔNG SORT ROW_ORDER NẾU CỘT KHÔNG TỒN TẠI ---
-        # Thay vì sort cứng bằng Supabase, ta sẽ tải về rồi sort bằng Pandas cho an toàn.
-        # Hoặc dùng try-except để fallback. Ở đây chọn cách đơn giản: tải hết về rồi sort.
         res = query.execute()
         df = pd.DataFrame(res.data)
         
@@ -441,6 +437,16 @@ with t2:
                     prog.progress((i + 1) / len(df))
                 
                 if records:
+                    # --- FIX DUPLICATE KEY 23505: Lọc trùng Item Code trong chính file Excel trước khi gửi ---
+                    # Logic: Sử dụng Dictionary để giữ lại dòng cuối cùng của mỗi mã Item Code
+                    unique_map = {}
+                    for r in records:
+                        if r['item_code']:
+                            unique_map[r['item_code']] = r
+                    # Chuyển lại thành list để insert
+                    records = list(unique_map.values())
+                    # ---------------------------------------------------------------------------------------
+
                     chunk_ins = 100
                     codes = [b['item_code'] for b in records if b['item_code']]
                     if codes: supabase.table("crm_purchases").delete().in_("item_code", codes).execute()
@@ -465,7 +471,7 @@ with t2:
                         else:
                             raise e_ins
 
-                    st.success(f"✅ Đã import {len(records)} dòng (đúng thứ tự Excel)!")
+                    st.success(f"✅ Đã import {len(records)} dòng (đã lọc trùng mã)!")
                     st.cache_data.clear(); time.sleep(1); st.rerun()
             except Exception as e: st.error(f"Lỗi Import: {e}")
 
@@ -803,13 +809,13 @@ with t3:
                     "GAP": "0.00",
                     
                     # --- KHỞI TẠO GIÁ TRỊ TỪ GLOBAL CONFIG ---
-                    "End user(%)": "0.00",       
-                    "Buyer(%)": "0.00",          
+                    "End user(%)": "0.00",        
+                    "Buyer(%)": "0.00",           
                     "Import tax(%)": fmt_float_2(val_import_tax), # Tính luôn vì đã có giá mua
-                    "VAT": "0.00",               
+                    "VAT": "0.00",                
                     "Transportation": fmt_num(v_trans), # Khởi tạo bằng Global
                     "Management fee(%)": "0.00",
-                    "Payback(%)": "0.00",        
+                    "Payback(%)": "0.00",         
                     # ----------------------------------------
 
                     "Profit(VND)": "0.00", "Profit(%)": "0.0%",
@@ -1478,19 +1484,22 @@ with t5:
                     
                     # --- TRIGGER LOGIC: AUTOMATIC INSERT TO PAYMENTS ---
                     if new_status == "Delivered" and curr_row['order_type'] == 'KH':
-                        # Check payment exists
-                        pay_check = supabase.table("crm_payments").select("*").eq("po_no", sel_po).execute()
-                        if not pay_check.data:
-                            eta_pay = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
-                            pay_rec = {
-                                "po_no": sel_po, 
-                                "partner": curr_row['partner'],
-                                "payment_status": "Đợi xuất hóa đơn",
-                                "eta_payment": eta_pay,
-                                "invoice_no": ""
-                            }
-                            supabase.table("crm_payments").insert([pay_rec]).execute()
-                            st.toast("✅ Đã tự động tạo lịch thanh toán!", icon="💸")
+                        try:
+                            # Check payment exists
+                            pay_check = supabase.table("crm_payments").select("*").eq("po_no", sel_po).execute()
+                            if not pay_check.data:
+                                eta_pay = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+                                pay_rec = {
+                                    "po_no": sel_po, 
+                                    "partner": curr_row['partner'],
+                                    "payment_status": "Đợi xuất hóa đơn",
+                                    "eta_payment": eta_pay,
+                                    "invoice_no": ""
+                                }
+                                supabase.table("crm_payments").insert([pay_rec]).execute()
+                                st.toast("✅ Đã tự động tạo lịch thanh toán!", icon="💸")
+                        except Exception as e:
+                            st.warning(f"Không thể tạo lịch thanh toán tự động. Lỗi: {e}")
 
                     st.success("Đã cập nhật!"); time.sleep(1); st.rerun()
 
