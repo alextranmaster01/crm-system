@@ -711,12 +711,7 @@ with t3:
             default_val = st.session_state.get(f"pct_{k}", "0")
             # --- WIDGET INPUT ---
             # Quan trọng: key=f"input_{k}" để khớp với logic load lịch sử
-            val = cols[i].text_input(k.upper(), key=f"input_{k}")
-            
-            # Khởi tạo giá trị nếu chưa có trong session_state
-            if f"input_{k}" not in st.session_state:
-                st.session_state[f"input_{k}"] = default_val
-
+            val = cols[i].text_input(k.upper(), value=default_val, key=f"input_{k}")
             st.session_state[f"pct_{k}"] = val
             params[k] = to_float(val)
 
@@ -808,13 +803,13 @@ with t3:
                     "GAP": "0.00",
                     
                     # --- KHỞI TẠO GIÁ TRỊ TỪ GLOBAL CONFIG ---
-                    "End user(%)": "0.00",      
-                    "Buyer(%)": "0.00",         
+                    "End user(%)": "0.00",       
+                    "Buyer(%)": "0.00",          
                     "Import tax(%)": fmt_float_2(val_import_tax), # Tính luôn vì đã có giá mua
-                    "VAT": "0.00",              
+                    "VAT": "0.00",               
                     "Transportation": fmt_num(v_trans), # Khởi tạo bằng Global
                     "Management fee(%)": "0.00",
-                    "Payback(%)": "0.00",       
+                    "Payback(%)": "0.00",        
                     # ----------------------------------------
 
                     "Profit(VND)": "0.00", "Profit(%)": "0.0%",
@@ -1061,28 +1056,28 @@ with t3:
             # --- REVIEW TABLE WITH TOTAL ROW ---
             df_review = st.session_state.quote_df[valid_cols].copy()
             
-            # Calculate Total Row for Review Table
-            total_review = {"No": "TOTAL", "Item code": "", "Item name": "", "Specs": "", "Leadtime": ""}
-            
-            # Sum specific columns
-            if "Q'ty" in df_review.columns:
-                total_review["Q'ty"] = df_review["Q'ty"].apply(to_float).sum()
-            
-            # Unit Price total doesn't make sense to sum usually, but per request:
-            if "Unit price(VND)" in df_review.columns:
-                total_review["Unit price(VND)"] = fmt_float_2(df_review["Unit price(VND)"].apply(to_float).sum())
-                
-            if "Total price(VND)" in df_review.columns:
-                total_review["Total price(VND)"] = fmt_float_2(df_review["Total price(VND)"].apply(to_float).sum())
-            
-            # Append Total Row
-            df_review = pd.concat([df_review, pd.DataFrame([total_review])], ignore_index=True)
-            
-            # Formatting for display
+            # 1. Tính toán Total trên dữ liệu gốc (số thực)
+            total_qty = df_review["Q'ty"].apply(to_float).sum() if "Q'ty" in df_review.columns else 0
+            total_unit = df_review["Unit price(VND)"].apply(to_float).sum() if "Unit price(VND)" in df_review.columns else 0
+            total_price = df_review["Total price(VND)"].apply(to_float).sum() if "Total price(VND)" in df_review.columns else 0
+
+            # 2. Format các dòng dữ liệu TRƯỚC khi thêm Total
             if "Unit price(VND)" in df_review.columns:
                  df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(fmt_num)
             if "Total price(VND)" in df_review.columns:
                  df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(fmt_num)
+            
+            # 3. Tạo dòng Total (Đã format sẵn)
+            total_review = {
+                "No": "TOTAL", 
+                "Item code": "", "Item name": "", "Specs": "", "Leadtime": "",
+                "Q'ty": total_qty,
+                "Unit price(VND)": fmt_float_2(total_unit), # Format tại đây luôn
+                "Total price(VND)": fmt_float_2(total_price) # Format tại đây luôn
+            }
+            
+            # 4. Gộp vào bảng
+            df_review = pd.concat([df_review, pd.DataFrame([total_review])], ignore_index=True)
             
             st.dataframe(df_review, use_container_width=True, hide_index=True)
             
@@ -1311,8 +1306,8 @@ with t4:
                             ws.append(headers)
                             for r in group.to_dict('records'):
                                 ws.append([r["No"], r["Item code"], r["Item name"], r["Specs"], r["Q'ty"], 
-                                               r["Buying price(RMB)"], r["Total buying price(RMB)"], r["Exchange rate"],
-                                               r["Buying price(VND)"], r["Total buying price(VND)"], r["Supplier"], r["ETA"]])
+                                           r["Buying price(RMB)"], r["Total buying price(RMB)"], r["Exchange rate"],
+                                           r["Buying price(VND)"], r["Total buying price(VND)"], r["Supplier"], r["ETA"]])
                             out = io.BytesIO(); wb.save(out); out.seek(0)
                             curr_year = datetime.now().strftime("%Y")
                             curr_month = datetime.now().strftime("%b").upper()
