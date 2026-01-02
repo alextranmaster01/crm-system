@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6025 - FIX QUOTE TOTAL & EXPORT ROW"
+APP_VERSION = "V6026 - FINAL FIX ALL"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
