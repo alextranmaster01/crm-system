@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6026 - FIX DUPLICATE KEY 23505"
+APP_VERSION = "V6028 - SMART DUPLICATE CHECK (3 VARS)"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -55,8 +55,6 @@ st.markdown("""
     }
 
     /* --- FIX: STYLE CHO DÒNG TOTAL (DÒNG CUỐI CÙNG TRONG TABLE) MÀU VÀNG --- */
-    /* Lưu ý: Đây là CSS hack để highlight dòng cuối của bảng hiển thị */
-    /* Áp dụng cho cả st.dataframe và st.data_editor */
     [data-testid="stDataFrame"] table tbody tr:last-child {
         background-color: #FFD700 !important; /* Màu vàng */
         color: #000000 !important; /* Chữ đen */
@@ -374,7 +372,7 @@ with t1:
     c2.markdown(f"<div class='card-3d bg-cost'><h3>CHI PHÍ NCC</h3><h1>{fmt_num(cost)}</h1></div>", unsafe_allow_html=True)
     c3.markdown(f"<div class='card-3d bg-profit'><h3>LỢI NHUẬN GỘP</h3><h1>{fmt_num(profit)}</h1></div>", unsafe_allow_html=True)
 
-# --- TAB 2: KHO HÀNG ---
+# --- TAB 2: KHO HÀNG (UPDATED: DUPLICATE LOGIC) ---
 with t2:
     st.subheader("QUẢN LÝ KHO HÀNG (Excel Online)")
     c_imp, c_view = st.columns([1, 4])
@@ -394,7 +392,7 @@ with t2:
         
         up_file = st.file_uploader("Upload Excel", type=["xlsx"], key="inv_up")
             
-        if up_file and st.button("🚀 Import"):
+        if up_file and st.button("🚀 Kiểm tra & Import"):
             try:
                 wb = load_workbook(up_file, data_only=False); ws = wb.active
                 img_map = {}
@@ -419,8 +417,6 @@ with t2:
                 for i, r in df.iterrows():
                     d = {}
                     for idx, field in enumerate(cols_map):
-                        # --- FIX LỖI PGRST204: Bỏ qua cột 'no' vì DB không có cột này ---
-                        # (Nếu bạn đã thêm cột 'no' bằng SQL thì có thể bỏ dòng này, nhưng để an toàn cứ giữ logic map)
                         if idx < len(r): d[field] = safe_str(r.iloc[idx])
                         else: d[field] = ""
                     has_data = d['item_code'] or d['item_name'] or d['specs']
@@ -437,43 +433,84 @@ with t2:
                     prog.progress((i + 1) / len(df))
                 
                 if records:
-                    # --- FIX DUPLICATE KEY 23505: Lọc trùng Item Code trong chính file Excel trước khi gửi ---
-                    # Logic: Sử dụng Dictionary để giữ lại dòng cuối cùng của mỗi mã Item Code
-                    unique_map = {}
-                    for r in records:
-                        if r['item_code']:
-                            unique_map[r['item_code']] = r
-                    # Chuyển lại thành list để insert
-                    records = list(unique_map.values())
-                    # ---------------------------------------------------------------------------------------
-
-                    chunk_ins = 100
-                    codes = [b['item_code'] for b in records if b['item_code']]
-                    if codes: supabase.table("crm_purchases").delete().in_("item_code", codes).execute()
+                    # --- BƯỚC 1: KIỂM TRA TRÙNG LẶP (3 BIẾN: Code, Name, Specs) ---
+                    df_db = load_data("crm_purchases")
                     
-                    # --- FIX: THỬ INSERT BÌNH THƯỜNG TRƯỚC ---
-                    try:
-                        for k in range(0, len(records), chunk_ins):
-                            batch = records[k:k+chunk_ins]
-                            # --- FIX LỖI 23505: ĐỔI SANG UPSERT ---
-                            supabase.table("crm_purchases").upsert(batch).execute()
-                    except Exception as e_ins:
-                         # NẾU LỖI DO CỘT row_order KHÔNG TỒN TẠI, XÓA NÓ ĐI VÀ INSERT LẠI
-                        if "row_order" in str(e_ins):
-                            st.warning("⚠️ Database cũ chưa có cột row_order. Đang tự động bỏ qua cột này để insert...")
-                            for rec in records:
-                                if 'row_order' in rec: del rec['row_order']
-                            
-                            for k in range(0, len(records), chunk_ins):
-                                batch = records[k:k+chunk_ins]
-                                # --- FIX LỖI 23505: ĐỔI SANG UPSERT ---
-                                supabase.table("crm_purchases").upsert(batch).execute()
+                    existing_sigs = set()
+                    if not df_db.empty:
+                        for r in df_db.to_dict('records'):
+                            sig = (clean_key(r.get('item_code')), clean_key(r.get('item_name')), clean_key(r.get('specs')))
+                            existing_sigs.add(sig)
+                    
+                    dups = []
+                    non_dups = []
+                    for rec in records:
+                        sig = (clean_key(rec.get('item_code')), clean_key(rec.get('item_name')), clean_key(rec.get('specs')))
+                        if sig in existing_sigs:
+                            dups.append(rec)
                         else:
-                            raise e_ins
+                            non_dups.append(rec)
+                    
+                    # Lưu vào session để xử lý
+                    st.session_state.import_dups = dups
+                    st.session_state.import_non_dups = non_dups
+                    st.session_state.import_step = "confirm" if dups else "auto_import"
+                    st.rerun()
 
-                    st.success(f"✅ Đã import {len(records)} dòng (đã lọc trùng mã)!")
-                    st.cache_data.clear(); time.sleep(1); st.rerun()
-            except Exception as e: st.error(f"Lỗi Import: {e}")
+            except Exception as e: 
+                st.error(f"Lỗi đọc file: {e}")
+
+        # --- LOGIC XỬ LÝ SAU KHI CLICK IMPORT ---
+        step = st.session_state.get("import_step", None)
+        
+        if step == "confirm":
+            st.warning(f"⚠️ Phát hiện {len(st.session_state.import_dups)} dòng dữ liệu bị TRÙNG LẶP (Giống hệt Code, Name & Specs)!")
+            st.write("Dữ liệu trùng:")
+            st.dataframe(pd.DataFrame(st.session_state.import_dups)[['item_code', 'item_name', 'specs']], hide_index=True)
+            
+            c_btn1, c_btn2 = st.columns(2)
+            if c_btn1.button("✅ Chỉ Import dòng mới (Bỏ qua trùng)"):
+                final_batch = st.session_state.import_non_dups
+                st.session_state.final_import_list = final_batch
+                st.session_state.import_step = "executing"
+                st.rerun()
+                
+            if c_btn2.button("⚠️ Import TẤT CẢ (Chấp nhận trùng)"):
+                final_batch = st.session_state.import_dups + st.session_state.import_non_dups
+                st.session_state.final_import_list = final_batch
+                st.session_state.import_step = "executing"
+                st.rerun()
+
+        elif step == "auto_import":
+            st.session_state.final_import_list = st.session_state.import_non_dups
+            st.session_state.import_step = "executing"
+            st.rerun()
+
+        elif step == "executing":
+            final_list = st.session_state.get("final_import_list", [])
+            if final_list:
+                try:
+                    chunk_ins = 100
+                    for k in range(0, len(final_list), chunk_ins):
+                        batch = final_list[k:k+chunk_ins]
+                        # Xóa row_order nếu DB cũ không có (để tránh lỗi)
+                        try:
+                            supabase.table("crm_purchases").insert(batch).execute()
+                        except Exception as e_ins:
+                             if "row_order" in str(e_ins):
+                                for rec in batch: 
+                                    if 'row_order' in rec: del rec['row_order']
+                                supabase.table("crm_purchases").insert(batch).execute()
+                             else: raise e_ins
+                             
+                    st.success(f"✅ Đã import thành công {len(final_list)} dòng!")
+                    st.session_state.import_step = None # Reset
+                    st.session_state.import_dups = []
+                    st.session_state.import_non_dups = []
+                    time.sleep(1); st.cache_data.clear(); st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi Import SQL: {e}")
+                    st.session_state.import_step = None # Reset on error
 
     with c_view:
         # Load data đã fix sort
@@ -483,15 +520,11 @@ with t2:
 
         # --- FIX: ĐỔI THỨ TỰ CỘT ĐỂ CỘT 'no' HOẶC 'No' LÊN ĐẦU ---
         current_cols = df_pur.columns.tolist()
-        # Tìm cột 'no' hoặc 'No'
         no_col = next((c for c in current_cols if c.lower() == 'no'), None)
         
         if no_col:
-            # Xóa khỏi vị trí cũ
             current_cols.remove(no_col)
-            # Chèn vào đầu
             current_cols.insert(0, no_col)
-            # Áp dụng
             df_pur = df_pur[current_cols]
 
         search = st.text_input("🔍 Tìm kiếm (Name, Code, Specs...)", key="search_pur")
@@ -810,12 +843,12 @@ with t3:
                     
                     # --- KHỞI TẠO GIÁ TRỊ TỪ GLOBAL CONFIG ---
                     "End user(%)": "0.00",        
-                    "Buyer(%)": "0.00",           
+                    "Buyer(%)": "0.00",            
                     "Import tax(%)": fmt_float_2(val_import_tax), # Tính luôn vì đã có giá mua
-                    "VAT": "0.00",                
+                    "VAT": "0.00",                 
                     "Transportation": fmt_num(v_trans), # Khởi tạo bằng Global
                     "Management fee(%)": "0.00",
-                    "Payback(%)": "0.00",         
+                    "Payback(%)": "0.00",          
                     # ----------------------------------------
 
                     "Profit(VND)": "0.00", "Profit(%)": "0.0%",
@@ -1318,8 +1351,8 @@ with t4:
                             ws.append(headers)
                             for r in group.to_dict('records'):
                                 ws.append([r["No"], r["Item code"], r["Item name"], r["Specs"], r["Q'ty"], 
-                                           r["Buying price(RMB)"], r["Total buying price(RMB)"], r["Exchange rate"],
-                                           r["Buying price(VND)"], r["Total buying price(VND)"], r["Supplier"], r["ETA"]])
+                                             r["Buying price(RMB)"], r["Total buying price(RMB)"], r["Exchange rate"],
+                                             r["Buying price(VND)"], r["Total buying price(VND)"], r["Supplier"], r["ETA"]])
                             out = io.BytesIO(); wb.save(out); out.seek(0)
                             curr_year = datetime.now().strftime("%Y")
                             curr_month = datetime.now().strftime("%b").upper()
