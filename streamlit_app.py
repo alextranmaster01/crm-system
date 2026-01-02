@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6028 - SMART DUPLICATE CHECK (3 VARS)"
+APP_VERSION = "V6029 - FIX MISSING IMAGES (OVERLAP HANDLING)"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -372,7 +372,7 @@ with t1:
     c2.markdown(f"<div class='card-3d bg-cost'><h3>CHI PHÍ NCC</h3><h1>{fmt_num(cost)}</h1></div>", unsafe_allow_html=True)
     c3.markdown(f"<div class='card-3d bg-profit'><h3>LỢI NHUẬN GỘP</h3><h1>{fmt_num(profit)}</h1></div>", unsafe_allow_html=True)
 
-# --- TAB 2: KHO HÀNG (UPDATED: DUPLICATE LOGIC) ---
+# --- TAB 2: KHO HÀNG (UPDATED: DUPLICATE LOGIC & IMAGE FIX) ---
 with t2:
     st.subheader("QUẢN LÝ KHO HÀNG (Excel Online)")
     c_imp, c_view = st.columns([1, 4])
@@ -395,17 +395,48 @@ with t2:
         if up_file and st.button("🚀 Kiểm tra & Import"):
             try:
                 wb = load_workbook(up_file, data_only=False); ws = wb.active
+                
+                # --- FIX: XỬ LÝ ẢNH THÔNG MINH (TRÁNH BỊ ĐÈ ẢNH) ---
                 img_map = {}
+                
+                # 1. Lấy tất cả ảnh và dòng neo (anchor) của nó
+                detected_images = []
                 for image in getattr(ws, '_images', []):
-                    row = image.anchor._from.row + 1
-                    buf = io.BytesIO(image._data())
-                    cell_specs = ws.cell(row=row, column=4).value 
-                    specs_val = safe_str(cell_specs)
-                    safe_name = re.sub(r'[\\/*?:"<>|]', "", specs_val).strip()
-                    if not safe_name: safe_name = f"NO_SPECS_R{row}"
-                    fname = f"{safe_name}.png"
-                    link, _ = upload_to_drive_simple(buf, "CRM_PRODUCT_IMAGES", fname)
-                    img_map[row] = link
+                    try:
+                        # anchor._from.row là 0-indexed. Dữ liệu bắt đầu từ Excel Row 2 (index 1).
+                        # Code bên dưới loop df dùng i (0-indexed) + 2 để map.
+                        # Tức là dòng 1 data (Excel Row 2) tương ứng key = 2.
+                        r_idx = image.anchor._from.row + 1
+                        
+                        # Lấy tên để đặt tên file ảnh (Specs ở cột 4)
+                        cell_specs = ws.cell(row=r_idx, column=4).value 
+                        specs_val = safe_str(cell_specs)
+                        safe_name = re.sub(r'[\\/*?:"<>|]', "", specs_val).strip()
+                        if not safe_name: safe_name = f"NO_SPECS_R{r_idx}"
+                        fname = f"{safe_name}.png"
+                        
+                        detected_images.append({'row': r_idx, 'name': fname, 'data': image._data()})
+                    except: continue
+
+                # 2. Sắp xếp ảnh theo thứ tự dòng xuất hiện
+                detected_images.sort(key=lambda x: x['row'])
+
+                # 3. Map ảnh vào dòng (Xử lý va chạm: Nếu dòng đã có ảnh, đẩy xuống dòng dưới)
+                # Đây là fix cho trường hợp ảnh bị chồm lên dòng trên
+                for img in detected_images:
+                    r = img['row']
+                    # Upload
+                    buf = io.BytesIO(img['data'])
+                    link, _ = upload_to_drive_simple(buf, "CRM_PRODUCT_IMAGES", img['name'])
+                    
+                    if r not in img_map:
+                        img_map[r] = link
+                    elif (r + 1) not in img_map:
+                        # Nếu dòng r đã có ảnh, thử dòng r+1 (do ảnh bị lệch neo)
+                        img_map[r + 1] = link
+                    # Nếu cả r và r+1 đều có rồi thì đành chịu (hoặc ghi đè tùy logic, ở đây giữ cái đầu tiên)
+
+                # --- HẾT PHẦN FIX ẢNH ---
                 
                 df = pd.read_excel(up_file, header=None, skiprows=1, dtype=str).fillna("")
                 records = []
@@ -421,7 +452,12 @@ with t2:
                         else: d[field] = ""
                     has_data = d['item_code'] or d['item_name'] or d['specs']
                     if has_data:
-                        if not d.get('image_path') and (i+2) in img_map: d['image_path'] = img_map[i+2]
+                        # i là 0-indexed của dataframe. Excel header là row 1. Data bắt đầu row 2.
+                        # i=0 tương ứng Excel Row 2.
+                        # img_map dùng key = row index Excel (1-based)
+                        if not d.get('image_path') and (i+2) in img_map: 
+                            d['image_path'] = img_map[i+2]
+                            
                         d['row_order'] = i + 1 
                         d['qty'] = to_float(d.get('qty', 0))
                         d['buying_price_rmb'] = to_float(d['buying_price_rmb'])
