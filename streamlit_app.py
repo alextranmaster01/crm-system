@@ -882,9 +882,11 @@ with t3:
         
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
-        # Calculate sums for ALL requested columns
+        # Calculate sums for ALL requested columns (ON FLOAT DATA)
         for c in cols_to_sum:
             if c in df_display.columns:
+                # --- FIX: DATA TYPE CONVERSION FOR SUM ---
+                # Chuyển đổi dữ liệu về float trước khi sum (tránh lỗi cộng chuỗi nếu đang là string)
                 total_val = df_display[c].apply(to_float).sum()
                 total_row[c] = fmt_float_2(total_val)
         
@@ -909,7 +911,7 @@ with t3:
                     p_pay = params['pay']/100; p_mgmt = params['mgmt']/100
                     v_trans = params['trans']
                     
-                    # Duyệt qua từng dòng và tính lại giá trị
+                    # Duyệt qua từng dòng và tính lại giá trị (LƯU DẠNG SỐ FLOAT)
                     for idx, row in st.session_state.quote_df.iterrows():
                         # Lấy các giá trị cơ sở (Số thực)
                         val_ap_total = to_float(row["AP total price(VND)"])
@@ -917,24 +919,26 @@ with t3:
                         val_buy_total = to_float(row["Total buying price(VND)"])
                         val_gap = to_float(row["GAP"])
                         
-                        # Áp dụng công thức Global
-                        st.session_state.quote_df.at[idx, "End user(%)"] = fmt_float_2(val_ap_total * p_end)
-                        st.session_state.quote_df.at[idx, "Buyer(%)"] = fmt_float_2(val_total * p_buy)
-                        st.session_state.quote_df.at[idx, "Import tax(%)"] = fmt_float_2(val_buy_total * p_tax)
-                        st.session_state.quote_df.at[idx, "VAT"] = fmt_float_2(val_total * p_vat)
-                        st.session_state.quote_df.at[idx, "Management fee(%)"] = fmt_float_2(val_total * p_mgmt)
-                        st.session_state.quote_df.at[idx, "Payback(%)"] = fmt_float_2(val_gap * p_pay)
-                        st.session_state.quote_df.at[idx, "Transportation"] = fmt_num(v_trans)
+                        # Áp dụng công thức Global - LƯU FLOAT VÀO SESSION STATE
+                        st.session_state.quote_df.at[idx, "End user(%)"] = val_ap_total * p_end
+                        st.session_state.quote_df.at[idx, "Buyer(%)"] = val_total * p_buy
+                        st.session_state.quote_df.at[idx, "Import tax(%)"] = val_buy_total * p_tax
+                        st.session_state.quote_df.at[idx, "VAT"] = val_total * p_vat
+                        st.session_state.quote_df.at[idx, "Management fee(%)"] = val_total * p_mgmt
+                        st.session_state.quote_df.at[idx, "Payback(%)"] = val_gap * p_pay
+                        st.session_state.quote_df.at[idx, "Transportation"] = v_trans # Lưu số thực
                     
                     st.toast("✅ Đã áp dụng Global Config cho toàn bộ bảng!", icon="⚡")
                     st.rerun()
 
         # --- DATA EDITOR (FIX INDENTATION) ---
-        # Convert sang string format đẹp để hiển thị
+        # Convert sang string format đẹp để hiển thị (CHỈ DISPLAY)
         cols_display_fmt = ["Exchange rate", "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
         for c in cols_display_fmt:
             if c in df_display.columns:
-                df_display[c] = df_display[c].apply(fmt_num) # Format có dấu phẩy
+                # --- FIX QUAN TRỌNG: CHỈ FORMAT NẾU KHÔNG PHẢI DÒNG TOTAL ---
+                # Dòng Total đã được format ở trên, các dòng dữ liệu cần format để hiển thị
+                df_display[c] = df_display.apply(lambda r: fmt_num(r[c]) if r['No'] != "TOTAL" else r[c], axis=1)
 
         edited_df = st.data_editor(
             df_display,
@@ -983,7 +987,7 @@ with t3:
                          if c in numeric_cols:
                              # So sánh số (tránh lỗi 100000.0 != 100,000)
                              if abs(to_float(old_val) - to_float(new_val)) > 0.001:
-                                 st.session_state.quote_df.at[idx, c] = new_val
+                                 st.session_state.quote_df.at[idx, c] = new_val # Lưu giá trị mới vào
                                  data_changed = True
                          else:
                              # Các cột Text/Checkbox
