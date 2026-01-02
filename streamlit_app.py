@@ -711,7 +711,12 @@ with t3:
             default_val = st.session_state.get(f"pct_{k}", "0")
             # --- WIDGET INPUT ---
             # Quan trọng: key=f"input_{k}" để khớp với logic load lịch sử
-            val = cols[i].text_input(k.upper(), value=default_val, key=f"input_{k}")
+            val = cols[i].text_input(k.upper(), key=f"input_{k}")
+            
+            # Khởi tạo giá trị nếu chưa có trong session_state
+            if f"input_{k}" not in st.session_state:
+                st.session_state[f"input_{k}"] = default_val
+
             st.session_state[f"pct_{k}"] = val
             params[k] = to_float(val)
 
@@ -882,7 +887,7 @@ with t3:
         
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
-        # Calculate sums for ALL requested columns
+        # Calculate sums for ALL requested columns (ON FLOAT DATA)
         for c in cols_to_sum:
             if c in df_display.columns:
                 # --- FIX: DATA TYPE CONVERSION FOR SUM ---
@@ -1526,3 +1531,5 @@ with t6:
             lnk, fid = upload_to_drive_simple(up_t, "CRM_TEMPLATES", f"TMP_{t_name}.xlsx")
             if fid: supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute(); st.success("OK"); st.rerun()
         st.dataframe(load_data("crm_templates"))"
+chú ý: Đoạn code đã có coi như một thư viện (blackbox). Khi sửa code, chỉ cần giả định là hàm X đã tồn tại và gọi nó ra, không cần viết lại nội dung hàm. chỉ sửa phần code liên quan đến lỗi, còn lại không liên quan thì giữ nguyên 100% không được tự ý bỏ đi hoặc tự ý gộp, xóa code.
+- hãy sửa lỗi sau: 1/tab báo giá, phần ''BẢNG REVIEW'', vẫn không hiện số tiền tổng ở phía dưới cùng của bảng của 2 cột "Unit price VND" và "Total price VND" (lỗi như trong ảnh)
