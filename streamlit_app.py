@@ -12,7 +12,7 @@ import numpy as np
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6029 - FIX MISSING IMAGES (OVERLAP HANDLING)"
+APP_VERSION = "V6030 - RESTORED MASTER DATA V6025"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -100,9 +100,10 @@ except Exception as e:
 
 def get_drive_service():
     try:
-        creds = Credentials(None, refresh_token=OAUTH_INFO["refresh_token"], 
+        cred_info = OAUTH_INFO
+        creds = Credentials(None, refresh_token=cred_info["refresh_token"], 
                             token_uri="https://oauth2.googleapis.com/token", 
-                            client_id=OAUTH_INFO["client_id"], client_secret=OAUTH_INFO["client_secret"])
+                            client_id=cred_info["client_id"], client_secret=cred_info["client_secret"])
         return build('drive', 'v3', credentials=creds)
     except: return None
 
@@ -119,7 +120,6 @@ def get_or_create_folder_hierarchy(srv, path_list, parent_id):
             file_metadata = {
                 'name': folder_name,
                 'mimeType': 'application/vnd.google-apps.folder',
-                
                 'parents': [current_parent_id]
             }
             folder = srv.files().create(body=file_metadata, fields='id').execute()
@@ -879,12 +879,12 @@ with t3:
                     
                     # --- KHỞI TẠO GIÁ TRỊ TỪ GLOBAL CONFIG ---
                     "End user(%)": "0.00",        
-                    "Buyer(%)": "0.00",            
+                    "Buyer(%)": "0.00",             
                     "Import tax(%)": fmt_float_2(val_import_tax), # Tính luôn vì đã có giá mua
-                    "VAT": "0.00",                 
+                    "VAT": "0.00",                  
                     "Transportation": fmt_num(v_trans), # Khởi tạo bằng Global
                     "Management fee(%)": "0.00",
-                    "Payback(%)": "0.00",          
+                    "Payback(%)": "0.00",           
                     # ----------------------------------------
 
                     "Profit(VND)": "0.00", "Profit(%)": "0.0%",
@@ -1695,85 +1695,102 @@ with t5:
         else:
             st.info("No Data.")
 
-# --- TAB 6: MASTER DATA ---
+# --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025) ---
 with t6:
     tc, ts, tt = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE"])
     
-    # --- FIX: DYNAMIC CUSTOMER IMPORT ---
+    # --- CUSTOMERS (ALGORITHM: DELETE ALL -> INSERT CHUNKS, NORMALIZED COLUMNS) ---
     with tc:
-        df_c = load_data("crm_customers")
-        st.write("Dữ liệu hiện tại:")
+        st.markdown("### 1. QUẢN LÝ KHÁCH HÀNG")
+        df_c = load_data("crm_customers", order_by="id")
         st.dataframe(df_c, use_container_width=True, hide_index=True)
         
-        up = st.file_uploader("Import CUSTOMER LIST", type=["xlsx"], key="uck")
-        if up and st.button("🚀 Import KH (Đồng bộ tuyệt đối)"):
+        st.write("---")
+        st.write("📥 **Import Dữ Liệu Mới (Ghi đè toàn bộ)**")
+        st.caption("Excel Headers: Short Name, Eng Name, VN Name, Address 1, Tax Code... (Hệ thống tự động chuẩn hóa)")
+        up_c = st.file_uploader("Upload Excel Khách Hàng", type=["xlsx"], key="up_cust_master")
+        
+        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (V6025 Algorithm)"):
             try:
-                # Đọc Excel (Lấy luôn header từ file)
-                df_new = pd.read_excel(up, dtype=str).fillna("")
+                # 1. Read Excel
+                df = pd.read_excel(up_c, dtype=str).fillna("")
                 
-                # Clean tên cột (xóa khoảng trắng thừa)
-                df_new.columns = [str(c).strip() for c in df_new.columns]
+                # 2. Normalize Columns (Logic V6025 Safe Import)
+                # Chuyển tên cột về dạng lowercase và thay khoảng trắng bằng gạch dưới để khớp với DB
+                # Ví dụ: "Short Name" -> "short_name", "Address 1" -> "address_1"
+                df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
                 
-                # Chuyển thành list dict để insert
-                records = df_new.to_dict('records')
+                data = df.to_dict('records')
                 
-                if records:
-                    # 1. XÓA SẠCH DỮ LIỆU CŨ (Để đồng bộ tuyệt đối như yêu cầu)
+                if data:
+                    # 3. Clear Data
                     supabase.table("crm_customers").delete().neq("id", 0).execute()
                     
-                    # 2. INSERT DỮ LIỆU MỚI (DYNAMIC COLUMNS)
-                    # Lưu ý: Database Supabase PHẢI có các cột tương ứng với header trong Excel
+                    # 4. Insert Data (Chunking)
                     chunk_size = 100
-                    for k in range(0, len(records), chunk_size):
-                        batch = records[k:k+chunk_size]
+                    for k in range(0, len(data), chunk_size):
+                        batch = data[k:k+chunk_size]
+                        # Remove 'id' if exists to let DB auto-inc
+                        for b in batch:
+                            if 'id' in b: del b['id']
                         supabase.table("crm_customers").insert(batch).execute()
                         
-                    st.success(f"✅ Đã đồng bộ {len(records)} khách hàng! (Cấu trúc cột theo Excel)")
-                    time.sleep(1); st.rerun()
-                else: st.warning("File rỗng!")
+                    st.success(f"✅ Đã import thành công {len(data)} khách hàng!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("File rỗng!")
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
-                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
 
-    # --- FIX: DYNAMIC SUPPLIER IMPORT ---
+    # --- SUPPLIERS (ALGORITHM: DELETE ALL -> INSERT CHUNKS) ---
     with ts:
-        df_s = load_data("crm_suppliers")
-        st.write("Dữ liệu hiện tại:")
+        st.markdown("### 2. QUẢN LÝ NHÀ CUNG CẤP")
+        df_s = load_data("crm_suppliers", order_by="id")
         st.dataframe(df_s, use_container_width=True, hide_index=True)
         
-        up_s = st.file_uploader("Import SUPPLIER LIST", type=["xlsx"], key="usn")
-        if up_s and st.button("🚀 Import NCC (Đồng bộ tuyệt đối)"):
+        st.write("---")
+        st.write("📥 **Import Dữ Liệu Mới (Ghi đè toàn bộ)**")
+        up_s = st.file_uploader("Upload Excel Nhà Cung Cấp", type=["xlsx"], key="up_supp_master")
+        
+        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP (V6025 Algorithm)"):
             try:
-                # Đọc Excel
-                df_new = pd.read_excel(up_s, dtype=str).fillna("")
+                # 1. Read Excel
+                df = pd.read_excel(up_s, dtype=str).fillna("")
                 
-                # Clean tên cột
-                df_new.columns = [str(c).strip() for c in df_new.columns]
+                # 2. Normalize Columns
+                df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
                 
-                records = df_new.to_dict('records')
+                data = df.to_dict('records')
                 
-                if records:
-                    # 1. XÓA SẠCH DỮ LIỆU CŨ
+                if data:
+                    # 3. Clear Data
                     supabase.table("crm_suppliers").delete().neq("id", 0).execute()
                     
-                    # 2. INSERT DỮ LIỆU MỚI
+                    # 4. Insert Data (Chunking)
                     chunk_size = 100
-                    for k in range(0, len(records), chunk_size):
-                        batch = records[k:k+chunk_size]
+                    for k in range(0, len(data), chunk_size):
+                        batch = data[k:k+chunk_size]
+                        for b in batch:
+                            if 'id' in b: del b['id']
                         supabase.table("crm_suppliers").insert(batch).execute()
                         
-                    st.success(f"✅ Đã đồng bộ {len(records)} nhà cung cấp! (Cấu trúc cột theo Excel)")
-                    time.sleep(1); st.rerun()
-                else: st.warning("File rỗng!")
+                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("File rỗng!")
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
-                st.warning("⚠️ Lưu ý: Tên cột trong file Excel PHẢI khớp với tên cột trong Database Supabase.")
 
+    # --- TEMPLATE ---
     with tt:
-        st.write("Upload Template Excel")
+        st.write("Upload Template Excel (Quotation)")
         up_t = st.file_uploader("File Template (.xlsx)", type=["xlsx"])
-        t_name = st.text_input("Tên Template (Nhập: AAA-QUOTATION)")
+        t_name = st.text_input("Tên Template (Nhập chính xác: AAA-QUOTATION)")
         if up_t and t_name and st.button("Lưu Template"):
             lnk, fid = upload_to_drive_simple(up_t, "CRM_TEMPLATES", f"TMP_{t_name}.xlsx")
-            if fid: supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute(); st.success("OK"); st.rerun()
+            if fid: 
+                supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute()
+                st.success("OK"); st.rerun()
         st.dataframe(load_data("crm_templates"))
