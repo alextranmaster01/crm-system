@@ -8,11 +8,12 @@ import time
 import json
 import mimetypes
 import numpy as np
+import altair as alt # Thêm thư viện vẽ biểu đồ
 
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6031 - FIX REVIEW DOUBLE FORMAT"
+APP_VERSION = "V6032 - DASHBOARD UPGRADE & METRICS"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -76,7 +77,7 @@ try:
     from openpyxl import load_workbook, Workbook
     from openpyxl.styles import Border, Side, Alignment, Font
 except ImportError:
-    st.error("⚠️ Thiếu thư viện. Vui lòng chạy lệnh: pip install streamlit pandas supabase google-api-python-client google-auth-oauthlib openpyxl")
+    st.error("⚠️ Thiếu thư viện. Vui lòng chạy lệnh: pip install streamlit pandas supabase google-api-python-client google-auth-oauthlib openpyxl altair")
     st.stop()
 
 # CONNECT SERVER
@@ -362,15 +363,106 @@ t1, t2, t3, t4, t5, t6 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO
 # --- TAB 1: DASHBOARD ---
 with t1:
     if st.button("🔄 REFRESH DATA"): st.cache_data.clear(); st.rerun()
-    db_cust = load_data("db_customer_orders")
-    db_supp = load_data("db_supplier_orders")
-    rev = db_cust['total_price'].apply(to_float).sum() if not db_cust.empty else 0
-    cost = db_supp['total_vnd'].apply(to_float).sum() if not db_supp.empty else 0
-    profit = rev - cost 
+    
+    # --- LOAD DATA ---
+    db_cust_po = load_data("db_customer_orders") # Nguồn PO Khách hàng
+    db_hist = load_data("crm_shared_history")    # Nguồn Lịch sử (Chứa thông tin Profit, Cost)
+    db_items = load_data("crm_purchases")        # Nguồn Master Data (Để map Type)
+
+    # 1. DOANH THU = Tổng PO Khách Hàng (Theo yêu cầu)
+    revenue_total = db_cust_po['total_price'].apply(to_float).sum() if not db_cust_po.empty else 0
+    
+    # 2. LỢI NHUẬN & CHI PHÍ = Tính từ Lịch Sử (Vì đây là nơi duy nhất lưu Profit đã tính toán kỹ)
+    # Logic: Cost = Revenue_History - Profit_History
+    # Lưu ý: Doanh thu History có thể lệch nhẹ với PO nếu PO có chỉnh sửa giá sau này, nhưng để tính Cost đúng công thức, phải dùng cặp Rev-Profit trong History.
+    profit_total = 0
+    cost_total = 0
+    
+    if not db_hist.empty:
+        profit_total = db_hist['profit_vnd'].apply(to_float).sum()
+        rev_hist = db_hist['total_price_vnd'].apply(to_float).sum()
+        cost_total = rev_hist - profit_total
+    
+    # --- METRIC CARDS ---
     c1, c2, c3 = st.columns(3)
-    c1.markdown(f"<div class='card-3d bg-sales'><h3>DOANH THU</h3><h1>{fmt_num(rev)}</h1></div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='card-3d bg-cost'><h3>CHI PHÍ NCC</h3><h1>{fmt_num(cost)}</h1></div>", unsafe_allow_html=True)
-    c3.markdown(f"<div class='card-3d bg-profit'><h3>LỢI NHUẬN GỘP</h3><h1>{fmt_num(profit)}</h1></div>", unsafe_allow_html=True)
+    c1.markdown(f"<div class='card-3d bg-sales'><h3>DOANH THU (Total PO)</h3><h1>{fmt_num(revenue_total)}</h1></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='card-3d bg-cost'><h3>CHI PHÍ (Formula)</h3><h1>{fmt_num(cost_total)}</h1></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='card-3d bg-profit'><h3>LỢI NHUẬN (Est.)</h3><h1>{fmt_num(profit_total)}</h1></div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # --- PREPARE DATA FOR CHARTS ---
+    # Merge History with Items to get 'Type'
+    if not db_hist.empty:
+        # Xử lý Date
+        db_hist['date_dt'] = pd.to_datetime(db_hist['date'], format="%Y-%m-%d", errors='coerce')
+        db_hist['Month'] = db_hist['date_dt'].dt.strftime('%Y-%m')
+        
+        # Mapping Type từ Master Data
+        # Tạo dict: code -> type
+        type_map = {}
+        if not db_items.empty:
+            for r in db_items.to_dict('records'):
+                type_map[clean_key(r.get('item_code'))] = safe_str(r.get('type', 'Other'))
+        
+        db_hist['Type'] = db_hist['item_code'].apply(lambda x: type_map.get(clean_key(x), "Other"))
+        
+        # Đảm bảo số liệu
+        db_hist['Revenue'] = db_hist['total_price_vnd'].apply(to_float)
+        
+        # --- CHART 1: DOANH SỐ THEO THÁNG & KHÁCH HÀNG (BAR + TREND) ---
+        st.subheader("📈 Xu hướng Doanh số & Khách hàng")
+        
+        # Group data
+        chart_data = db_hist.groupby(['Month', 'customer'])['Revenue'].sum().reset_index()
+        
+        # Altair Charts
+        base = alt.Chart(chart_data).encode(x=alt.X('Month', title='Tháng'))
+        
+        # Cột (Bar) - Phân theo Khách hàng
+        bar = base.mark_bar().encode(
+            y=alt.Y('Revenue', title='Doanh thu (VND)'),
+            color=alt.Color('customer', title='Khách hàng'),
+            tooltip=['Month', 'customer', alt.Tooltip('Revenue', format=',.0f')]
+        )
+        
+        # Đường (Line) - Tổng Trend
+        line_data = db_hist.groupby(['Month'])['Revenue'].sum().reset_index()
+        line = alt.Chart(line_data).mark_line(color='red', point=True).encode(
+            x='Month',
+            y='Revenue',
+            tooltip=[alt.Tooltip('Revenue', format=',.0f', title='Tổng Doanh Thu')]
+        )
+        
+        st.altair_chart((bar + line).interactive(), use_container_width=True)
+        
+        # --- CHART 2 & 3: PIE CHARTS (STRUCTURE) ---
+        st.divider()
+        st.subheader("🍰 Cơ cấu Doanh số")
+        col_pie1, col_pie2 = st.columns(2)
+        
+        with col_pie1:
+            st.write("**Theo Khách Hàng**")
+            pie_cust_data = db_hist.groupby('customer')['Revenue'].sum().reset_index()
+            pie_cust = alt.Chart(pie_cust_data).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta(field="Revenue", type="quantitative"),
+                color=alt.Color(field="customer", type="nominal"),
+                tooltip=['customer', alt.Tooltip('Revenue', format=',.0f')]
+            )
+            st.altair_chart(pie_cust, use_container_width=True)
+            
+        with col_pie2:
+            st.write("**Theo Loại Sản Phẩm (Type)**")
+            pie_type_data = db_hist.groupby('Type')['Revenue'].sum().reset_index()
+            pie_type = alt.Chart(pie_type_data).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta(field="Revenue", type="quantitative"),
+                color=alt.Color(field="Type", type="nominal"),
+                tooltip=['Type', alt.Tooltip('Revenue', format=',.0f')]
+            )
+            st.altair_chart(pie_type, use_container_width=True)
+            
+    else:
+        st.info("Chưa có dữ liệu lịch sử để vẽ biểu đồ. Hãy tạo Báo Giá và Lưu Lịch Sử.")
 
 # --- TAB 2: KHO HÀNG (UPDATED: DUPLICATE LOGIC & IMAGE FIX) ---
 with t2:
