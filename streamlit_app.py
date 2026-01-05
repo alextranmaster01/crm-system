@@ -747,203 +747,81 @@ with t2:
             )
         else: st.info("Kho hàng trống.")
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE WITH REAL-TIME CALCULATION & FORMATTING) ---
+# --- TAB 3: BÁO GIÁ (FIXED: FORMATTING & HISTORY LOADING) ---
 # =============================================================================
 with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
-    # -------------------------------------------------------------------------
-    # [MỚI] KHU VỰC ADMIN: RESET LỊCH SỬ
-    # -------------------------------------------------------------------------
-    with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
-        c_adm1, c_adm2 = st.columns([3, 1])
-        with c_adm1:
-            st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history). Hãy cẩn thận!")
-        with c_adm2:
-            adm_pass_q = st.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote")
-            if st.button("🔴 XÓA HẾT LỊCH SỬ"):
-                if adm_pass_q == "admin":
-                    try:
-                        # Xóa toàn bộ dữ liệu trong bảng crm_shared_history
-                        supabase.table("crm_shared_history").delete().neq("id", 0).execute()
-                        st.toast("✅ Đã xóa toàn bộ lịch sử báo giá!", icon="🗑️")
-                        time.sleep(1.5)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi khi xóa: {e}")
-                else:
-                    st.error("Sai mật khẩu!")
-
-    # -------------------------------------------------------------------------
-    # 1. TRA CỨU & TRẠNG THÁI (CODE CŨ GIỮ NGUYÊN)
-    # -------------------------------------------------------------------------
-    with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
+    # ------------------ 1. TRA CỨU & QUẢN LÝ LỊCH SỬ ------------------
+    with st.expander("🔎 TRA CỨU & LỊCH SỬ BÁO GIÁ (Đã sửa lỗi hiển thị)", expanded=False):
         c_src1, c_src2 = st.columns(2)
-        search_kw = c_src1.text_input("Nhập từ khóa (Tên Khách, Quote No, Code, Name, Date)", help="Tìm kiếm trong lịch sử")
-        up_src = c_src2.file_uploader("Hoặc Import Excel kiểm tra", type=["xlsx"], key="src_up")
+        search_kw = c_src1.text_input("Tìm kiếm (Tên Khách, Quote No...)", help="Tìm trong lịch sử DB")
         
-        if st.button("Kiểm tra trạng thái"):
-            df_hist = load_data("crm_shared_history")
-            df_po = load_data("db_customer_orders")
-            df_items = load_data("crm_purchases") 
-
-            item_map = {}
-            if not df_items.empty:
-                for r in df_items.to_dict('records'):
-                    k = clean_key(r['item_code'])
-                    item_map[k] = f"{safe_str(r['item_name'])} {safe_str(r['specs'])}"
-
-            po_map = {}
-            if not df_po.empty:
-                for r in df_po.to_dict('records'):
-                    k = f"{clean_key(r['customer'])}_{clean_key(r['item_code'])}"
-                    po_map[k] = r['po_number']
-
-            results = []
-            if search_kw and not df_hist.empty:
-                def check_row(row):
-                    kw = search_kw.lower()
-                    if kw in str(row.get('customer','')).lower(): return True
-                    if kw in str(row.get('quote_no','')).lower(): return True
-                    if kw in str(row.get('item_code','')).lower(): return True
-                    if kw in str(row.get('date','')).lower(): return True
-                    code = clean_key(row['item_code'])
-                    info = item_map.get(code, "").lower()
-                    if kw in info: return True
-                    return False
-                
-                mask = df_hist.apply(check_row, axis=1)
-                found = df_hist[mask]
-                for _, r in found.iterrows():
-                    key = f"{clean_key(r['customer'])}_{clean_key(r['item_code'])}"
-                    po_found = po_map.get(key, "")
-                    code_info = item_map.get(clean_key(r['item_code']), "")
-                    results.append({
-                        "Trạng thái": "✅ Đã báo giá", "Customer": r['customer'], "Date": r['date'],
-                        "Item Code": r['item_code'], "Info": code_info, 
-                        "Unit Price": fmt_float_2(r['unit_price']),
-                        "Quote No": r['quote_no'], "PO No": po_found if po_found else "---"
-                    })
-            
-            if up_src:
-                try:
-                    df_check = pd.read_excel(up_src, dtype=str).fillna("")
-                    cols_check = {clean_key(c): c for c in df_check.columns}
-                    for i, r in df_check.iterrows():
-                        code = ""; name = ""; specs = ""
-                        for k, col in cols_check.items():
-                            if "code" in k: code = safe_str(r[col])
-                            elif "name" in k: name = safe_str(r[col])
-                            elif "specs" in k: specs = safe_str(r[col])
-                        match = pd.DataFrame()
-                        if not df_hist.empty:
-                            if code: match = df_hist[df_hist['item_code'].str.contains(code, case=False, na=False)]
-                        if not match.empty:
-                            for _, m in match.iterrows():
-                                key = f"{clean_key(m['customer'])}_{clean_key(m['item_code'])}"
-                                po_found = po_map.get(key, "")
-                                results.append({
-                                    "Trạng thái": "✅ Đã báo giá", "Customer": m['customer'], "Date": m['date'],
-                                    "Item Code": m['item_code'], "Info": item_map.get(clean_key(m['item_code']), ""),
-                                    "Unit Price": fmt_float_2(m['unit_price']), "Quote No": m['quote_no'], "PO No": po_found
-                                })
-                        else:
-                            results.append({
-                                "Trạng thái": "❌ Chưa báo giá", "Item Code": code, "Customer": "---", 
-                                "Date": "---", "Unit Price": "---", "Quote No": "---", "PO No": "---"
-                            })
-                except Exception as e: st.error(f"Lỗi file: {e}")
-
-            if results: st.dataframe(pd.DataFrame(results), use_container_width=True)
-            else: st.info("Không tìm thấy kết quả.")
-
-    with st.expander("📂 XEM CHI TIẾT FILE LỊCH SỬ (COST & LỢI NHUẬN)", expanded=False):
+        # --- VIEW HISTORY FILES ---
         df_hist_idx = load_data("crm_shared_history", order_by="date")
         if not df_hist_idx.empty:
-            df_hist_idx['display'] = df_hist_idx.apply(lambda x: f"{x['date']} | {x['customer']} | Quote: {x['quote_no']}", axis=1)
+            # Tạo danh sách chọn báo giá
+            df_hist_idx['display'] = df_hist_idx.apply(lambda x: f"{x['date']} | {x['customer']} | {x['quote_no']}", axis=1)
             unique_quotes = df_hist_idx['display'].unique()
+            
+            # Filter
             filtered_quotes = unique_quotes
-            if search_kw: filtered_quotes = [q for q in unique_quotes if search_kw.lower() in q.lower()]
-            sel_quote_hist = st.selectbox("Chọn báo giá cũ để xem chi tiết:", [""] + list(filtered_quotes))
+            if search_kw: 
+                filtered_quotes = [q for q in unique_quotes if search_kw.lower() in str(q).lower()]
+            
+            sel_quote_hist = st.selectbox("Chọn báo giá cũ để xem:", [""] + list(filtered_quotes))
             
             if sel_quote_hist:
                 parts = sel_quote_hist.split(" | ")
                 if len(parts) >= 3:
-                    q_no = parts[2].replace("Quote: ", "").strip()
-                    cust = parts[1].strip()
+                    q_no_h = parts[2].strip()
+                    cust_h = parts[1].strip()
                     
-                    if 'loaded_quote_id' not in st.session_state: st.session_state.loaded_quote_id = None
-                    
-                    hist_config_row = df_hist_idx[
-                        (df_hist_idx['quote_no'] == q_no) & 
-                        (df_hist_idx['customer'] == cust)
-                    ].iloc[0] if not df_hist_idx.empty else None
-                    
-                    config_loaded = {}
-                    
-                    # 1. Try DB
-                    if hist_config_row is not None and 'config_data' in hist_config_row and hist_config_row['config_data']:
-                        try:
-                            config_loaded = json.loads(hist_config_row['config_data'])
-                        except: pass
-                    
-                    # 2. If DB empty, Try Drive
-                    if not config_loaded:
-                          cfg_search_name = f"CONFIG_{q_no}_{cust}"
-                          fid_cfg, _, _ = search_file_in_drive_by_name(cfg_search_name)
-                          if fid_cfg:
-                              fh_cfg = download_from_drive(fid_cfg)
-                              if fh_cfg:
-                                  try:
-                                      df_cfg = pd.read_excel(fh_cfg)
-                                      if not df_cfg.empty:
-                                          config_loaded = df_cfg.iloc[0].to_dict()
-                                  except: pass
-
-                    # 3. Apply Config
-                    if config_loaded:
-                        st.info(f"📊 **CẤU HÌNH CHI PHÍ (ĐÃ LOAD):** "
-                                f"End User: {config_loaded.get('end')}% | Buyer: {config_loaded.get('buy')}% | "
-                                f"Tax: {config_loaded.get('tax')}% | VAT: {config_loaded.get('vat')}% | "
-                                f"Payback: {config_loaded.get('pay')}% | Mgmt: {config_loaded.get('mgmt')}% | "
-                                f"Trans: {fmt_num(config_loaded.get('trans'))}")
+                    # Logic tìm file trên Drive chính xác hơn (List tất cả các phiên bản)
+                    srv = get_drive_service()
+                    if srv:
+                        # Tìm tất cả file có tên chứa HIST_{Quote}_{Cust}
+                        q_drive = f"name contains 'HIST_{q_no_h}_{cust_h}' and trashed=false"
+                        results = srv.files().list(q=q_drive, fields="files(id, name, createdTime)", orderBy="createdTime desc").execute().get('files', [])
                         
-                        if sel_quote_hist != st.session_state.loaded_quote_id:
-                            keys_load = ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]
-                            for k in keys_load:
-                                val_str = str(config_loaded.get(k, 0))
-                                st.session_state[f"pct_{k}"] = val_str
-                                st.session_state[f"input_{k}"] = val_str 
+                        if results:
+                            st.success(f"✅ Tìm thấy {len(results)} bản lưu trữ trên Drive.")
+                            # Cho user chọn file cụ thể (vì có thể lưu nhiều lần)
+                            file_opts = {f"{r['name']} (Ngày tạo: {r['createdTime'][:10]})": r['id'] for r in results}
+                            sel_file_name = st.selectbox("Chọn file chi tiết để xem:", list(file_opts.keys()))
                             
-                            st.session_state.loaded_quote_id = sel_quote_hist
-                            st.toast("✅ Đã load cấu hình thành công!", icon="✅")
-                            time.sleep(0.5)
-                            st.rerun()
+                            if st.button(f"📥 Tải & Xem nội dung file: {sel_file_name}"):
+                                file_id = file_opts[sel_file_name]
+                                fh = download_from_drive(file_id)
+                                if fh:
+                                    try:
+                                        df_csv = pd.read_csv(fh)
+                                        # Format số khi hiển thị lịch sử
+                                        st.write("### 📄 Nội dung file chi tiết:")
+                                        st.dataframe(df_csv, use_container_width=True)
+                                        
+                                        # Tính tổng sơ bộ
+                                        if "Total price(VND)" in df_csv.columns:
+                                            total_h = df_csv["Total price(VND)"].sum()
+                                            st.info(f"💰 Tổng giá trị trong file này: {fmt_num(total_h)} VND")
+                                            
+                                    except Exception as e: st.error(f"Lỗi đọc file CSV: {e}")
+                        else:
+                            st.warning(f"Không tìm thấy file chi tiết trên Drive (Tên tìm: HIST_{q_no_h}_{cust_h}). Có thể file đã bị xóa hoặc đổi tên.")
                     else:
-                        st.warning("⚠️ Báo giá này được tạo từ phiên bản cũ, chưa lưu cấu hình chi phí.")
-
-                    search_name = f"HIST_{q_no}_{cust}"
-                    fid, fname, pid = search_file_in_drive_by_name(search_name)
-                    if pid:
-                          folder_link = f"https://drive.google.com/drive/folders/{pid}"
-                          st.markdown(f"👉 **[Mở Folder chứa file này trên Google Drive]({folder_link})**", unsafe_allow_html=True)
-                    if fid and st.button(f"Tải file chi tiết: {fname}"):
-                          fh = download_from_drive(fid)
-                          if fh:
-                              try:
-                                  df_csv = pd.read_csv(fh, encoding='utf-8-sig', on_bad_lines='skip')
-                                  st.success("Đã tải xong!")
-                                  st.dataframe(df_csv, use_container_width=True)
-                              except Exception as e: st.error(f"Lỗi đọc file CSV: {e}")
-                          else: st.error("Không tải được file.")
-                    elif not fid: st.warning(f"Không tìm thấy file chi tiết trên Drive (HIST_{q_no}...).")
-        else: st.info("Chưa có lịch sử.")
-
+                        st.error("Lỗi kết nối Google Drive.")
+                        
+                    # Nút xóa lịch sử (Admin)
+                    with st.popover("🗑️ Xóa Lịch Sử (Admin)"):
+                         adm_p = st.text_input("Pass Admin", type="password", key="p_del_h")
+                         if st.button("Xác nhận xóa"):
+                             if adm_p == "admin":
+                                 supabase.table("crm_shared_history").delete().eq("quote_no", q_no_h).execute()
+                                 st.toast("Đã xóa DB!"); time.sleep(1); st.rerun()
+    
     st.divider()
     
-    # -------------------------------------------------------------------------
-    # 2. TÍNH TOÁN & LÀM BÁO GIÁ
-    # -------------------------------------------------------------------------
+    # ------------------ 2. TÍNH TOÁN & LÀM BÁO GIÁ ------------------
     st.subheader("TÍNH TOÁN & LÀM BÁO GIÁ")
     
     c1, c2, c3 = st.columns([2, 2, 1])
@@ -955,9 +833,7 @@ with t3:
     c3.markdown('<div class="dark-btn">', unsafe_allow_html=True)
     if c3.button("🔄 Reset Quote"): 
         st.session_state.quote_df = pd.DataFrame()
-        st.session_state.show_review = False 
-        for k in ["end","buy","tax","vat","pay","mgmt","trans"]:
-             if f"pct_{k}" in st.session_state: del st.session_state[f"pct_{k}"]
+        st.session_state.show_review = False
         st.rerun()
     c3.markdown('</div>', unsafe_allow_html=True)
 
@@ -971,7 +847,7 @@ with t3:
             st.session_state[f"pct_{k}"] = val
             params[k] = to_float(val)
 
-    # MATCHING
+    # --- MATCHING ---
     cf1, cf2 = st.columns([1, 2])
     rfq = cf1.file_uploader("Upload RFQ (xlsx)", type=["xlsx"])
     if rfq and cf2.button("🔍 Matching"):
@@ -984,248 +860,164 @@ with t3:
             res = []
             cols_found = {clean_key(c): c for c in df_rfq.columns}
             
-            prog_match = st.progress(0)
-            status_match = st.empty()
-            total_rows = len(df_rfq)
-            
+            # Helper func
+            def get_val(keywords, row):
+                for k in keywords:
+                    if cols_found.get(k): return safe_str(row[cols_found.get(k)])
+                return ""
+
             for i, r in df_rfq.iterrows():
-                pct = (i + 1) / total_rows
-                prog_match.progress(pct)
-                status_match.text(f"Đang xử lý: {int(pct*100)}%")
-
-                def get_val(keywords):
-                    for k in keywords:
-                        real_col = cols_found.get(k)
-                        if real_col: return safe_str(r[real_col])
-                    return ""
-
-                code_excel = get_val(["item code", "code", "mã", "part number"])
-                name_excel = get_val(["item name", "name", "tên", "description"])
-                specs_excel = get_val(["specs", "quy cách", "thông số"])
-                qty_raw = get_val(["q'ty", "qty", "quantity", "số lượng"])
-                qty = to_float(qty_raw) if qty_raw else 1.0
+                code_ex = get_val(["item code", "code", "mã", "part number"], r)
+                name_ex = get_val(["item name", "name", "tên", "description"], r)
+                specs_ex = get_val(["specs", "quy cách", "thông số"], r)
+                qty = to_float(get_val(["q'ty", "qty", "quantity", "số lượng"], r))
+                if qty == 0: qty = 1.0
 
                 match = None
                 warning_msg = ""
+                # Logic matching 3 lớp
+                candidates = [rec for rec in db_records if clean_key(rec['item_code']) == clean_key(code_ex) and clean_key(rec['item_name']) == clean_key(name_ex) and clean_key(rec['specs']) == clean_key(specs_ex)]
                 
-                candidates = [
-                    rec for rec in db_records 
-                    if clean_key(rec['item_code']) == clean_key(code_excel)
-                    and clean_key(rec['item_name']) == clean_key(name_excel)
-                    and clean_key(rec['specs']) == clean_key(specs_excel)
-                ]
-
-                if candidates:
-                    match = candidates[0]
-                else:
-                    warning_msg = "⚠️ KHÔNG KHỚP DATA"
+                if candidates: match = candidates[0]
+                else: warning_msg = "⚠️ KHÔNG KHỚP DATA"
 
                 if match:
                     buy_rmb = to_float(match.get('buying_price_rmb', 0))
                     buy_vnd = to_float(match.get('buying_price_vnd', 0))
                     ex_rate = to_float(match.get('exchange_rate', 0))
                     supplier = match.get('supplier_name', '')
-                    image = match.get('image_path', '')
                     leadtime = match.get('leadtime', '')
                 else:
-                    buy_rmb = 0; buy_vnd = 0; ex_rate = 0
-                    supplier = ""; image = ""; leadtime = ""
+                    buy_rmb = 0; buy_vnd = 0; ex_rate = 0; supplier = ""; leadtime = ""
 
+                # Khởi tạo giá trị
                 p_tax = params['tax']/100
                 v_trans = params['trans']
-                val_import_tax = (buy_vnd * qty) * p_tax
-
+                
                 item = {
                     "Select": False, "No": i+1, "Cảnh báo": warning_msg, 
-                    "Item code": code_excel, "Item name": name_excel, "Specs": specs_excel, 
+                    "Item code": code_ex, "Item name": name_ex, "Specs": specs_ex, 
                     "Q'ty": qty, 
-                    "Buying price(RMB)": buy_rmb, # Keep as float for calculations
-                    "Total buying price(rmb)": buy_rmb * qty,
-                    "Exchange rate": ex_rate, 
-                    "Buying price(VND)": buy_vnd, 
-                    "Total buying price(VND)": buy_vnd * qty,
+                    "Buying price(RMB)": buy_rmb, "Exchange rate": ex_rate, 
+                    "Buying price(VND)": buy_vnd, "Total buying price(VND)": buy_vnd * qty,
                     
                     "AP price(VND)": 0.0, "AP total price(VND)": 0.0, 
-                    "Unit price(VND)": 0.0, "Total price(VND)": 0.0,
-                    "GAP": 0.0,
+                    "Unit price(VND)": 0.0, "Total price(VND)": 0.0, "GAP": 0.0,
                     
-                    "End user(%)": 0.0, "Buyer(%)": 0.0, 
-                    "Import tax(%)": val_import_tax,
-                    "VAT": 0.0, "Transportation": v_trans,
-                    "Management fee(%)": 0.0, "Payback(%)": 0.0, 
+                    "End user(%)": 0.0, "Buyer(%)": 0.0, "Import tax(%)": (buy_vnd * qty) * p_tax, 
+                    "VAT": 0.0, "Transportation": v_trans, "Management fee(%)": 0.0, "Payback(%)": 0.0, 
                     
-                    "Profit(VND)": 0.0, "Profit(%)": "0.0%",
-                    "Supplier": supplier, "Image": image, "Leadtime": leadtime
+                    "Profit(VND)": 0.0, "Profit(%)": "0.0%", "Supplier": supplier, "Leadtime": leadtime
                 }
                 res.append(item)
             
-            prog_match.progress(100)
-            status_match.text("Done! Hoàn tất Matching.")
-            time.sleep(1)
-            status_match.empty()
-
             st.session_state.quote_df = pd.DataFrame(res)
-    
-    # --- FORMULA BUTTONS (FIXED LOGIC) ---
-    c_form1, c_form2 = st.columns(2)
-    with c_form1:
-        ap_f = st.text_input("Formula AP (vd: =BUY*1.1)", key="f_ap")
-        st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-        if st.button("Apply AP Price"):
-            if not st.session_state.quote_df.empty:
-                # 1. Update values line by line using parser
+            # Tính toán lần đầu
+            st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+
+    # --- MAIN EDITOR ---
+    if not st.session_state.quote_df.empty:
+        # 1. Các nút chức năng nhanh (Formula)
+        c_f1, c_f2 = st.columns(2)
+        with c_f1:
+            ap_f = st.text_input("Formula AP (vd: =BUY*1.1)", key="f_ap")
+            st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
+            if st.button("Apply AP Price"):
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = to_float(row["Buying price(VND)"])
                     ap = to_float(row["AP price(VND)"])
                     new_ap = parse_formula(ap_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap # Update float value
-                
-                # 2. Recalculate Logic to update Totals/Profits based on new AP
-                # Using local manual update logic (Profit = Total - Costs)
-                cost_ops = (st.session_state.quote_df["Total buying price(VND)"] + 
-                            st.session_state.quote_df["GAP"] +
-                            st.session_state.quote_df["End user(%)"] + 
-                            st.session_state.quote_df["Buyer(%)"] + 
-                            st.session_state.quote_df["Import tax(%)"] + 
-                            st.session_state.quote_df["VAT"] + 
-                            st.session_state.quote_df["Transportation"] + 
-                            st.session_state.quote_df["Management fee(%)"])
-                
-                # Update AP Total
-                st.session_state.quote_df["AP total price(VND)"] = st.session_state.quote_df["AP price(VND)"] * st.session_state.quote_df["Q'ty"]
-                # Update GAP based on new AP
-                st.session_state.quote_df["GAP"] = st.session_state.quote_df["Total price(VND)"] - st.session_state.quote_df["AP total price(VND)"]
-                
-                # 3. Force Rerun to update Table UI immediately
-                st.rerun() 
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with c_form2:
-        unit_f = st.text_input("Formula Unit (vd: =AP*1.2)", key="f_unit")
-        st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-        if st.button("Apply Unit Price"):
-            if not st.session_state.quote_df.empty:
-                # 1. Update values line by line using parser
+                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                # Tính lại ngay lập tức
+                st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                st.rerun() # Force UI refresh
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with c_f2:
+            unit_f = st.text_input("Formula Unit (vd: =AP*1.2)", key="f_unit")
+            st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
+            if st.button("Apply Unit Price"):
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = to_float(row["Buying price(VND)"])
                     ap = to_float(row["AP price(VND)"])
                     new_unit = parse_formula(unit_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit # Update float value
-                
-                # 2. Update dependent columns manually to avoid resetting to Global Config
-                st.session_state.quote_df["Total price(VND)"] = st.session_state.quote_df["Unit price(VND)"] * st.session_state.quote_df["Q'ty"]
-                st.session_state.quote_df["GAP"] = st.session_state.quote_df["Total price(VND)"] - st.session_state.quote_df["AP total price(VND)"]
-                
-                # 3. Force Rerun to update Table UI immediately
-                st.rerun() 
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # --- MAIN TABLE DISPLAY & EDIT ---
-    if not st.session_state.quote_df.empty:
-        if "Select" not in st.session_state.quote_df.columns:
-            st.session_state.quote_df.insert(0, "Select", False)
+                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
+                # Tính lại ngay lập tức
+                st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                st.rerun() # Force UI refresh
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # LOCAL CALCULATION (REAL-TIME)
-        # This block ensures Profit/Total/GAP are always correct based on current row values
-        # without overwriting the user's manual inputs for Tax/Fee/etc. with Global params.
+        # 2. Logic Hiển thị Bảng & Total Row
+        # Luôn tính toán lại logic trước khi hiển thị để đảm bảo tính đúng đắn
+        st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
         
-        # 1. Base Multiplications
-        st.session_state.quote_df["Total buying price(VND)"] = st.session_state.quote_df["Buying price(VND)"] * st.session_state.quote_df["Q'ty"]
-        st.session_state.quote_df["Total buying price(rmb)"] = st.session_state.quote_df["Buying price(RMB)"] * st.session_state.quote_df["Q'ty"]
-        st.session_state.quote_df["AP total price(VND)"] = st.session_state.quote_df["AP price(VND)"] * st.session_state.quote_df["Q'ty"]
-        st.session_state.quote_df["Total price(VND)"] = st.session_state.quote_df["Unit price(VND)"] * st.session_state.quote_df["Q'ty"]
+        # Tạo bản sao để hiển thị (thêm dòng Total)
+        df_display = st.session_state.quote_df.copy()
         
-        # 2. GAP
-        st.session_state.quote_df["GAP"] = st.session_state.quote_df["Total price(VND)"] - st.session_state.quote_df["AP total price(VND)"]
-        
-        # 3. Cost Summation (Uses whatever value is currently in the columns)
-        cost_ops = (st.session_state.quote_df["Total buying price(VND)"] + 
-                    st.session_state.quote_df["GAP"] +
-                    st.session_state.quote_df["End user(%)"] + 
-                    st.session_state.quote_df["Buyer(%)"] + 
-                    st.session_state.quote_df["Import tax(%)"] + 
-                    st.session_state.quote_df["VAT"] + 
-                    st.session_state.quote_df["Transportation"] + 
-                    st.session_state.quote_df["Management fee(%)"])
+        # Sắp xếp cột
+        if "Select" not in df_display.columns: df_display.insert(0, "Select", False)
+        cols_order = ["Select", "No", "Cảnh báo"] + [c for c in df_display.columns if c not in ["Select", "No", "Cảnh báo", "Image", "Profit_Pct_Raw"]]
+        df_display = df_display[cols_order]
 
-        # 4. Profit Calc
-        st.session_state.quote_df["Profit(VND)"] = st.session_state.quote_df["Total price(VND)"] - cost_ops + st.session_state.quote_df["Payback(%)"]
-        st.session_state.quote_df["Profit_Pct_Raw"] = st.session_state.quote_df.apply(lambda row: (row["Profit(VND)"] / row["Total price(VND)"] * 100) if row["Total price(VND)"] > 0 else 0, axis=1)
-        st.session_state.quote_df["Profit(%)"] = st.session_state.quote_df["Profit_Pct_Raw"].apply(lambda x: f"{x:.1f}%")
-
-        # 5. Warning
-        def set_warning(row):
-            if "KHÔNG KHỚP" in str(row.get("Cảnh báo","")): return row["Cảnh báo"]
-            return "⚠️ LOW" if row["Profit_Pct_Raw"] < 10 else "✅ OK"
-        st.session_state.quote_df["Cảnh báo"] = st.session_state.quote_df.apply(set_warning, axis=1)
-
-        # Organize Columns
-        cols_order = ["Select", "No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["Select", "No", "Cảnh báo"]]
-        st.session_state.quote_df = st.session_state.quote_df[cols_order]
-
-        cols_to_hide = ["Image", "Profit_Pct_Raw"]
-        df_show = st.session_state.quote_df.drop(columns=[c for c in cols_to_hide if c in st.session_state.quote_df.columns], errors='ignore')
-
-        # --- PREPARE DATA FOR DISPLAY (FORMATTING) ---
-        # Calculate totals for display separately
+        # Tính Total Row
         cols_to_sum = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
-                        "Buying price(VND)", "Total buying price(VND)", 
-                        "AP price(VND)", "AP total price(VND)", 
-                        "Unit price(VND)", "Total price(VND)", 
-                        "GAP", "End user(%)", "Buyer(%)", "Import tax(%)", 
-                        "VAT", "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
+                       "Buying price(VND)", "Total buying price(VND)", 
+                       "AP price(VND)", "AP total price(VND)", 
+                       "Unit price(VND)", "Total price(VND)", 
+                       "GAP", "End user(%)", "Buyer(%)", "Import tax(%)", 
+                       "VAT", "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
         
-        total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
-        
+        total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": ""}
         for c in cols_to_sum:
-            if c in df_show.columns:
-                total_val = df_show[c].sum()
-                total_row[c] = total_val # Keep as number
+            if c in df_display.columns:
+                total_row[c] = df_display[c].sum()
         
+        # Tính % Profit Total
         t_profit = total_row.get("Profit(VND)", 0)
         t_price = total_row.get("Total price(VND)", 0)
         t_pct = (t_profit / t_price * 100) if t_price > 0 else 0
         total_row["Profit(%)"] = f"{t_pct:.1f}%"
-        
-        # Append total row
-        df_display = pd.concat([df_show, pd.DataFrame([total_row])], ignore_index=True)
 
+        # Gộp vào bảng hiển thị
+        df_final_view = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
+
+        # 3. Nút Global Config Apply
         st.markdown("---")
         c_tool1, c_tool2 = st.columns([1, 3])
         with c_tool1:
-            if st.button("⚡ ÁP DỤNG GLOBAL CONFIG", help="Tính lại toàn bộ các cột Tax, VAT, Fee... theo % Global đang nhập ở trên."):
-                if not st.session_state.quote_df.empty:
-                    p_end = params['end']/100; p_buy = params['buy']/100
-                    p_tax = params['tax']/100; p_vat = params['vat']/100
-                    p_pay = params['pay']/100; p_mgmt = params['mgmt']/100
-                    v_trans = params['trans']
+            if st.button("⚡ ÁP DỤNG GLOBAL CONFIG"):
+                # Logic: Lấy params global áp vào từng dòng
+                p_end, p_buy, p_tax = params['end']/100, params['buy']/100, params['tax']/100
+                p_vat, p_pay, p_mgmt = params['vat']/100, params['pay']/100, params['mgmt']/100
+                v_trans = params['trans']
+                
+                for idx, row in st.session_state.quote_df.iterrows():
+                    val_ap_total = to_float(row["AP total price(VND)"])
+                    val_total = to_float(row["Total price(VND)"])
+                    val_buy_total = to_float(row["Total buying price(VND)"])
+                    val_gap = to_float(row["GAP"])
                     
-                    for idx, row in st.session_state.quote_df.iterrows():
-                        val_ap_total = to_float(row["AP total price(VND)"])
-                        val_total = to_float(row["Total price(VND)"])
-                        val_buy_total = to_float(row["Total buying price(VND)"])
-                        val_gap = to_float(row["GAP"])
-                        
-                        st.session_state.quote_df.at[idx, "End user(%)"] = val_ap_total * p_end
-                        st.session_state.quote_df.at[idx, "Buyer(%)"] = val_total * p_buy
-                        st.session_state.quote_df.at[idx, "Import tax(%)"] = val_buy_total * p_tax
-                        st.session_state.quote_df.at[idx, "VAT"] = val_total * p_vat
-                        st.session_state.quote_df.at[idx, "Management fee(%)"] = val_total * p_mgmt
-                        st.session_state.quote_df.at[idx, "Payback(%)"] = val_gap * p_pay
-                        st.session_state.quote_df.at[idx, "Transportation"] = v_trans
-                    
-                    st.toast("✅ Đã áp dụng Global Config cho toàn bộ bảng!", icon="⚡")
-                    st.rerun()
+                    st.session_state.quote_df.at[idx, "End user(%)"] = val_ap_total * p_end
+                    st.session_state.quote_df.at[idx, "Buyer(%)"] = val_total * p_buy
+                    st.session_state.quote_df.at[idx, "Import tax(%)"] = val_buy_total * p_tax
+                    st.session_state.quote_df.at[idx, "VAT"] = val_total * p_vat
+                    st.session_state.quote_df.at[idx, "Management fee(%)"] = val_total * p_mgmt
+                    st.session_state.quote_df.at[idx, "Payback(%)"] = val_gap * p_pay
+                    st.session_state.quote_df.at[idx, "Transportation"] = v_trans
+                st.rerun()
 
-        # Configure columns for formatting (Comma separation for Thousands)
-        column_config = {
+        # 4. DATA EDITOR (QUAN TRỌNG: CẤU HÌNH FORMAT SỐ)
+        # Sử dụng NumberColumn với format phù hợp để hiện dấu phẩy phân cách hàng nghìn
+        # format="%d" -> 1,000 (Streamlit tự động thêm phẩy cho integer)
+        column_cfg = {
             "Select": st.column_config.CheckboxColumn("✅", width="small"),
             "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
-            "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"),
+            "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"), 
             "Exchange rate": st.column_config.NumberColumn("Rate", format="%.2f"),
             "Buying price(RMB)": st.column_config.NumberColumn("Buying(RMB)", format="%.2f"),
             "Total buying price(rmb)": st.column_config.NumberColumn("Total(RMB)", format="%.2f", disabled=True),
-            # Using format="%d" creates integers. Streamlit renders 1000 as 1,000 by default in most locales.
+            
+            # --- CỘT TIỀN VNĐ (Dùng format="%d" để hiện dấu phẩy tự động) ---
             "Buying price(VND)": st.column_config.NumberColumn("Buying(VND)", format="%d"),
             "Total buying price(VND)": st.column_config.NumberColumn("Total(VND)", format="%d", disabled=True),
             "AP price(VND)": st.column_config.NumberColumn("AP(VND)", format="%d"),
@@ -1233,28 +1025,29 @@ with t3:
             "Unit price(VND)": st.column_config.NumberColumn("Unit(VND)", format="%d"),
             "Total price(VND)": st.column_config.NumberColumn("Total(VND)", format="%d", disabled=True),
             "GAP": st.column_config.NumberColumn("GAP", format="%d", disabled=True),
-            "End user(%)": st.column_config.NumberColumn("EndUser(VNĐ)", format="%d"),
-            "Buyer(%)": st.column_config.NumberColumn("Buyer(VNĐ)", format="%d"),
-            "Import tax(%)": st.column_config.NumberColumn("Tax(VNĐ)", format="%d"),
-            "VAT": st.column_config.NumberColumn("VAT(VNĐ)", format="%d"),
-            "Transportation": st.column_config.NumberColumn("Trans(VNĐ)", format="%d"),
-            "Management fee(%)": st.column_config.NumberColumn("Mgmt(VNĐ)", format="%d"),
-            "Payback(%)": st.column_config.NumberColumn("Payback(VNĐ)", format="%d"),
+            "End user(%)": st.column_config.NumberColumn("EndUser", format="%d"),
+            "Buyer(%)": st.column_config.NumberColumn("Buyer", format="%d"),
+            "Import tax(%)": st.column_config.NumberColumn("Tax", format="%d"),
+            "VAT": st.column_config.NumberColumn("VAT", format="%d"),
+            "Transportation": st.column_config.NumberColumn("Trans", format="%d"),
+            "Management fee(%)": st.column_config.NumberColumn("Mgmt", format="%d"),
+            "Payback(%)": st.column_config.NumberColumn("Payback", format="%d"),
             "Profit(VND)": st.column_config.NumberColumn("Profit(VND)", format="%d", disabled=True),
             "Profit(%)": st.column_config.TextColumn("Profit(%)", disabled=True),
         }
 
         edited_df = st.data_editor(
-            df_display,
-            column_config=column_config,
+            df_final_view,
+            column_config=column_cfg,
             use_container_width=True, 
             height=600, 
-            key="main_editor",
+            key="main_quote_editor",
             hide_index=True 
         )
-        
-        # --- SYNC CHANGES BACK TO STATE ---
-        df_data_only = edited_df[edited_df["No"] != "TOTAL"]
+
+        # 5. XỬ LÝ DỮ LIỆU SAU KHI SỬA
+        # Loại bỏ dòng Total để lấy data thực
+        df_data_only = edited_df[edited_df["No"] != "TOTAL"].copy()
         
         # Editable columns
         editable_cols = [
@@ -1266,195 +1059,100 @@ with t3:
         
         data_changed = False
         
-        # Sync logic
+        # Nếu số dòng khớp nhau (không thêm/xóa dòng trong lúc edit)
         if len(df_data_only) == len(st.session_state.quote_df):
-             for c in editable_cols:
-                 if c in df_data_only.columns:
-                     # Check if column data actually changed using numpy for speed
-                     new_vals = df_data_only[c].fillna(0.0).values
-                     old_vals = st.session_state.quote_df[c].fillna(0.0).values
-                     try:
-                         if not np.allclose(new_vals.astype(float), old_vals.astype(float), equal_nan=True):
-                             st.session_state.quote_df[c] = new_vals
-                             data_changed = True
-                     except: pass
-        
-        if data_changed:
-            st.rerun()
+            # Convert to numeric to compare safely
+            diff = False
+            for col in editable_cols:
+                if col in df_data_only.columns and col in st.session_state.quote_df.columns:
+                     # Fillna để tránh lỗi NaN comparison
+                     v1 = df_data_only[col].fillna(0).astype(float).values
+                     v2 = st.session_state.quote_df[col].fillna(0).astype(float).values
+                     if not np.allclose(v1, v2):
+                         diff = True
+                         break
+            
+            # Nếu có thay đổi ở các cột quan trọng, cập nhật toàn bộ và rerun để tính toán lại
+            if diff:
+                 # Update values
+                 for col in df_data_only.columns:
+                     if col in st.session_state.quote_df.columns:
+                         st.session_state.quote_df[col] = df_data_only[col].values
+                 st.rerun()
 
+        # Xử lý Toolbar (Xóa, Download...)
         selected_rows = df_data_only[df_data_only["Select"] == True]
-        
         if not selected_rows.empty:
             st.info(f"Đang chọn {len(selected_rows)} dòng.")
-            tb_col1, tb_col2, tb_col3, tb_col4 = st.columns(4)
-            
-            with tb_col1:
-                if st.button("🗑️ DELETE"):
-                    indices_to_drop = selected_rows.index
-                    st.session_state.quote_df = st.session_state.quote_df.drop(indices_to_drop).reset_index(drop=True)
-                    st.session_state.quote_df["No"] = st.session_state.quote_df.index + 1
-                    st.rerun()
-            
-            with tb_col2:
-                csv = selected_rows.to_csv(index=False).encode('utf-8')
-                st.download_button(label="⬇️ DOWNLOAD", data=csv, file_name="selected_items.csv", mime="text/csv")
+            if st.button("🗑️ DELETE Selected"):
+                indices_to_drop = selected_rows.index
+                st.session_state.quote_df = st.session_state.quote_df.drop(indices_to_drop).reset_index(drop=True)
+                st.session_state.quote_df["No"] = st.session_state.quote_df.index + 1
+                st.rerun()
 
-            with tb_col3:
-                if st.button("⛶ FULL SCREEN"):
-                    st.toast("Chế độ toàn màn hình đã được kích hoạt (Giả lập)", icon="🖥️")
-            
-            with tb_col4:
-                if st.button("👁️ HIDE"):
-                      for idx in selected_rows.index:
-                          st.session_state.quote_df.at[idx, "Select"] = False
-                      st.rerun()
-
-        # Display Total Value separately for clarity
-        st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ BÁO GIÁ (TOTAL VIEW): {fmt_float_2(t_price)} VND</div>', unsafe_allow_html=True)
-
+        # Hiển thị Tổng tiền to rõ
+        total_val_display = total_row.get("Total price(VND)", 0)
+        st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ: {fmt_num(total_val_display)} VND</div>', unsafe_allow_html=True)
+        
+        # 6. LƯU & XUẤT FILE
         st.divider()
         c_rev, c_sv = st.columns([1, 1])
         with c_rev:
-            st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-            if st.button("🔍 REVIEW BÁO GIÁ"): st.session_state.show_review = True
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        if st.session_state.get('show_review', False):
-            st.write("### 📋 BẢNG REVIEW")
-            cols_review = ["No", "Item code", "Item name", "Specs", "Q'ty", "Unit price(VND)", "Total price(VND)", "Leadtime"]
-            valid_cols = [c for c in cols_review if c in st.session_state.quote_df.columns]
-            
-            df_review = st.session_state.quote_df[valid_cols].copy()
-            
-            total_qty = df_review["Q'ty"].sum()
-            total_unit = df_review["Unit price(VND)"].sum()
-            total_price = df_review["Total price(VND)"].sum()
-
-            # For review, we can format as strings since it's read-only
-            if "Unit price(VND)" in df_review.columns:
-                 df_review["Unit price(VND)"].apply(fmt_num) # apply w/o assign does nothing
-                 df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(fmt_num)
-            if "Total price(VND)" in df_review.columns:
-                 df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(fmt_num)
-            
-            total_review = {
-                "No": "TOTAL", "Item code": "", "Item name": "", "Specs": "", "Leadtime": "",
-                "Q'ty": total_qty,
-                "Unit price(VND)": fmt_float_2(total_unit),
-                "Total price(VND)": fmt_float_2(total_price) 
-            }
-            
-            df_review = pd.concat([df_review, pd.DataFrame([total_review])], ignore_index=True)
-            st.dataframe(df_review, use_container_width=True, hide_index=True)
-            st.markdown(f'<div class="total-view">💰 TỔNG CỘNG: {fmt_float_2(total_price)} VND</div>', unsafe_allow_html=True)
-            
-            st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-            if st.button("📤 XUẤT BÁO GIÁ (Excel)"):
-                if not cust_name: st.error("Chưa chọn khách hàng!")
-                else:
-                    try:
-                        df_tmpl = load_data("crm_templates")
-                        match_tmpl = df_tmpl[df_tmpl['template_name'].astype(str).str.contains("AAA-QUOTATION", case=False, na=False)]
-                        if match_tmpl.empty: st.error("Không tìm thấy template 'AAA-QUOTATION'!")
-                        else:
-                            tmpl_id = match_tmpl.iloc[0]['file_id']
-                            fh = download_from_drive(tmpl_id)
-                            if not fh: st.error("Lỗi tải template!")
-                            else:
-                                wb = load_workbook(fh); ws = wb.active
-                                start_row = 11
-                                first_leadtime = st.session_state.quote_df.iloc[0]['Leadtime'] if not st.session_state.quote_df.empty else ""
-                                ws['H8'] = safe_str(first_leadtime)
-                                for idx, row in st.session_state.quote_df.iterrows():
-                                    r = start_row + idx
-                                    ws[f'A{r}'] = row['No']
-                                    ws[f'C{r}'] = row['Item code']
-                                    ws[f'D{r}'] = row['Item name']
-                                    ws[f'E{r}'] = row['Specs']
-                                    ws[f'F{r}'] = to_float(row["Q'ty"])
-                                    ws[f'G{r}'] = to_float(row["Unit price(VND)"])
-                                    ws[f'H{r}'] = to_float(row["Total price(VND)"])
-                                out = io.BytesIO(); wb.save(out); out.seek(0)
-                                curr_year = datetime.now().strftime("%Y")
-                                curr_month = datetime.now().strftime("%b").upper()
-                                fname = f"QUOTE_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
-                                path_list = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
-                                lnk, _ = upload_to_drive_structured(out, path_list, fname)
-                                st.success(f"✅ Đã xuất báo giá: {fname}")
-                                st.markdown(f"📂 [Mở Folder]({lnk})", unsafe_allow_html=True)
-                                st.download_button(label="📥 Tải File Về Máy", data=out, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    except Exception as e: st.error(f"Lỗi xuất Excel: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with c_sv:
-            st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-            if st.button("💾 LƯU LỊCH SỬ (QUAN TRỌNG ĐỂ LÀM PO)"):
-                if cust_name:
-                    clean_params = {}
-                    for k, v in params.items():
-                        if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
-                        else: clean_params[k] = v
-                    config_json = json.dumps(clean_params) 
-                    
-                    recs = []
-                    for r in st.session_state.quote_df.to_dict('records'):
-                        val_qty = to_float(r["Q'ty"])
-                        val_unit = to_float(r["Unit price(VND)"])
-                        val_total = to_float(r["Total price(VND)"])
-                        val_profit = to_float(r["Profit(VND)"])
+             if st.button("📤 XUẤT EXCEL"):
+                 if not cust_name: st.error("Chọn khách hàng!")
+                 else:
+                     try:
+                        out = io.BytesIO()
+                        # Dùng writer để export
+                        with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                             st.session_state.quote_df.to_excel(writer, index=False, sheet_name='Quote')
+                        out.seek(0)
                         
-                        if np.isnan(val_qty) or np.isinf(val_qty): val_qty = 0.0
-                        if np.isnan(val_unit) or np.isinf(val_unit): val_unit = 0.0
-                        if np.isnan(val_total) or np.isinf(val_total): val_total = 0.0
-                        if np.isnan(val_profit) or np.isinf(val_profit): val_profit = 0.0
-
-                        recs.append({
-                            "history_id": f"{cust_name}_{int(time.time())}", "date": datetime.now().strftime("%Y-%m-%d"),
-                            "quote_no": quote_no, "customer": cust_name,
-                            "item_code": r["Item code"], "qty": val_qty,
-                            "unit_price": val_unit,
-                            "total_price_vnd": val_total,
-                            "profit_vnd": val_profit,
-                            "config_data": config_json 
-                        })
-                    
-                    try:
-                        supabase.table("crm_shared_history").insert(recs).execute()
-                    except Exception as e:
-                        if "config_data" in str(e) or "PGRST204" in str(e):
-                             recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
-                             try:
-                                 supabase.table("crm_shared_history").insert(recs_fallback).execute()
-                                 st.warning("⚠️ Đã lưu thành công (Chế độ tương thích: Bỏ qua cấu hình chi phí do Database cũ).")
-                             except Exception as e2:
-                                 st.error(f"Lỗi Fatal sau khi retry: {e2}")
-                                 st.stop()
-                        else:
-                             st.error(f"Lỗi lưu Supabase: {e}")
-                             st.stop()
-
-                    try:
-                        csv_buffer = io.BytesIO()
-                        st.session_state.quote_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                        csv_buffer.seek(0)
-                        csv_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.csv"
                         curr_year = datetime.now().strftime("%Y")
                         curr_month = datetime.now().strftime("%b").upper()
-                        path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
-                        lnk, _ = upload_to_drive_structured(csv_buffer, path_list_hist, csv_name)
+                        fname = f"QUOTE_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
+                        path_list = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
+                        lnk, _ = upload_to_drive_structured(out, path_list, fname)
                         
-                        df_cfg = pd.DataFrame([clean_params])
-                        cfg_buffer = io.BytesIO()
-                        df_cfg.to_excel(cfg_buffer, index=False)
-                        cfg_buffer.seek(0)
-                        cfg_name = f"CONFIG_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
-                        upload_to_drive_structured(cfg_buffer, path_list_hist, cfg_name)
+                        st.success(f"✅ Đã xuất file: {fname}")
+                        st.markdown(f"📂 [Mở Folder Drive]({lnk})")
+                        st.download_button("Download File", out, fname)
+                     except Exception as e: st.error(f"Lỗi: {e}")
+
+        with c_sv:
+            if st.button("💾 LƯU LỊCH SỬ"):
+                if not cust_name: st.error("Chọn khách!")
+                else:
+                    # Logic Lưu DB
+                    recs = []
+                    # Clean params for JSON
+                    cl_params = {k: (v if not np.isnan(v) else 0) for k,v in params.items()}
+                    for r in st.session_state.quote_df.to_dict('records'):
+                        recs.append({
+                            "history_id": f"{cust_name}_{int(time.time())}", 
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "quote_no": quote_no, "customer": cust_name,
+                            "item_code": r["Item code"], 
+                            "qty": to_float(r["Q'ty"]), 
+                            "unit_price": to_float(r["Unit price(VND)"]),
+                            "total_price_vnd": to_float(r["Total price(VND)"]),
+                            "profit_vnd": to_float(r["Profit(VND)"]),
+                            "config_data": json.dumps(cl_params)
+                        })
+                    try:
+                        supabase.table("crm_shared_history").insert(recs).execute()
                         
-                        st.success("✅ Đã lưu lịch sử DB & CSV (Kèm file cấu hình % riêng)!")
-                        st.markdown(f"📂 [Folder Lịch Sử]({lnk})", unsafe_allow_html=True)
-                    except Exception as e: st.error(f"Lỗi lưu Drive: {e}")
-                else: st.error("Chọn khách!")
-            st.markdown('</div>', unsafe_allow_html=True)
+                        # Save CSV Backup
+                        csv_buffer = io.BytesIO()
+                        st.session_state.quote_df.to_csv(csv_buffer, index=False)
+                        csv_buffer.seek(0)
+                        csv_name = f"HIST_{quote_no}_{cust_name}.csv"
+                        path = ["QUOTATION_HISTORY", cust_name, datetime.now().strftime("%Y")]
+                        lnk, _ = upload_to_drive_structured(csv_buffer, path, csv_name)
+                        
+                        st.success("Đã lưu thành công!")
+                        st.markdown(f"📂 [File Drive]({lnk})")
+                    except Exception as e: st.error(f"Lỗi lưu: {e}")
 # =============================================================================
 # --- TAB 4: QUẢN LÝ PO (NEW LOGIC) ---
 # =============================================================================
