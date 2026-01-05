@@ -1081,7 +1081,20 @@ with t3:
                     st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap # Update float value
                 
                 # 2. Recalculate Logic to update Totals/Profits based on new AP
-                st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                # Using local manual update logic (Profit = Total - Costs)
+                cost_ops = (st.session_state.quote_df["Total buying price(VND)"] + 
+                            st.session_state.quote_df["GAP"] +
+                            st.session_state.quote_df["End user(%)"] + 
+                            st.session_state.quote_df["Buyer(%)"] + 
+                            st.session_state.quote_df["Import tax(%)"] + 
+                            st.session_state.quote_df["VAT"] + 
+                            st.session_state.quote_df["Transportation"] + 
+                            st.session_state.quote_df["Management fee(%)"])
+                
+                # Update AP Total
+                st.session_state.quote_df["AP total price(VND)"] = st.session_state.quote_df["AP price(VND)"] * st.session_state.quote_df["Q'ty"]
+                # Update GAP based on new AP
+                st.session_state.quote_df["GAP"] = st.session_state.quote_df["Total price(VND)"] - st.session_state.quote_df["AP total price(VND)"]
                 
                 # 3. Force Rerun to update Table UI immediately
                 st.rerun() 
@@ -1099,8 +1112,9 @@ with t3:
                     new_unit = parse_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit # Update float value
                 
-                # 2. Recalculate Logic to update Totals/Profits based on new Unit Price
-                st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                # 2. Update dependent columns manually to avoid resetting to Global Config
+                st.session_state.quote_df["Total price(VND)"] = st.session_state.quote_df["Unit price(VND)"] * st.session_state.quote_df["Q'ty"]
+                st.session_state.quote_df["GAP"] = st.session_state.quote_df["Total price(VND)"] - st.session_state.quote_df["AP total price(VND)"]
                 
                 # 3. Force Rerun to update Table UI immediately
                 st.rerun() 
@@ -1111,9 +1125,41 @@ with t3:
         if "Select" not in st.session_state.quote_df.columns:
             st.session_state.quote_df.insert(0, "Select", False)
 
-        # Always recalc logic before display to ensure consistency
-        st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+        # LOCAL CALCULATION (REAL-TIME)
+        # This block ensures Profit/Total/GAP are always correct based on current row values
+        # without overwriting the user's manual inputs for Tax/Fee/etc. with Global params.
+        
+        # 1. Base Multiplications
+        st.session_state.quote_df["Total buying price(VND)"] = st.session_state.quote_df["Buying price(VND)"] * st.session_state.quote_df["Q'ty"]
+        st.session_state.quote_df["Total buying price(rmb)"] = st.session_state.quote_df["Buying price(RMB)"] * st.session_state.quote_df["Q'ty"]
+        st.session_state.quote_df["AP total price(VND)"] = st.session_state.quote_df["AP price(VND)"] * st.session_state.quote_df["Q'ty"]
+        st.session_state.quote_df["Total price(VND)"] = st.session_state.quote_df["Unit price(VND)"] * st.session_state.quote_df["Q'ty"]
+        
+        # 2. GAP
+        st.session_state.quote_df["GAP"] = st.session_state.quote_df["Total price(VND)"] - st.session_state.quote_df["AP total price(VND)"]
+        
+        # 3. Cost Summation (Uses whatever value is currently in the columns)
+        cost_ops = (st.session_state.quote_df["Total buying price(VND)"] + 
+                    st.session_state.quote_df["GAP"] +
+                    st.session_state.quote_df["End user(%)"] + 
+                    st.session_state.quote_df["Buyer(%)"] + 
+                    st.session_state.quote_df["Import tax(%)"] + 
+                    st.session_state.quote_df["VAT"] + 
+                    st.session_state.quote_df["Transportation"] + 
+                    st.session_state.quote_df["Management fee(%)"])
 
+        # 4. Profit Calc
+        st.session_state.quote_df["Profit(VND)"] = st.session_state.quote_df["Total price(VND)"] - cost_ops + st.session_state.quote_df["Payback(%)"]
+        st.session_state.quote_df["Profit_Pct_Raw"] = st.session_state.quote_df.apply(lambda row: (row["Profit(VND)"] / row["Total price(VND)"] * 100) if row["Total price(VND)"] > 0 else 0, axis=1)
+        st.session_state.quote_df["Profit(%)"] = st.session_state.quote_df["Profit_Pct_Raw"].apply(lambda x: f"{x:.1f}%")
+
+        # 5. Warning
+        def set_warning(row):
+            if "KHÔNG KHỚP" in str(row.get("Cảnh báo","")): return row["Cảnh báo"]
+            return "⚠️ LOW" if row["Profit_Pct_Raw"] < 10 else "✅ OK"
+        st.session_state.quote_df["Cảnh báo"] = st.session_state.quote_df.apply(set_warning, axis=1)
+
+        # Organize Columns
         cols_order = ["Select", "No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["Select", "No", "Cảnh báo"]]
         st.session_state.quote_df = st.session_state.quote_df[cols_order]
 
@@ -1121,10 +1167,6 @@ with t3:
         df_show = st.session_state.quote_df.drop(columns=[c for c in cols_to_hide if c in st.session_state.quote_df.columns], errors='ignore')
 
         # --- PREPARE DATA FOR DISPLAY (FORMATTING) ---
-        # Instead of creating a separate display dataframe with strings,
-        # we will use column_config to format numbers in the editor directly.
-        # This keeps the underlying data as numbers for calculation.
-        
         # Calculate totals for display separately
         cols_to_sum = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
                         "Buying price(VND)", "Total buying price(VND)", 
@@ -1138,14 +1180,14 @@ with t3:
         for c in cols_to_sum:
             if c in df_show.columns:
                 total_val = df_show[c].sum()
-                total_row[c] = total_val # Keep as number for now
+                total_row[c] = total_val # Keep as number
         
         t_profit = total_row.get("Profit(VND)", 0)
         t_price = total_row.get("Total price(VND)", 0)
         t_pct = (t_profit / t_price * 100) if t_price > 0 else 0
-        total_row["Profit(%)"] = f"{t_pct:.1f}%" # String for percentage
+        total_row["Profit(%)"] = f"{t_pct:.1f}%"
         
-        # Append total row to dataframe for display
+        # Append total row
         df_display = pd.concat([df_show, pd.DataFrame([total_row])], ignore_index=True)
 
         st.markdown("---")
@@ -1175,10 +1217,7 @@ with t3:
                     st.toast("✅ Đã áp dụng Global Config cho toàn bộ bảng!", icon="⚡")
                     st.rerun()
 
-        # Configure columns for formatting (comma separation)
-        # Using NumberColumn with format param allows editing numbers while showing formatted text
-        # Key fix: Don't convert to string before data_editor, let Streamlit handle formatting
-        
+        # Configure columns for formatting (Comma separation for Thousands)
         column_config = {
             "Select": st.column_config.CheckboxColumn("✅", width="small"),
             "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
@@ -1186,6 +1225,7 @@ with t3:
             "Exchange rate": st.column_config.NumberColumn("Rate", format="%.2f"),
             "Buying price(RMB)": st.column_config.NumberColumn("Buying(RMB)", format="%.2f"),
             "Total buying price(rmb)": st.column_config.NumberColumn("Total(RMB)", format="%.2f", disabled=True),
+            # Using format="%d" creates integers. Streamlit renders 1000 as 1,000 by default in most locales.
             "Buying price(VND)": st.column_config.NumberColumn("Buying(VND)", format="%d"),
             "Total buying price(VND)": st.column_config.NumberColumn("Total(VND)", format="%d", disabled=True),
             "AP price(VND)": st.column_config.NumberColumn("AP(VND)", format="%d"),
@@ -1214,14 +1254,9 @@ with t3:
         )
         
         # --- SYNC CHANGES BACK TO STATE ---
-        # Exclude the total row from updates
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
         
-        # Check for changes
-        # Since we kept data as numbers (float/int), direct comparison works better
-        # We need to update st.session_state.quote_df with values from df_data_only
-        
-        # We only need to check editable columns
+        # Editable columns
         editable_cols = [
             "Q'ty", "Buying price(RMB)", "Exchange rate", "Buying price(VND)", 
             "AP price(VND)", "Unit price(VND)", 
@@ -1231,28 +1266,18 @@ with t3:
         
         data_changed = False
         
-        # Iterate and update if changed
-        # Optimization: Check if dataframe as a whole changed first (excluding calculated cols)
-        # But for row-by-row logic or specific edits, let's just compare relevant columns.
-        
-        # Re-align index just in case
+        # Sync logic
         if len(df_data_only) == len(st.session_state.quote_df):
-             # Extract editable part from both
-             current_editable = st.session_state.quote_df[editable_cols].fillna(0.0).reset_index(drop=True)
-             new_editable = df_data_only[editable_cols].fillna(0.0).reset_index(drop=True)
-             
-             # Compare using numpy for speed
-             # Ensure types match
-             try:
-                 diff = ~np.isclose(current_editable.values.astype(float), new_editable.values.astype(float), equal_nan=True)
-                 if diff.any():
-                     # Update changes
-                     for col in editable_cols:
-                         st.session_state.quote_df[col] = df_data_only[col].values
-                     data_changed = True
-             except:
-                 # Fallback if types are messy
-                 pass
+             for c in editable_cols:
+                 if c in df_data_only.columns:
+                     # Check if column data actually changed using numpy for speed
+                     new_vals = df_data_only[c].fillna(0.0).values
+                     old_vals = st.session_state.quote_df[c].fillna(0.0).values
+                     try:
+                         if not np.allclose(new_vals.astype(float), old_vals.astype(float), equal_nan=True):
+                             st.session_state.quote_df[c] = new_vals
+                             data_changed = True
+                     except: pass
         
         if data_changed:
             st.rerun()
@@ -1307,6 +1332,7 @@ with t3:
 
             # For review, we can format as strings since it's read-only
             if "Unit price(VND)" in df_review.columns:
+                 df_review["Unit price(VND)"].apply(fmt_num) # apply w/o assign does nothing
                  df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(fmt_num)
             if "Total price(VND)" in df_review.columns:
                  df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(fmt_num)
