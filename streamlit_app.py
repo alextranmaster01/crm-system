@@ -747,36 +747,12 @@ with t2:
             )
         else: st.info("Kho hàng trống.")
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE WITH ADMIN RESET) ---
+# --- TAB 3: BÁO GIÁ (FIXED FORMULA UPDATE LOGIC) ---
 # =============================================================================
 with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
-    # -------------------------------------------------------------------------
-    # [MỚI] KHU VỰC ADMIN: RESET LỊCH SỬ
-    # -------------------------------------------------------------------------
-    with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
-        c_adm1, c_adm2 = st.columns([3, 1])
-        with c_adm1:
-            st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history). Hãy cẩn thận!")
-        with c_adm2:
-            adm_pass_q = st.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote")
-            if st.button("🔴 XÓA HẾT LỊCH SỬ"):
-                if adm_pass_q == "admin":
-                    try:
-                        # Xóa toàn bộ dữ liệu trong bảng crm_shared_history
-                        supabase.table("crm_shared_history").delete().neq("id", 0).execute()
-                        st.toast("✅ Đã xóa toàn bộ lịch sử báo giá!", icon="🗑️")
-                        time.sleep(1.5)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi khi xóa: {e}")
-                else:
-                    st.error("Sai mật khẩu!")
-
-    # -------------------------------------------------------------------------
-    # 1. TRA CỨU & TRẠNG THÁI (CODE CŨ GIỮ NGUYÊN)
-    # -------------------------------------------------------------------------
+    # 1. TRA CỨU & TRẠNG THÁI
     with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
         c_src1, c_src2 = st.columns(2)
         search_kw = c_src1.text_input("Nhập từ khóa (Tên Khách, Quote No, Code, Name, Date)", help="Tìm kiếm trong lịch sử")
@@ -940,10 +916,8 @@ with t3:
         else: st.info("Chưa có lịch sử.")
 
     st.divider()
-    
-    # -------------------------------------------------------------------------
-    # 2. TÍNH TOÁN & LÀM BÁO GIÁ (CODE CŨ GIỮ NGUYÊN)
-    # -------------------------------------------------------------------------
+
+    # 2. TÍNH TOÁN & LÀM BÁO GIÁ
     st.subheader("TÍNH TOÁN & LÀM BÁO GIÁ")
     
     c1, c2, c3 = st.columns([2, 2, 1])
@@ -1066,39 +1040,52 @@ with t3:
 
             st.session_state.quote_df = pd.DataFrame(res)
     
-    # --- FORMULA BUTTONS ---
+    # --- FORMULA BUTTONS (FIXED LOGIC) ---
     c_form1, c_form2 = st.columns(2)
     with c_form1:
         ap_f = st.text_input("Formula AP (vd: =BUY*1.1)", key="f_ap")
         st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
         if st.button("Apply AP Price"):
             if not st.session_state.quote_df.empty:
+                # 1. Update values line by line using parser
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = to_float(row["Buying price(VND)"])
                     ap = to_float(row["AP price(VND)"])
                     new_ap = parse_formula(ap_f, buy, ap)
                     st.session_state.quote_df.at[idx, "AP price(VND)"] = fmt_float_2(new_ap)
+                
+                # 2. Recalculate Logic to update Totals/Profits based on new AP
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                
+                # 3. Force Rerun to update Table UI immediately
                 st.rerun() 
         st.markdown('</div>', unsafe_allow_html=True)
+    
     with c_form2:
         unit_f = st.text_input("Formula Unit (vd: =AP*1.2)", key="f_unit")
         st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
         if st.button("Apply Unit Price"):
             if not st.session_state.quote_df.empty:
+                # 1. Update values line by line using parser
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = to_float(row["Buying price(VND)"])
                     ap = to_float(row["AP price(VND)"])
                     new_unit = parse_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = fmt_float_2(new_unit)
+                
+                # 2. Recalculate Logic to update Totals/Profits based on new Unit Price
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                
+                # 3. Force Rerun to update Table UI immediately
                 st.rerun() 
         st.markdown('</div>', unsafe_allow_html=True)
     
+    # --- MAIN TABLE DISPLAY & EDIT ---
     if not st.session_state.quote_df.empty:
         if "Select" not in st.session_state.quote_df.columns:
             st.session_state.quote_df.insert(0, "Select", False)
 
+        # Always recalc logic before display to ensure consistency
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
 
         cols_order = ["Select", "No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["Select", "No", "Cảnh báo"]]
@@ -1379,6 +1366,25 @@ with t3:
                     except Exception as e: st.error(f"Lỗi lưu Drive: {e}")
                 else: st.error("Chọn khách!")
             st.markdown('</div>', unsafe_allow_html=True)
+    
+    # [NEW] ADMIN RESET FEATURE AT BOTTOM OF TAB 3 (OPTIONAL PLACEMENT)
+    with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
+         c_adm1, c_adm2 = st.columns([3, 1])
+         with c_adm1:
+             st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history). Hãy cẩn thận!")
+         with c_adm2:
+             adm_pass_q = st.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote_bottom")
+             if st.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_reset_quote_bottom"):
+                 if adm_pass_q == "admin":
+                     try:
+                         supabase.table("crm_shared_history").delete().neq("id", 0).execute()
+                         st.toast("✅ Đã xóa toàn bộ lịch sử báo giá!", icon="🗑️")
+                         time.sleep(1.5)
+                         st.rerun()
+                     except Exception as e:
+                         st.error(f"Lỗi khi xóa: {e}")
+                 else:
+                     st.error("Sai mật khẩu!")
 # =============================================================================
 # --- TAB 4: QUẢN LÝ PO (NEW LOGIC) ---
 # =============================================================================
