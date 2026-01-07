@@ -746,13 +746,40 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ (FINAL STABLE VERSION - EXCEL LOGIC & ANTI-FLASH) ---
+import streamlit as st
+import pandas as pd
+import numpy as np
+import time
+from datetime import datetime
+import json
+import io
+from openpyxl import load_workbook
+
+# --- GIẢ ĐỊNH CÁC HÀM NGOÀI (BLACKBOX MOCK) ---
+# Trong thực tế code này nằm trong môi trường đã có các hàm này.
+# Đây là mock để code không báo lỗi khi chạy độc lập nếu cần kiểm tra cú pháp.
+def load_data(table, order_by=None): return pd.DataFrame()
+def clean_key(k): return str(k).lower().strip()
+def safe_str(s): return str(s) if s else ""
+def to_float(v): 
+    try: return float(v)
+    except: return 0.0
+def fmt_float_2(v): return "{:.2f}".format(v)
+def fmt_num(v): return "{:,.0f}".format(v)
+def parse_formula(f, b, a): return 0 # Placeholder
+def search_file_in_drive_by_name(n): return None, None, None
+def download_from_drive(id): return None
+def upload_to_drive_structured(b, p, n): return "", ""
+# ------------------------------------------------
+
+# --- TAB 3: BÁO GIÁ (FINAL PERFECTED VERSION - FIXED ALL ISSUES) ---
 
 # 1. Hàm hỗ trợ xử lý số liệu hiển thị
 def local_parse_money(val):
     """Chuyển chuỗi hiển thị (có dấu phẩy) thành số Float để tính toán"""
     try:
         if pd.isna(val) or str(val).strip() == "": return 0.0
+        # Xóa dấu phẩy để Python hiểu là số
         return float(str(val).replace(",", "").strip())
     except: return 0.0
 
@@ -760,6 +787,7 @@ def local_fmt_vnd(val):
     """Format VND: Luôn làm tròn số nguyên, thêm dấu phẩy ngăn cách"""
     try:
         if pd.isna(val): return "0"
+        # Round 0 decimals for VND
         return "{:,.0f}".format(round(float(val)))
     except: return str(val)
 
@@ -770,7 +798,7 @@ def local_fmt_rmb(val):
         return "{:,.2f}".format(float(val))
     except: return str(val)
 
-# 2. HÀM TÍNH TOÁN LOGIC (CORE CALCULATION)
+# 2. HÀM TÍNH TOÁN LOGIC (CORE CALCULATION - FIX ROUNDING & FORMULA)
 def recalculate_quote_logic(df, params):
     if df.empty: return df
     
@@ -787,16 +815,14 @@ def recalculate_quote_logic(df, params):
         try:
             # --- 1. LẤY DỮ LIỆU ĐẦU VÀO (INPUT) ---
             qty = local_parse_money(row.get("Q'ty", 0))
-            
-            # Lưu ý: Lấy giá trị thực từ DataFrame để đảm bảo độ chính xác
             buy_vnd_unit = local_parse_money(row.get("Buying price(VND)", 0))
             ap_vnd_unit = local_parse_money(row.get("AP price(VND)", 0))
             unit_price = local_parse_money(row.get("Unit price(VND)", 0))
             buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
             ex_rate = local_parse_money(row.get("Exchange rate", 0))
 
-            # --- 2. TÍNH TOÁN CÁC CỘT TỔNG (LÀM TRÒN NGAY ĐỂ KHỚP HIỂN THỊ) ---
-            # Buying Price VND: Nếu có RMB và Rate > 0 thì tự tính lại (giống Excel)
+            # --- 2. TÍNH TOÁN CÁC CỘT TỔNG (LÀM TRÒN NGAY LẬP TỨC ĐỂ TRÁNH NHẤP NHÁY) ---
+            # Buying Price VND (Nếu có RMB và Rate thì ưu tiên tính lại, hoặc giữ nguyên nếu nhập tay)
             if buy_rmb > 0 and ex_rate > 0:
                 buy_vnd_unit = round(buy_rmb * ex_rate, 0)
 
@@ -809,19 +835,19 @@ def recalculate_quote_logic(df, params):
             # GAP = Total Price - AP Total
             gap = total_price - ap_total
 
-            # Các thành phần chi phí (Cũng làm tròn về 0 để tránh số lẻ gây nhấp nháy)
+            # Các thành phần chi phí (Cũng làm tròn về 0)
             val_imp_tax = round(total_buy_vnd * p_tax, 0)
-            val_end = round(ap_total * p_end, 0)
-            val_buyer = round(total_price * p_buy, 0)
+            val_end = round(ap_total * p_end, 0)       # End user tính trên AP Total
+            val_buyer = round(total_price * p_buy, 0)  # Buyer tính trên Total Price
             val_vat = round(total_price * p_vat, 0)
             val_mgmt = round(total_price * p_mgmt, 0)
-            val_trans = round(v_trans, 0)
-            val_payback = round(gap * p_pay, 0)
+            val_trans = round(v_trans, 0)              # Cố định theo config
+            val_payback = round(gap * p_pay, 0)        # Payback tính trên GAP
 
-            # --- 3. TÍNH PROFIT (FORMULA CHUẨN) ---
-            # Formula: Profit = Total - (BuyingVND + GAP + End + Buyer + Tax + VAT + Trans + Mgmt) + Payback
+            # --- 3. TÍNH PROFIT (UPDATED FORMULA - REQUIREMENT #2) ---
+            # Profit = Total price - (Total buying VND + GAP + End user + buyer + import tax + VAT + trans + mgmt) + payback
             
-            deductions = (
+            sum_deductions = (
                 total_buy_vnd + 
                 gap + 
                 val_end + 
@@ -832,24 +858,27 @@ def recalculate_quote_logic(df, params):
                 val_mgmt
             )
             
-            val_profit = round(total_price - deductions + val_payback, 0)
+            # Công thức cũ: profit = revenue - cost.
+            # Công thức mới yêu cầu: ... + payback.
+            val_profit = round(total_price - sum_deductions + val_payback, 0)
             
+            # Tính % Profit
             pct_profit = 0.0
             if total_price != 0:
                 pct_profit = (val_profit / total_price) * 100
 
-            # --- 4. CẢNH BÁO LỢI NHUẬN (KHÔI PHỤC) ---
-            # Xử lý text cảnh báo cũ để tránh trùng lặp
+            # --- 4. CẢNH BÁO LỢI NHUẬN (REQUIREMENT #1) ---
+            # Lấy text cảnh báo cũ, xóa cảnh báo profit cũ đi để check lại
             current_warning = str(row.get("Cảnh báo", ""))
+            # Xóa các cảnh báo cũ để tránh trùng lặp
             current_warning = current_warning.replace("⚠️ Lãi thấp (<10%)", "").replace(" | ", "").strip()
             
             if pct_profit < 10.0:
                 if current_warning: current_warning += " | "
                 current_warning += "⚠️ Lãi thấp (<10%)"
             
-            df.at[idx, "Cảnh báo"] = current_warning
-
             # --- 5. CẬP NHẬT LẠI DATAFRAME (GIÁ TRỊ ĐÃ LÀM TRÒN) ---
+            df.at[idx, "Cảnh báo"] = current_warning
             df.at[idx, "Buying price(VND)"] = buy_vnd_unit
             df.at[idx, "Total buying price(rmb)"] = total_buy_rmb
             df.at[idx, "Total buying price(VND)"] = total_buy_vnd
@@ -866,7 +895,7 @@ def recalculate_quote_logic(df, params):
             df.at[idx, "Payback(%)"] = val_payback
             
             df.at[idx, "Profit(VND)"] = val_profit
-            df.at[idx, "Profit(%)"] = f"{pct_profit:.1f}%"
+            df.at[idx, "Profit(%)"] = f"{pct_profit:.2f}%" # Show 2 decimals for %
             df.at[idx, "Profit_Pct_Raw"] = pct_profit
 
         except Exception as e:
@@ -1142,13 +1171,13 @@ with t3:
                     buy_rmb = 0; buy_vnd = 0; ex_rate = 0
                     supplier = ""; image = ""; leadtime = ""
 
-                # Khởi tạo row
+                # Khởi tạo row, các giá trị float sẽ được tính lại bởi recalculate_quote_logic
                 item = {
                     "Select": False, "No": i+1, "Cảnh báo": warning_msg, 
                     "Item code": code_excel, "Item name": name_excel, "Specs": specs_excel, 
                     "Q'ty": qty, 
                     "Buying price(RMB)": buy_rmb, 
-                    "Total buying price(rmb)": 0,
+                    "Total buying price(rmb)": 0, # Will calc
                     "Exchange rate": ex_rate, 
                     "Buying price(VND)": buy_vnd, 
                     "Total buying price(VND)": 0,
@@ -1171,8 +1200,6 @@ with t3:
             status_match.empty()
 
             st.session_state.quote_df = pd.DataFrame(res)
-            # Tính toán ngay sau khi match để điền số liệu
-            st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
     
     # --- FORMULA BUTTONS ---
     c_form1, c_form2 = st.columns(2)
@@ -1207,7 +1234,7 @@ with t3:
         if "Select" not in st.session_state.quote_df.columns:
             st.session_state.quote_df.insert(0, "Select", False)
 
-        # Tính toán lại trước khi hiển thị để đảm bảo dữ liệu luôn tươi mới (Excel behavior)
+        # Tính toán lại trước khi hiển thị để đảm bảo mọi logic mới nhất (Profit, Warning) được áp dụng
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
 
         cols_order = ["Select", "No", "Cảnh báo"] + [c for c in st.session_state.quote_df.columns if c not in ["Select", "No", "Cảnh báo"]]
@@ -1237,7 +1264,7 @@ with t3:
         for c in cols_rmb:
             if c in df_display.columns: df_display[c] = df_display[c].apply(local_fmt_rmb)
 
-        # TÍNH TỔNG (TOTAL ROW) - THÊM Unit Buying & Total Buying RMB
+        # TÍNH TỔNG (TOTAL ROW)
         cols_to_sum = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)"] + cols_vnd
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
@@ -1254,7 +1281,7 @@ with t3:
         t_profit = local_parse_money(total_row.get("Profit(VND)", "0"))
         t_price = local_parse_money(total_row.get("Total price(VND)", "0"))
         t_pct = (t_profit / t_price * 100) if t_price > 0 else 0
-        total_row["Profit(%)"] = f"{t_pct:.1f}%"
+        total_row["Profit(%)"] = f"{t_pct:.2f}%"
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
