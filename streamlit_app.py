@@ -754,22 +754,6 @@ from datetime import datetime
 import json
 import io
 from openpyxl import load_workbook
-
-# --- GIẢ ĐỊNH CÁC HÀM NGOÀI (BLACKBOX MOCK) ---
-# Trong thực tế code này nằm trong môi trường đã có các hàm này.
-# Đây là mock để code không báo lỗi khi chạy độc lập nếu cần kiểm tra cú pháp.
-def load_data(table, order_by=None): return pd.DataFrame()
-def clean_key(k): return str(k).lower().strip()
-def safe_str(s): return str(s) if s else ""
-def to_float(v): 
-    try: return float(v)
-    except: return 0.0
-def fmt_float_2(v): return "{:.2f}".format(v)
-def fmt_num(v): return "{:,.0f}".format(v)
-def parse_formula(f, b, a): return 0 # Placeholder
-def search_file_in_drive_by_name(n): return None, None, None
-def download_from_drive(id): return None
-def upload_to_drive_structured(b, p, n): return "", ""
 # ------------------------------------------------
 
 # --- TAB 3: BÁO GIÁ (FINAL PERFECTED VERSION - FIXED ALL ISSUES) ---
