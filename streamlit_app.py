@@ -746,7 +746,7 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ (FIXED: FORMULA MATCH EXCEL 100%) ---
+# --- TAB 3: BÁO GIÁ (FIXED: STOP FLASHING LOOP) ---
 
 # 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
 def local_parse_money(val):
@@ -760,7 +760,7 @@ def local_fmt_money(val):
     """Chuyển số thành chuỗi '1,000,000', xử lý lỗi số thập phân dài"""
     try:
         if pd.isna(val): return "0"
-        # Làm tròn số trước khi format để tránh lỗi 3960000.00000005
+        # Làm tròn số trước khi format để tránh lỗi hiển thị và xung đột data
         val_float = float(val)
         return "{:,.0f}".format(round(val_float))
     except: return str(val)
@@ -772,7 +772,7 @@ def local_fmt_float(val):
         return "{:,.2f}".format(float(val))
     except: return str(val)
 
-# 2. HÀM TÍNH TOÁN LOGIC (UPDATED: FORMULA CUSTOM CỦA USER)
+# 2. HÀM TÍNH TOÁN LOGIC
 def recalculate_quote_logic(df, params):
     if df.empty: return df
     
@@ -800,21 +800,19 @@ def recalculate_quote_logic(df, params):
             ap_total = ap_vnd_unit * qty
             total_price = unit_price * qty
             
-            # 3. GAP = Total Price - AP Total
+            # 3. GAP
             gap = total_price - ap_total
 
-            # 4. Các chi phí (Expenses)
+            # 4. Các chi phí
             val_imp_tax = total_buy_vnd * p_tax
-            val_end = ap_total * p_end       # End user tính trên AP
-            val_buyer = total_price * p_buy  # Buyer tính trên Total Price
+            val_end = ap_total * p_end
+            val_buyer = total_price * p_buy
             val_vat = total_price * p_vat
             val_mgmt = total_price * p_mgmt
             val_trans = v_trans
             val_payback = gap * p_pay
 
-            # 5. TÍNH PROFIT THEO CÔNG THỨC MỚI CỦA USER
-            # Formula: Profit = Total price - (Total buying + GAP + End + Buyer + Tax + VAT + Trans + Mgmt) + Payback
-            
+            # 5. TÍNH PROFIT
             sum_deductions = (
                 total_buy_vnd + 
                 gap + 
@@ -825,7 +823,6 @@ def recalculate_quote_logic(df, params):
                 val_trans + 
                 val_mgmt
             )
-            
             val_profit = total_price - sum_deductions + val_payback
             
             # Tính % Profit
@@ -833,7 +830,7 @@ def recalculate_quote_logic(df, params):
             if total_price != 0:
                 pct_profit = (val_profit / total_price) * 100
 
-            # 6. Gán giá trị (Dùng local_fmt_money có round để đẹp số)
+            # 6. Gán giá trị
             df.at[idx, "Total buying price(rmb)"] = local_fmt_float(total_buy_rmb)
             df.at[idx, "Total buying price(VND)"] = local_fmt_money(total_buy_vnd)
             df.at[idx, "AP total price(VND)"] = local_fmt_money(ap_total)
@@ -1230,7 +1227,6 @@ with t3:
             df_display["Exchange rate"] = df_display["Exchange rate"].apply(local_fmt_float)
 
         # TÍNH TỔNG (TOTAL ROW)
-        # Thêm cột "Total buying price(rmb)" vào danh sách cần sum
         cols_to_sum = ["Q'ty", "Total buying price(rmb)"] + editable_money_cols
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
@@ -1267,7 +1263,7 @@ with t3:
             hide_index=True 
         )
         
-        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (PARSE TEXT -> FLOAT)
+        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (QUAN TRỌNG: FIX LỖI NHẤP NHÁY)
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
         data_changed = False
         
@@ -1291,7 +1287,7 @@ with t3:
                          st.session_state.quote_df.at[idx, "Exchange rate"] = val_float
                          data_changed = True
 
-                 # 3. Sync Tiền tệ
+                 # 3. Sync Tiền tệ (FIXED THRESHOLD)
                  all_money_cols = editable_money_cols + editable_rmb_cols
                  for c in all_money_cols:
                      if c in st.session_state.quote_df.columns:
@@ -1299,7 +1295,11 @@ with t3:
                          val_float = local_parse_money(val_str) 
                          old_float = to_float(st.session_state.quote_df.at[idx, c])
                          
-                         if abs(val_float - old_float) > 0.1: 
+                         # NẾU LÀ CỘT RMB: Sai số nhỏ (0.01)
+                         # NẾU LÀ CỘT VND: Sai số lớn hơn (1.0) do đã làm tròn số
+                         threshold = 0.01 if c in editable_rmb_cols else 1.0
+                         
+                         if abs(val_float - old_float) > threshold: 
                              st.session_state.quote_df.at[idx, c] = val_float
                              data_changed = True
         
@@ -1338,7 +1338,6 @@ with t3:
         with c_tool1:
             if st.button("⚡ ÁP DỤNG GLOBAL CONFIG", help="Tính lại toàn bộ các cột Tax, VAT, Fee..."):
                 if not st.session_state.quote_df.empty:
-                    # Logic apply toàn cục vẫn phải theo hàm tính toán chuẩn
                     st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
                     st.toast("✅ Đã áp dụng Global Config!", icon="⚡")
                     st.rerun()
