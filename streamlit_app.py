@@ -746,7 +746,7 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ (FIXED: STOP FLASHING LOOP) ---
+# --- TAB 3: BÁO GIÁ (FIXED: STOP INFINITE LOOP 100%) ---
 
 # 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
 def local_parse_money(val):
@@ -757,12 +757,10 @@ def local_parse_money(val):
     except: return 0.0
 
 def local_fmt_money(val):
-    """Chuyển số thành chuỗi '1,000,000', xử lý lỗi số thập phân dài"""
+    """Chuyển số thành chuỗi '1,000,000', làm tròn số nguyên"""
     try:
         if pd.isna(val): return "0"
-        # Làm tròn số trước khi format để tránh lỗi hiển thị và xung đột data
-        val_float = float(val)
-        return "{:,.0f}".format(round(val_float))
+        return "{:,.0f}".format(round(float(val)))
     except: return str(val)
 
 def local_fmt_float(val):
@@ -830,7 +828,7 @@ def recalculate_quote_logic(df, params):
             if total_price != 0:
                 pct_profit = (val_profit / total_price) * 100
 
-            # 6. Gán giá trị
+            # 6. Gán giá trị (Format chuẩn để hiển thị)
             df.at[idx, "Total buying price(rmb)"] = local_fmt_float(total_buy_rmb)
             df.at[idx, "Total buying price(VND)"] = local_fmt_money(total_buy_vnd)
             df.at[idx, "AP total price(VND)"] = local_fmt_money(ap_total)
@@ -852,7 +850,6 @@ def recalculate_quote_logic(df, params):
             df.at[idx, "Profit_Pct_Raw"] = pct_profit
 
         except Exception as e:
-            print(f"Error calc row {idx}: {e}")
             continue
             
     return df
@@ -1263,22 +1260,30 @@ with t3:
             hide_index=True 
         )
         
-        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (QUAN TRỌNG: FIX LỖI NHẤP NHÁY)
+        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (FIXED: TYPE-SAFE COMPARISON)
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
         data_changed = False
         
         if len(df_data_only) == len(st.session_state.quote_df):
             for idx, row in df_data_only.iterrows():
-                 # 1. Sync Text thông thường
-                 for c in ["Q'ty", "Item name", "Specs"]:
+                 # 1. Sync Q'ty (Numeric Comparison để tránh lỗi "1.0" != "1")
+                 if "Q'ty" in st.session_state.quote_df.columns:
+                     old_qty = local_parse_money(st.session_state.quote_df.at[idx, "Q'ty"])
+                     new_qty = local_parse_money(row.get("Q'ty", 0))
+                     if abs(old_qty - new_qty) > 0.001:
+                         st.session_state.quote_df.at[idx, "Q'ty"] = new_qty
+                         data_changed = True
+
+                 # 2. Sync Text (Item name, Specs) - Chỉ so sánh chuỗi
+                 for c in ["Item name", "Specs"]:
                      if c in st.session_state.quote_df.columns:
-                         old_val = st.session_state.quote_df.at[idx, c]
-                         new_val = row[c]
-                         if str(old_val) != str(new_val):
+                         old_val = str(st.session_state.quote_df.at[idx, c]).strip()
+                         new_val = str(row.get(c, "")).strip()
+                         if old_val != new_val:
                              st.session_state.quote_df.at[idx, c] = new_val
                              data_changed = True
 
-                 # 2. Sync Exchange rate
+                 # 3. Sync Exchange rate
                  if "Exchange rate" in st.session_state.quote_df.columns:
                      val_str = row["Exchange rate"]
                      val_float = local_parse_money(val_str)
@@ -1287,7 +1292,7 @@ with t3:
                          st.session_state.quote_df.at[idx, "Exchange rate"] = val_float
                          data_changed = True
 
-                 # 3. Sync Tiền tệ (FIXED THRESHOLD)
+                 # 4. Sync Tiền tệ (VND: sai số 1.0, RMB: 0.01)
                  all_money_cols = editable_money_cols + editable_rmb_cols
                  for c in all_money_cols:
                      if c in st.session_state.quote_df.columns:
@@ -1295,8 +1300,7 @@ with t3:
                          val_float = local_parse_money(val_str) 
                          old_float = to_float(st.session_state.quote_df.at[idx, c])
                          
-                         # NẾU LÀ CỘT RMB: Sai số nhỏ (0.01)
-                         # NẾU LÀ CỘT VND: Sai số lớn hơn (1.0) do đã làm tròn số
+                         # Ngưỡng sai số
                          threshold = 0.01 if c in editable_rmb_cols else 1.0
                          
                          if abs(val_float - old_float) > threshold: 
