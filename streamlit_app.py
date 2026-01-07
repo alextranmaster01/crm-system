@@ -626,21 +626,48 @@ with t2:
                     prog.progress((i + 1) / len(df))
                 
                 if records:
-                    # --- BƯỚC 1: KIỂM TRA TRÙNG LẶP (3 BIẾN: Code, Name, Specs) ---
+                    # --- BƯỚC 1: KIỂM TRA TRÙNG LẶP (4 BIẾN: Code, Name, Specs, NUOC) ---
                     df_db = load_data("crm_purchases")
                     
-                    existing_sigs = set()
+                    # Tạo Map dữ liệu cũ: Key=(Code, Name, Specs, NUOC) -> Value=Price_RMB
+                    existing_map = {}
                     if not df_db.empty:
                         for r in df_db.to_dict('records'):
-                            sig = (clean_key(r.get('item_code')), clean_key(r.get('item_name')), clean_key(r.get('specs')))
-                            existing_sigs.add(sig)
+                            # Xử lý data thật chính xác, xóa khoảng trống thừa
+                            k_code = clean_key(r.get('item_code', '')).strip()
+                            k_name = clean_key(r.get('item_name', '')).strip()
+                            k_specs = clean_key(r.get('specs', '')).strip()
+                            k_nuoc = clean_key(r.get('nuoc', '')).strip()
+                            
+                            sig = (k_code, k_name, k_specs, k_nuoc)
+                            price = to_float(r.get('buying_price_rmb', 0))
+                            
+                            # Nếu DB có trùng nội bộ, giữ cái nhỏ nhất làm chuẩn so sánh
+                            if sig not in existing_map or price < existing_map[sig]:
+                                existing_map[sig] = price
                     
                     dups = []
                     non_dups = []
+                    
                     for rec in records:
-                        sig = (clean_key(rec.get('item_code')), clean_key(rec.get('item_name')), clean_key(rec.get('specs')))
-                        if sig in existing_sigs:
-                            dups.append(rec)
+                        # Xử lý data input chính xác như DB
+                        i_code = clean_key(rec.get('item_code', '')).strip()
+                        i_name = clean_key(rec.get('item_name', '')).strip()
+                        i_specs = clean_key(rec.get('specs', '')).strip()
+                        i_nuoc = clean_key(rec.get('nuoc', '')).strip()
+                        
+                        sig = (i_code, i_name, i_specs, i_nuoc)
+                        i_price = rec.get('buying_price_rmb', 0)
+                        
+                        if sig in existing_map:
+                            db_price = existing_map[sig]
+                            # LOGIC: Trùng nhau -> Giữ item có giá mua RMB nhỏ nhất
+                            if i_price < db_price:
+                                # Giá mới rẻ hơn -> Cho phép import (coi như không trùng để insert mới)
+                                non_dups.append(rec)
+                            else:
+                                # Giá mới đắt hơn hoặc bằng -> Báo trùng (Bỏ qua)
+                                dups.append(rec)
                         else:
                             non_dups.append(rec)
                     
@@ -657,12 +684,12 @@ with t2:
         step = st.session_state.get("import_step", None)
         
         if step == "confirm":
-            st.warning(f"⚠️ Phát hiện {len(st.session_state.import_dups)} dòng dữ liệu bị TRÙNG LẶP (Giống hệt Code, Name & Specs)!")
-            st.write("Dữ liệu trùng:")
-            st.dataframe(pd.DataFrame(st.session_state.import_dups)[['item_code', 'item_name', 'specs']], hide_index=True)
+            st.warning(f"⚠️ Phát hiện {len(st.session_state.import_dups)} dòng bị TRÙNG (Khớp 4 biến & Giá nhập >= Giá cũ)!")
+            st.write("Dữ liệu trùng (Sẽ bỏ qua):")
+            st.dataframe(pd.DataFrame(st.session_state.import_dups)[['item_code', 'item_name', 'specs', 'nuoc', 'buying_price_rmb']], hide_index=True)
             
             c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✅ Chỉ Import dòng mới (Bỏ qua trùng)"):
+            if c_btn1.button("✅ Chỉ Import dòng mới/giá tốt hơn"):
                 final_batch = st.session_state.import_non_dups
                 st.session_state.final_import_list = final_batch
                 st.session_state.import_step = "executing"
@@ -720,6 +747,31 @@ with t2:
             current_cols.insert(0, no_col)
             df_pur = df_pur[current_cols]
 
+        # --- CHỨC NĂNG XÓA DÒNG (ADMIN ONLY) ---
+        with st.expander("🗑️ Xóa dòng (Admin Only)"):
+            if not df_pur.empty:
+                # Tạo danh sách hiển thị cho Selectbox
+                del_opts = df_pur.apply(lambda x: f"{x.get('item_code','')} | {x.get('item_name','')} | {x.get('specs','')}", axis=1).tolist()
+                sel_del = st.selectbox("Chọn sản phẩm cần xóa:", [""] + del_opts)
+                pass_del = st.text_input("Mật khẩu Admin để xóa:", type="password", key="pass_del_row")
+                
+                if st.button("❌ Xác nhận xóa"):
+                    if pass_del == "admin":
+                        if sel_del:
+                            # Lấy Item Code từ chuỗi đã chọn để xóa
+                            code_to_del = sel_del.split(" | ")[0].strip()
+                            try:
+                                supabase.table("crm_purchases").delete().eq("item_code", code_to_del).execute()
+                                st.success(f"Đã xóa thành công item: {code_to_del}")
+                                time.sleep(1); st.rerun()
+                            except Exception as e:
+                                st.error(f"Lỗi khi xóa: {e}")
+                        else:
+                            st.warning("Vui lòng chọn dòng để xóa!")
+                    else:
+                        st.error("Sai mật khẩu Admin!")
+        # ---------------------------------------
+
         search = st.text_input("🔍 Tìm kiếm (Name, Code, Specs...)", key="search_pur")
         if not df_pur.empty:
             if search:
@@ -746,24 +798,6 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-import streamlit as st
-import pandas as pd
-import numpy as np
-import time
-from datetime import datetime
-import json
-import io
-from openpyxl import load_workbook
-# ------------------------------------------------
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import time
-from datetime import datetime
-import json
-import io
-from openpyxl import load_workbook
 
 # --- TAB 3: BÁO GIÁ (FULL CODE - INTEGRATED & OPTIMIZED) ---
 with t3:
