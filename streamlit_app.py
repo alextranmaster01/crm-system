@@ -746,31 +746,33 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ (FIXED: STOP INFINITE LOOP 100%) ---
+# --- TAB 3: BÁO GIÁ (FINAL FIX: ROUNDING LOGIC) ---
 
 # 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
 def local_parse_money(val):
-    """Chuyển chuỗi '1,000,000' thành số float 1000000.0"""
+    """Chuyển chuỗi '1,000,000' thành số float"""
     try:
         if pd.isna(val) or str(val).strip() == "": return 0.0
+        # Xóa dấu phẩy để parse số
         return float(str(val).replace(",", "").strip())
     except: return 0.0
 
 def local_fmt_money(val):
-    """Chuyển số thành chuỗi '1,000,000', làm tròn số nguyên"""
+    """Format VND: Luôn làm tròn về số nguyên, không có .00"""
     try:
         if pd.isna(val): return "0"
+        # Làm tròn thành số nguyên (int) rồi mới format
         return "{:,.0f}".format(round(float(val)))
     except: return str(val)
 
 def local_fmt_float(val):
-    """Chuyển số thành chuỗi '1,000.00'"""
+    """Format RMB/USD: Giữ 2 số thập phân"""
     try:
         if pd.isna(val): return "0.00"
         return "{:,.2f}".format(float(val))
     except: return str(val)
 
-# 2. HÀM TÍNH TOÁN LOGIC
+# 2. HÀM TÍNH TOÁN LOGIC (ĐÃ THÊM LÀM TRÒN ĐỂ CHẶN VÒNG LẶP)
 def recalculate_quote_logic(df, params):
     if df.empty: return df
     
@@ -792,23 +794,26 @@ def recalculate_quote_logic(df, params):
             unit_price = local_parse_money(row.get("Unit price(VND)", 0))
             buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
 
-            # 2. Totals cơ bản
-            total_buy_vnd = buy_vnd_unit * qty
-            total_buy_rmb = buy_rmb * qty
-            ap_total = ap_vnd_unit * qty
-            total_price = unit_price * qty
+            # 2. Totals cơ bản (LÀM TRÒN NGAY TẠI ĐÂY)
+            # VND làm tròn về 0 số lẻ (round(x, 0))
+            # RMB làm tròn về 2 số lẻ (round(x, 2))
+            
+            total_buy_vnd = round(buy_vnd_unit * qty, 0)
+            total_buy_rmb = round(buy_rmb * qty, 2)
+            ap_total = round(ap_vnd_unit * qty, 0)
+            total_price = round(unit_price * qty, 0)
             
             # 3. GAP
             gap = total_price - ap_total
 
-            # 4. Các chi phí
-            val_imp_tax = total_buy_vnd * p_tax
-            val_end = ap_total * p_end
-            val_buyer = total_price * p_buy
-            val_vat = total_price * p_vat
-            val_mgmt = total_price * p_mgmt
-            val_trans = v_trans
-            val_payback = gap * p_pay
+            # 4. Các chi phí (Cũng làm tròn VND về 0)
+            val_imp_tax = round(total_buy_vnd * p_tax, 0)
+            val_end = round(ap_total * p_end, 0)
+            val_buyer = round(total_price * p_buy, 0)
+            val_vat = round(total_price * p_vat, 0)
+            val_mgmt = round(total_price * p_mgmt, 0)
+            val_trans = round(v_trans, 0)
+            val_payback = round(gap * p_pay, 0)
 
             # 5. TÍNH PROFIT
             sum_deductions = (
@@ -821,14 +826,18 @@ def recalculate_quote_logic(df, params):
                 val_trans + 
                 val_mgmt
             )
+            
             val_profit = total_price - sum_deductions + val_payback
+            val_profit = round(val_profit, 0) # Làm tròn Profit
             
             # Tính % Profit
             pct_profit = 0.0
             if total_price != 0:
                 pct_profit = (val_profit / total_price) * 100
 
-            # 6. Gán giá trị (Format chuẩn để hiển thị)
+            # 6. Gán giá trị vào DataFrame
+            # Lưu ý: Các cột tiền tệ đã được làm tròn ở trên, giờ chỉ cần format string
+            
             df.at[idx, "Total buying price(rmb)"] = local_fmt_float(total_buy_rmb)
             df.at[idx, "Total buying price(VND)"] = local_fmt_money(total_buy_vnd)
             df.at[idx, "AP total price(VND)"] = local_fmt_money(ap_total)
@@ -1260,13 +1269,13 @@ with t3:
             hide_index=True 
         )
         
-        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (FIXED: TYPE-SAFE COMPARISON)
+        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (TYPE-SAFE)
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
         data_changed = False
         
         if len(df_data_only) == len(st.session_state.quote_df):
             for idx, row in df_data_only.iterrows():
-                 # 1. Sync Q'ty (Numeric Comparison để tránh lỗi "1.0" != "1")
+                 # 1. Sync Q'ty
                  if "Q'ty" in st.session_state.quote_df.columns:
                      old_qty = local_parse_money(st.session_state.quote_df.at[idx, "Q'ty"])
                      new_qty = local_parse_money(row.get("Q'ty", 0))
@@ -1274,7 +1283,7 @@ with t3:
                          st.session_state.quote_df.at[idx, "Q'ty"] = new_qty
                          data_changed = True
 
-                 # 2. Sync Text (Item name, Specs) - Chỉ so sánh chuỗi
+                 # 2. Sync Text
                  for c in ["Item name", "Specs"]:
                      if c in st.session_state.quote_df.columns:
                          old_val = str(st.session_state.quote_df.at[idx, c]).strip()
@@ -1292,7 +1301,7 @@ with t3:
                          st.session_state.quote_df.at[idx, "Exchange rate"] = val_float
                          data_changed = True
 
-                 # 4. Sync Tiền tệ (VND: sai số 1.0, RMB: 0.01)
+                 # 4. Sync Tiền tệ (VND integer, RMB decimal)
                  all_money_cols = editable_money_cols + editable_rmb_cols
                  for c in all_money_cols:
                      if c in st.session_state.quote_df.columns:
@@ -1300,7 +1309,6 @@ with t3:
                          val_float = local_parse_money(val_str) 
                          old_float = to_float(st.session_state.quote_df.at[idx, c])
                          
-                         # Ngưỡng sai số
                          threshold = 0.01 if c in editable_rmb_cols else 1.0
                          
                          if abs(val_float - old_float) > threshold: 
