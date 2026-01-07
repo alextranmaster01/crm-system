@@ -756,9 +756,18 @@ import io
 from openpyxl import load_workbook
 # ------------------------------------------------
 
-# --- TAB 3: BÁO GIÁ (FINAL FIXED VERSION - NO MOCK) ---
+import streamlit as st
+import pandas as pd
+import numpy as np
+import time
+from datetime import datetime
+import json
+import io
+from openpyxl import load_workbook
 
-# 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
+# --- TAB 3: BÁO GIÁ (FINAL PERFECTED VERSION - AUTO UNIT PRICE & WARNINGS) ---
+
+# 1. Hàm hỗ trợ xử lý số liệu hiển thị
 def local_parse_money(val):
     """Chuyển chuỗi hiển thị (có dấu phẩy) thành số Float để tính toán"""
     try:
@@ -803,31 +812,30 @@ def recalculate_quote_logic(df, params):
             buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
             ex_rate = local_parse_money(row.get("Exchange rate", 0))
 
-            # --- 2. TÍNH TOÁN CÁC CỘT TỔNG & CHI PHÍ ---
-            # Buying Price VND (Nếu có RMB và Rate thì ưu tiên tính lại, hoặc giữ nguyên nếu nhập tay)
+            # --- 2. TÍNH TOÁN CÁC CỘT TỔNG ---
+            # Buying Price VND (Nếu có RMB và Rate thì ưu tiên tính lại)
             if buy_rmb > 0 and ex_rate > 0:
-                buy_vnd_unit = buy_rmb * ex_rate
+                buy_vnd_unit = round(buy_rmb * ex_rate, 0)
 
-            total_buy_vnd = buy_vnd_unit * qty
-            total_buy_rmb = buy_rmb * qty
-            ap_total = ap_vnd_unit * qty
-            total_price = unit_price * qty
+            total_buy_vnd = round(buy_vnd_unit * qty, 0)
+            total_buy_rmb = round(buy_rmb * qty, 2)
+            ap_total = round(ap_vnd_unit * qty, 0)
+            total_price = round(unit_price * qty, 0)
             
             # GAP
             gap = total_price - ap_total
 
-            # Các thành phần chi phí
-            val_imp_tax = total_buy_vnd * p_tax
-            val_end = ap_total * p_end
-            val_buyer = total_price * p_buy
-            val_vat = total_price * p_vat
-            val_mgmt = total_price * p_mgmt
-            val_trans = v_trans
-            val_payback = gap * p_pay
+            # Các thành phần chi phí (Auto Calculate - Req 3)
+            val_imp_tax = round(total_buy_vnd * p_tax, 0)
+            val_end = round(ap_total * p_end, 0)
+            val_buyer = round(total_price * p_buy, 0)
+            val_vat = round(total_price * p_vat, 0)
+            val_mgmt = round(total_price * p_mgmt, 0)
+            val_trans = round(v_trans, 0)
+            val_payback = round(gap * p_pay, 0)
 
-            # --- 3. TÍNH PROFIT THEO CÔNG THỨC MỚI ---
+            # --- 3. TÍNH PROFIT (UPDATED FORMULA - Req 2) ---
             # Profit = Total price - (Total buying VND + GAP + End user + buyer + import tax + VAT + trans + mgmt) + payback
-            
             sum_deductions = (
                 total_buy_vnd + 
                 gap + 
@@ -838,21 +846,23 @@ def recalculate_quote_logic(df, params):
                 val_trans + 
                 val_mgmt
             )
-            val_profit = total_price - sum_deductions + val_payback
             
-            # Tính % Profit
+            val_profit = round(total_price - sum_deductions + val_payback, 0)
+            
             pct_profit = 0.0
             if total_price != 0:
                 pct_profit = (val_profit / total_price) * 100
 
-            # --- 4. CẢNH BÁO LỢI NHUẬN (<10%) ---
+            # --- 4. CẢNH BÁO LỢI NHUẬN (Req 2) ---
             # Lấy text cảnh báo cũ, xóa cảnh báo profit cũ đi để check lại
             current_warning = str(row.get("Cảnh báo", ""))
+            # Remove old warning to avoid duplication
             current_warning = current_warning.replace("⚠️ (<10%)", "").replace(" | ", "").strip()
             
+            # Only add warning if profit < 10%
             if pct_profit < 10.0:
                 if current_warning: current_warning += " | "
-                current_warning += "⚠️ Lãi thấp (<10%)"
+                current_warning += "⚠️ (<10%)"
             
             # --- 5. CẬP NHẬT LẠI DATAFRAME ---
             df.at[idx, "Cảnh báo"] = current_warning
@@ -1088,7 +1098,7 @@ with t3:
             default_val = st.session_state.get(f"pct_{k}", "0")
             val = cols[i].text_input(k.upper(), value=default_val, key=f"input_{k}")
             st.session_state[f"pct_{k}"] = val
-            params[k] = local_parse_money(val) # Dùng parse để lấy số float
+            params[k] = local_parse_money(val) 
 
     # MATCHING
     cf1, cf2 = st.columns([1, 2])
@@ -1242,6 +1252,7 @@ with t3:
             if c in df_display.columns: df_display[c] = df_display[c].apply(local_fmt_rmb)
 
         # TÍNH TỔNG (TOTAL ROW)
+        # Req 5: Unit Buying RMB + Total Buying RMB
         cols_to_sum = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)"] + cols_vnd
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
@@ -1258,7 +1269,7 @@ with t3:
         t_profit = local_parse_money(total_row.get("Profit(VND)", "0"))
         t_price = local_parse_money(total_row.get("Total price(VND)", "0"))
         t_pct = (t_profit / t_price * 100) if t_price > 0 else 0
-        total_row["Profit(%)"] = f"{t_pct:.1f}%"
+        total_row["Profit(%)"] = f"{t_pct:.2f}%"
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
@@ -1281,9 +1292,7 @@ with t3:
             hide_index=True 
         )
         
-        # --- QUAN TRỌNG: ĐỒNG BỘ DỮ LIỆU NGƯỢC (CHỐNG NHẤP NHÁY) ---
-        # Logic: Chỉ update nếu String hiển thị khác nhau. 
-        # Nếu giống nhau, nghĩa là user không sửa gì -> Không parse lại -> Không lệch số
+        # --- QUAN TRỌNG: ĐỒNG BỘ DỮ LIỆU NGƯỢC (CHỐNG NHẤP NHÁY + AUTO UNIT CALC) ---
         
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
         data_changed = False
@@ -1307,19 +1316,45 @@ with t3:
                              st.session_state.quote_df.at[idx, c] = new_val
                              data_changed = True
 
-                 # 3. Sync Các cột tiền (So sánh String)
+                 # 3. SPECIAL SYNC FOR AP PRICE (Item 26 Fix)
+                 # Nếu AP thay đổi -> Tự động tính lại Unit Price theo tỷ lệ cũ (markup maintenance)
+                 if "AP price(VND)" in st.session_state.quote_df.columns and "Unit price(VND)" in st.session_state.quote_df.columns:
+                     old_ap = local_parse_money(st.session_state.quote_df.at[idx, "AP price(VND)"])
+                     new_ap_str = str(row.get("AP price(VND)", "0")).strip()
+                     new_ap = local_parse_money(new_ap_str)
+                     
+                     # Check display string difference to avoid float flicker
+                     old_ap_str = local_fmt_vnd(old_ap)
+                     
+                     if old_ap_str != new_ap_str:
+                         # AP Changed by User!
+                         st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                         
+                         # Auto-update Unit Price logic:
+                         # Calculate current Markup Ratio from OLD values
+                         old_unit = local_parse_money(st.session_state.quote_df.at[idx, "Unit price(VND)"])
+                         
+                         if old_ap != 0:
+                             markup_ratio = old_unit / old_ap
+                             # Apply same markup to NEW AP
+                             new_unit = new_ap * markup_ratio
+                             st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
+                         
+                         data_changed = True
+                         continue # Skip standard sync for this row to avoid conflict
+
+                 # 4. Sync Các cột tiền khác (Standard Sync)
                  all_money_cols = cols_vnd + cols_rmb
                  for c in all_money_cols:
+                     if c == "AP price(VND)": continue # Handled above
+                     
                      if c in st.session_state.quote_df.columns:
-                         # Giá trị hiển thị cũ (đã format)
                          val_in_backend = st.session_state.quote_df.at[idx, c]
                          if c in cols_rmb: old_str = local_fmt_rmb(val_in_backend)
                          else: old_str = local_fmt_vnd(val_in_backend)
                          
-                         # Giá trị hiển thị mới (từ editor)
                          new_str = str(row[c]).strip()
                          
-                         # CHỈ CẬP NHẬT KHI CHUỖI KHÁC NHAU (USER CÓ SỬA)
                          if old_str != new_str:
                              new_val_float = local_parse_money(new_str)
                              st.session_state.quote_df.at[idx, c] = new_val_float
