@@ -529,7 +529,7 @@ with t1:
     else:
         st.info("Chưa có dữ liệu lịch sử để vẽ biểu đồ. Hãy tạo Báo Giá và Lưu Lịch Sử.")
 
-# --- TAB 2: KHO HÀNG (FIXED: ERROR hidden=True) ---
+# --- TAB 2: KHO HÀNG (FIXED: ID COLUMN & REORDER "NO") ---
 with t2:
     st.subheader("QUẢN LÝ KHO HÀNG (Excel Online)")
     c_imp, c_view = st.columns([1, 4])
@@ -717,12 +717,24 @@ with t2:
             for c in cols_money:
                 if c in df_pur.columns: df_pur[c] = df_pur[c].apply(fmt_num)
 
+            # Thêm cột Select
             df_pur.insert(0, "Select", False)
             
-            # --- CẤU HÌNH CỘT (SỬA LỖI Ở ĐÂY: "id": None) ---
+            # --- SẮP XẾP LẠI THỨ TỰ CỘT ---
+            # Mục tiêu: [Select, no, item_code, ...]
+            # Đảm bảo cột 'no' nằm ngay sau cột 'Select'
+            if 'no' in df_pur.columns:
+                cols = df_pur.columns.tolist()
+                cols.remove('no') # Xóa khỏi vị trí cũ
+                # 'Select' đang ở index 0, chèn 'no' vào index 1
+                cols.insert(1, 'no')
+                df_pur = df_pur[cols]
+
+            # --- CẤU HÌNH CỘT (Đã fix lỗi "id") ---
             column_config = {
                 "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-                "id": None, # <--- QUAN TRỌNG: Dùng None để ẩn cột, KHÔNG dùng hidden=True
+                "no": st.column_config.TextColumn("No.", width="small"), # Cấu hình cho cột No
+                "id": None, # <--- SỬA LỖI: Dùng None để ẩn, KHÔNG dùng hidden=True
                 "image_path": st.column_config.ImageColumn("Images", width="small"),
                 "item_code": st.column_config.TextColumn("Code", width="medium"),
                 "item_name": st.column_config.TextColumn("Name", width="medium"),
