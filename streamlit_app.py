@@ -529,7 +529,7 @@ with t1:
     else:
         st.info("Chưa có dữ liệu lịch sử để vẽ biểu đồ. Hãy tạo Báo Giá và Lưu Lịch Sử.")
 
-# --- TAB 2: KHO HÀNG (FIXED: TYPE CASTING & COLUMN ORDER) ---
+# --- TAB 2: KHO HÀNG (FINAL FIX: FORCE TYPE CASTING) ---
 with t2:
     st.subheader("QUẢN LÝ KHO HÀNG (Excel Online)")
     c_imp, c_view = st.columns([1, 4])
@@ -684,10 +684,10 @@ with t2:
                 except Exception as e:
                     st.error(f"Lỗi SQL: {e}"); st.session_state.import_step = None
 
-    # --- CỘT PHẢI: HIỂN THỊ (FIX TOÀN DIỆN LỖI TYPE & ORDER) ---
+    # --- CỘT PHẢI: HIỂN THỊ (SỬA LỖI STREAMLIT API EXCEPTION) ---
     with c_view:
         try:
-            # 1. Load Data
+            # Load Data và giữ ID
             res = supabase.table("crm_purchases").select("*").execute()
             df_pur = pd.DataFrame(res.data)
             if not df_pur.empty and 'row_order' in df_pur.columns:
@@ -695,7 +695,8 @@ with t2:
         except:
             df_pur = pd.DataFrame()
 
-        cols_to_drop = ['created_at', 'row_order'] 
+        # Drop cột rác
+        cols_to_drop = ['created_at', 'row_order']
         df_pur = df_pur.drop(columns=[c for c in cols_to_drop if c in df_pur.columns], errors='ignore')
 
         search = st.text_input("🔍 Tìm kiếm (Name, Code, Specs...)", key="search_pur")
@@ -705,40 +706,39 @@ with t2:
                 mask = df_pur.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
                 df_pur = df_pur[mask]
             
-            # --- QUAN TRỌNG: ÉP KIỂU DỮ LIỆU CHUẨN (Fix lỗi StreamlitAPIException) ---
-            # 1. Số lượng -> Float (để khớp NumberColumn)
+            # --- 1. CHUẨN HÓA DỮ LIỆU (FIX TRIỆT ĐỂ LỖI TYPE) ---
+            # Thêm cột Select (Boolean)
+            df_pur.insert(0, "Select", False)
+            
+            # Ép kiểu cột Qty (Float/Int)
             if 'qty' in df_pur.columns:
                 df_pur['qty'] = pd.to_numeric(df_pur['qty'], errors='coerce').fillna(0)
-            
-            # 2. Các cột Text -> String (Tránh None bị hiểu là float/NaN)
-            text_cols = ["no", "item_code", "item_name", "specs", "nuoc", "image_path", "supplier_name", "type"]
-            for c in text_cols:
-                if c in df_pur.columns:
-                    df_pur[c] = df_pur[c].fillna("").astype(str)
-
-            # 3. Format Tiền tệ -> String (TextColumn)
+                
+            # Định dạng các cột tiền (Về String)
             cols_money = ["buying_price_vnd", "total_buying_price_vnd", "buying_price_rmb", "total_buying_price_rmb"]
             for c in cols_money:
                 if c in df_pur.columns: df_pur[c] = df_pur[c].apply(fmt_num)
 
-            # --- SẮP XẾP CỘT: Select -> No -> Code... ---
-            df_pur.insert(0, "Select", False)
-            
-            current_cols = df_pur.columns.tolist()
-            # Tìm tên cột 'no' (đã ép về str ở trên nên chắc chắn là chuỗi)
-            no_col = next((c for c in current_cols if c.lower() == 'no'), None)
-            
-            if no_col:
-                current_cols.remove(no_col)
-                # Chèn vào vị trí số 1 (ngay sau Select ở 0)
-                current_cols.insert(1, no_col)
-                df_pur = df_pur[current_cols]
+            # ÉP TẤT CẢ CÁC CỘT CÒN LẠI VỀ STRING (Trừ Select, qty, id)
+            # Điều này ngăn chặn việc Streamlit hiểu nhầm None/NaN là float trong cột Text
+            exclude_cols = ['Select', 'qty', 'id']
+            for col in df_pur.columns:
+                if col not in exclude_cols:
+                    df_pur[col] = df_pur[col].fillna("").astype(str)
 
-            # --- CẤU HÌNH CỘT ---
+            # --- 2. SẮP XẾP CỘT (NO -> VỊ TRÍ 2) ---
+            # Thứ tự mong muốn: [Select, no, item_code, ..., id]
+            cols = df_pur.columns.tolist()
+            if 'no' in cols:
+                cols.remove('no')
+                cols.insert(1, 'no') # Vị trí index 1 (sau Select ở 0)
+                df_pur = df_pur[cols]
+
+            # --- 3. CẤU HÌNH HIỂN THỊ ---
             column_config = {
                 "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
                 "no": st.column_config.TextColumn("No.", width="small"),
-                "id": None, # Ẩn cột ID (Dùng None, KHÔNG dùng hidden=True)
+                "id": None, # Ẩn cột ID (Dùng None là chuẩn nhất)
                 "image_path": st.column_config.ImageColumn("Images", width="small"),
                 "item_code": st.column_config.TextColumn("Code", width="medium"),
                 "item_name": st.column_config.TextColumn("Name", width="medium"),
@@ -757,7 +757,7 @@ with t2:
                 key="data_editor_inventory"
             )
 
-            # Xử lý xóa
+            # --- XỬ LÝ XÓA DÒNG ---
             selected_rows = edited_df[edited_df["Select"] == True]
             if not selected_rows.empty:
                 st.divider()
@@ -768,6 +768,7 @@ with t2:
                 if c_del2.button("🔥 XÁC NHẬN XÓA"):
                     if pass_del == "admin":
                         try:
+                            # Lấy ID từ dataframe
                             ids_to_delete = selected_rows['id'].tolist()
                             if ids_to_delete:
                                 supabase.table("crm_purchases").delete().in_("id", ids_to_delete).execute()
