@@ -1029,6 +1029,26 @@ with t3:
         # Tính toán lại trước khi render
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
         
+        # --- UPDATE: SẮP XẾP LẠI THỨ TỰ CỘT THEO YÊU CẦU ---
+        target_cols = [
+            "Select", # Giữ Select ở đầu
+            "No", "Cảnh báo", "Item code", "Item name", "Specs", "Q'ty",
+            "Buying price(RMB)", "Total buying price(rmb)", "Exchange rate",
+            "Buying price(VND)", "Total buying price(VND)",
+            "AP price(VND)", "AP total price(VND)",
+            "Unit price(VND)", "Total price(VND)", "GAP",
+            "End user(%)", "Buyer(%)", "Import tax(%)", "VAT",
+            "Transportation", "Management fee(%)", "Payback(%)",
+            "Profit(VND)", "Profit(%)", "Supplier", "Leadtime"
+        ]
+        # Chỉ lấy những cột thực tế đang có trong DataFrame để tránh lỗi
+        final_cols = [c for c in target_cols if c in st.session_state.quote_df.columns]
+        # Thêm các cột còn lại (nếu có)
+        final_cols += [c for c in st.session_state.quote_df.columns if c not in final_cols]
+        
+        st.session_state.quote_df = st.session_state.quote_df[final_cols]
+        # ----------------------------------------------------
+        
         # Prepare Display DF
         df_display = st.session_state.quote_df.copy()
         cols_vnd = ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
