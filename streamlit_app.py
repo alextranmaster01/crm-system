@@ -1172,7 +1172,7 @@ with t3:
                     "AP price(VND)": 0, "AP total price(VND)": 0, 
                     "Unit price(VND)": 0, "Total price(VND)": 0,
                     "GAP": 0,
-                    "End user(%)": 0, "Buyer(%)": 0,               
+                    "End user(%)": 0, "Buyer(%)": 0,                
                     "Import tax(%)": 0,
                     "VAT": 0, "Transportation": 0,
                     "Management fee(%)": 0, "Payback(%)": 0,             
@@ -1188,7 +1188,7 @@ with t3:
 
             st.session_state.quote_df = pd.DataFrame(res)
     
-    # --- FORMULA BUTTONS ---
+    # --- FORMULA BUTTONS (ĐÃ SỬA: AP THAY ĐỔI -> UNIT THAY ĐỔI THEO TỶ LỆ) ---
     c_form1, c_form2 = st.columns(2)
     with c_form1:
         ap_f = st.text_input("Formula AP (vd: =BUY*1.1)", key="f_ap")
@@ -1198,8 +1198,21 @@ with t3:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
+                    
+                    # Logic mới: Lấy Unit Price cũ để tính Markup hiện tại
+                    old_unit = local_parse_money(row.get("Unit price(VND)", 0))
+                    markup_ratio = 1.1 # Default markup nếu chưa có AP
+                    if ap > 0: markup_ratio = old_unit / ap
+                    
                     new_ap = parse_formula(ap_f, buy, ap)
+                    
+                    # Cập nhật AP
                     st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                    
+                    # Tự động cập nhật Unit Price theo tỷ lệ Markup cũ
+                    new_unit = new_ap * markup_ratio
+                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
+
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
                 st.rerun() 
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1292,80 +1305,84 @@ with t3:
             hide_index=True 
         )
         
-        # --- QUAN TRỌNG: ĐỒNG BỘ DỮ LIỆU NGƯỢC (CHỐNG NHẤP NHÁY + AUTO UNIT CALC) ---
+        # ------------------------------------------------------------------------
+        # GIẢI PHÁP "EXCEL ENGINE": TỰ ĐỘNG TÍNH TOÁN & ĐỒNG BỘ CHUẨN XÁC
+        # ------------------------------------------------------------------------
         
-        df_data_only = edited_df[edited_df["No"] != "TOTAL"]
-        data_changed = False
+        # Lọc bỏ dòng TOTAL để lấy dữ liệu thực
+        df_new_data = edited_df[edited_df["No"] != "TOTAL"].reset_index(drop=True)
         
-        if len(df_data_only) == len(st.session_state.quote_df):
-            for idx, row in df_data_only.iterrows():
-                 # 1. Sync Q'ty (Số)
-                 if "Q'ty" in st.session_state.quote_df.columns:
-                     old_qty = local_parse_money(st.session_state.quote_df.at[idx, "Q'ty"])
-                     new_qty = local_parse_money(row.get("Q'ty", 0))
-                     if abs(old_qty - new_qty) > 0.001:
-                         st.session_state.quote_df.at[idx, "Q'ty"] = new_qty
-                         data_changed = True
+        # Chỉ xử lý khi số dòng khớp nhau (để tránh lỗi khi đang thêm/xóa dòng)
+        if len(df_new_data) == len(st.session_state.quote_df):
+            
+            # Biến cờ để xem có cần chạy lại hay không
+            need_rerun = False
+            
+            # --- BƯỚC 1: SO SÁNH DỮ LIỆU CŨ VÀ MỚI ĐỂ TÌM THAY ĐỔI (DETECT CHANGE) ---
+            for i in range(len(df_new_data)):
+                # Lấy dòng cũ (trong bộ nhớ) và dòng mới (vừa nhập trên bảng)
+                row_old = st.session_state.quote_df.iloc[i]
+                row_new = df_new_data.iloc[i]
+                
+                # 1. KIỂM TRA: NGƯỜI DÙNG SỬA "AP PRICE" ?
+                # -> Logic Excel: Nếu sửa giá vốn AP, giá bán Unit phải tăng theo để giữ nguyên % Lời (Markup)
+                if "AP price(VND)" in row_new:
+                    new_ap_str = str(row_new.get("AP price(VND)", "0")).strip()
+                    old_ap_val = local_parse_money(row_old.get("AP price(VND)", 0))
+                    # So sánh chuỗi hiển thị để biết chính xác người dùng có gõ vào không
+                    if local_fmt_vnd(old_ap_val) != new_ap_str:
+                        new_ap_val = local_parse_money(new_ap_str)
+                        
+                        # Logic thông minh: Giữ nguyên tỷ lệ lợi nhuận (Markup)
+                        old_unit_val = local_parse_money(row_old.get("Unit price(VND)", 0))
+                        markup_ratio = 1.1 # Mặc định nhân 1.1 nếu chưa có giá cũ
+                        if old_ap_val > 0:
+                            markup_ratio = old_unit_val / old_ap_val
+                        
+                        # Cập nhật vào bộ nhớ gốc
+                        st.session_state.quote_df.at[i, "AP price(VND)"] = new_ap_val
+                        st.session_state.quote_df.at[i, "Unit price(VND)"] = new_ap_val * markup_ratio
+                        need_rerun = True
+                        continue # Đã xử lý xong dòng này, sang dòng khác (ưu tiên AP)
+                
+                # 2. KIỂM TRA: NGƯỜI DÙNG SỬA CÁC CỘT KHÁC (Qty, Buying Price, Unit Price...)
+                # Danh sách các cột quan trọng cần đồng bộ ngay
+                check_cols = ["Q'ty", "Buying price(VND)", "Unit price(VND)", "Buying price(RMB)", "Exchange rate", "Item name", "Specs", "Select"]
+                
+                for col in check_cols:
+                    if col in row_new:
+                        # Lấy giá trị chuỗi (text)
+                        val_new_str = str(row_new[col]).strip()
+                        
+                        # Lấy giá trị cũ tương ứng, format ra string để so sánh
+                        val_old_raw = row_old.get(col, "")
+                        if col in ["Buying price(RMB)", "Exchange rate"]:
+                            val_old_str = local_fmt_rmb(val_old_raw)
+                        elif "price" in col or "Q'ty" in col: # Các cột tiền VND và Số lượng
+                            val_old_str = local_fmt_vnd(val_old_raw)
+                        else:
+                            val_old_str = str(val_old_raw).strip() # Tên, Specs, Select
+                        
+                        # Nếu khác nhau -> Người dùng đã sửa ô này
+                        if val_new_str != val_old_str:
+                            # Cập nhật lại vào bộ nhớ gốc
+                            if "price" in col or "rate" in col or "Q'ty" in col:
+                                st.session_state.quote_df.at[i, col] = local_parse_money(val_new_str)
+                            elif col == "Select":
+                                st.session_state.quote_df.at[i, col] = row_new[col]
+                            else:
+                                st.session_state.quote_df.at[i, col] = val_new_str
+                            need_rerun = True
 
-                 # 2. Sync Text (Tên, Specs...)
-                 for c in ["Item name", "Specs"]:
-                     if c in st.session_state.quote_df.columns:
-                         old_val = str(st.session_state.quote_df.at[idx, c]).strip()
-                         new_val = str(row.get(c, "")).strip()
-                         if old_val != new_val:
-                             st.session_state.quote_df.at[idx, c] = new_val
-                             data_changed = True
-
-                 # 3. SPECIAL SYNC FOR AP PRICE (Item 26 Fix)
-                 # Nếu AP thay đổi -> Tự động tính lại Unit Price theo tỷ lệ cũ (markup maintenance)
-                 if "AP price(VND)" in st.session_state.quote_df.columns and "Unit price(VND)" in st.session_state.quote_df.columns:
-                     old_ap = local_parse_money(st.session_state.quote_df.at[idx, "AP price(VND)"])
-                     new_ap_str = str(row.get("AP price(VND)", "0")).strip()
-                     new_ap = local_parse_money(new_ap_str)
-                     
-                     # Check display string difference to avoid float flicker
-                     old_ap_str = local_fmt_vnd(old_ap)
-                     
-                     if old_ap_str != new_ap_str:
-                         # AP Changed by User!
-                         st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
-                         
-                         # Auto-update Unit Price logic:
-                         # Calculate current Markup Ratio from OLD values
-                         old_unit = local_parse_money(st.session_state.quote_df.at[idx, "Unit price(VND)"])
-                         
-                         if old_ap != 0:
-                             markup_ratio = old_unit / old_ap
-                             # Apply same markup to NEW AP
-                             new_unit = new_ap * markup_ratio
-                             st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
-                         
-                         data_changed = True
-                         continue # Skip standard sync for this row to avoid conflict
-
-                 # 4. Sync Các cột tiền khác (Standard Sync)
-                 all_money_cols = cols_vnd + cols_rmb
-                 for c in all_money_cols:
-                     if c == "AP price(VND)": continue # Handled above
-                     
-                     if c in st.session_state.quote_df.columns:
-                         val_in_backend = st.session_state.quote_df.at[idx, c]
-                         if c in cols_rmb: old_str = local_fmt_rmb(val_in_backend)
-                         else: old_str = local_fmt_vnd(val_in_backend)
-                         
-                         new_str = str(row[c]).strip()
-                         
-                         if old_str != new_str:
-                             new_val_float = local_parse_money(new_str)
-                             st.session_state.quote_df.at[idx, c] = new_val_float
-                             data_changed = True
-        
-        if data_changed:
-            st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
-            st.rerun()
+            # --- BƯỚC 2: NẾU CÓ THAY ĐỔI -> KÍCH HOẠT "CỖ MÁY TÍNH TOÁN" (RECALCULATE ALL) ---
+            if need_rerun:
+                # Gọi hàm tính toán tổng thể (Hàm này giống như nút F9 trong Excel)
+                # Nó sẽ chạy lại công thức cho TẤT CẢ các dòng dựa trên dữ liệu mới nhất
+                st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+                st.rerun() # Refresh lại giao diện ngay lập tức
 
         # --- TOOLBAR & EXPORT ---
-        selected_rows = df_data_only[df_data_only["Select"] == True]
+        selected_rows = df_new_data[df_new_data["Select"] == True]
         if not selected_rows.empty:
             st.info(f"Đang chọn {len(selected_rows)} dòng.")
             tb_col1, tb_col2, tb_col3, tb_col4 = st.columns(4)
