@@ -746,33 +746,41 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ (FINAL FIX: SAVE DB + EDIT ALL) ---
+# --- TAB 3: BÁO GIÁ (FINAL PERFECTED VERSION) ---
 
 # 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
 def local_parse_money(val):
-    """Chuyển chuỗi '1,000,000' thành số float 1000000.0"""
+    """Chuyển chuỗi '1,000,000' thành số float 1000000.0 để tính toán"""
     try:
         if pd.isna(val) or str(val).strip() == "": return 0.0
+        # Xóa dấu phẩy để Python hiểu là số
         return float(str(val).replace(",", "").strip())
     except: return 0.0
 
 def local_fmt_money(val):
-    """Chuyển số thành chuỗi '1,000,000'"""
+    """Chuyển số thành chuỗi '1,000,000' để hiển thị"""
     try:
         if pd.isna(val): return "0"
         return "{:,.0f}".format(float(val))
+    except: return str(val)
+
+def local_fmt_float(val):
+    """Chuyển số thành chuỗi '1,000.00' (cho RMB/Rate)"""
+    try:
+        if pd.isna(val): return "0.00"
+        return "{:,.2f}".format(float(val))
     except: return str(val)
 
 with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
     # =============================================================================
-    # [NEW] ADMIN: RESET DATABASE SECTION
+    # [ADMIN SECTION: GIỮ NGUYÊN 100%]
     # =============================================================================
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
         with c_adm1:
-            st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history). Hành động này không thể hoàn tác!")
+            st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history).")
         with c_adm2:
             adm_pass_q = st.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote_tab3")
             if st.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
@@ -787,7 +795,9 @@ with t3:
                 else:
                     st.error("Sai mật khẩu Admin!")
 
-    # ------------------ TRA CỨU LỊCH SỬ (GIỮ NGUYÊN) ------------------
+    # =============================================================================
+    # [TRA CỨU & LỊCH SỬ: GIỮ NGUYÊN 100%]
+    # =============================================================================
     with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
         c_src1, c_src2 = st.columns(2)
         search_kw = c_src1.text_input("Nhập từ khóa (Tên Khách, Quote No, Code, Name, Date)", help="Tìm kiếm trong lịch sử")
@@ -905,8 +915,7 @@ with t3:
                               if fh_cfg:
                                   try:
                                       df_cfg = pd.read_excel(fh_cfg)
-                                      if not df_cfg.empty:
-                                          config_loaded = df_cfg.iloc[0].to_dict()
+                                      if not df_cfg.empty: config_loaded = df_cfg.iloc[0].to_dict()
                                   except: pass
 
                     if config_loaded:
@@ -1019,10 +1028,8 @@ with t3:
                     and clean_key(rec['specs']) == clean_key(specs_excel)
                 ]
 
-                if candidates:
-                    match = candidates[0]
-                else:
-                    warning_msg = "⚠️ KHÔNG KHỚP DATA"
+                if candidates: match = candidates[0]
+                else: warning_msg = "⚠️ KHÔNG KHỚP DATA"
 
                 if match:
                     buy_rmb = to_float(match.get('buying_price_rmb', 0))
@@ -1099,7 +1106,7 @@ with t3:
     
     if not st.session_state.quote_df.empty:
         # =========================================================================
-        # FIX 1: BẢNG NHẬP LIỆU EXCEL (CHO PHÉP SỬA MỌI Ô + FORMAT TEXT DẤU PHẨY)
+        # FIX: DATA EDITOR MASKING LOGIC
         # =========================================================================
         if "Select" not in st.session_state.quote_df.columns:
             st.session_state.quote_df.insert(0, "Select", False)
@@ -1112,62 +1119,74 @@ with t3:
         cols_to_hide = ["Image", "Profit_Pct_Raw"]
         df_show = st.session_state.quote_df.drop(columns=[c for c in cols_to_hide if c in st.session_state.quote_df.columns], errors='ignore')
 
-        # CHUẨN BỊ DỮ LIỆU HIỂN THỊ: CHUYỂN SỐ THÀNH TEXT "1,000,000"
+        # CHUẨN BỊ DỮ LIỆU HIỂN THỊ: CHUYỂN SỐ THÀNH TEXT
         df_display = df_show.copy()
         
-        # Danh sách các cột tiền cần định dạng và cho phép sửa
-        # [QUAN TRỌNG]: AP price và Unit price đã được thêm vào đây để sửa được
+        # Danh sách cột tiền VND (dùng format_money)
         editable_money_cols = [
-            "Buying price(RMB)", "Buying price(VND)", "Total buying price(VND)",
+            "Buying price(VND)", "Total buying price(VND)",
             "AP price(VND)", "AP total price(VND)", "Unit price(VND)", "Total price(VND)",
             "GAP", "End user(%)", "Buyer(%)", "Import tax(%)", "VAT",
             "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"
         ]
         
-        # Format "ép kiểu" toàn bộ sang String có dấu phẩy để hiển thị
+        # Danh sách cột tiền RMB (dùng format_float)
+        editable_rmb_cols = ["Buying price(RMB)", "Total buying price(rmb)"]
+
+        # Format Display
         for c in editable_money_cols:
             if c in df_display.columns:
                 df_display[c] = df_display[c].apply(local_fmt_money)
+        
+        for c in editable_rmb_cols:
+            if c in df_display.columns:
+                df_display[c] = df_display[c].apply(local_fmt_float)
 
-        # Tính tổng cho dòng TOTAL (dựa trên dữ liệu gốc Float)
-        cols_to_sum = ["Q'ty"] + editable_money_cols
+        # TÍNH TỔNG (TOTAL ROW)
+        cols_to_sum = ["Q'ty", "Total buying price(rmb)"] + editable_money_cols
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
         for c in cols_to_sum:
             if c in st.session_state.quote_df.columns:
                 total_val = st.session_state.quote_df[c].apply(to_float).sum()
                 if c == "Q'ty": total_row[c] = total_val
-                else: total_row[c] = local_fmt_money(total_val) # Format luôn dòng Total
+                elif c in editable_rmb_cols: total_row[c] = local_fmt_float(total_val)
+                else: total_row[c] = local_fmt_money(total_val) 
         
         t_profit = to_float(str(total_row.get("Profit(VND)", "0")).replace(",",""))
         t_price = to_float(str(total_row.get("Total price(VND)", "0")).replace(",",""))
         t_pct = (t_profit / t_price * 100) if t_price > 0 else 0
         total_row["Profit(%)"] = f"{t_pct:.1f}%"
         
-        # Gắn dòng Total vào bảng hiển thị
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
-        # RENDER BẢNG: DÙNG TEXT COLUMN ĐỂ HIỆN DẤU PHẨY VÀ CHO PHÉP SỬA
+        # RENDER BẢNG: Cấu hình width="small" để tự động co màn hình
         edited_df = st.data_editor(
             df_display,
             column_config={
                 "Select": st.column_config.CheckboxColumn("✅", width="small"),
                 "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="small", disabled=True),
-                "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"),
-                # Cấu hình tất cả cột tiền là TextColumn
-                **{c: st.column_config.TextColumn(c) for c in editable_money_cols}
+                "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d", width="small"),
+                "Item code": st.column_config.TextColumn("Item code", width="medium"),
+                "Item name": st.column_config.TextColumn("Item name", width="medium"),
+                "Specs": st.column_config.TextColumn("Specs", width="medium"),
+                "Exchange rate": st.column_config.TextColumn("Rate", width="small"),
+                
+                # Cấu hình tất cả cột tiền: width="small" để hiển thị được nhiều cột
+                **{c: st.column_config.TextColumn(c, width="small") for c in editable_money_cols},
+                **{c: st.column_config.TextColumn(c, width="small") for c in editable_rmb_cols}
             },
             use_container_width=True, height=600, key="main_editor",
             hide_index=True 
         )
         
-        # ĐỒNG BỘ DỮ LIỆU NGƯỢC: CHUỖI CÓ DẤU PHẨY -> SỐ FLOAT
+        # ĐỒNG BỘ DỮ LIỆU NGƯỢC (PARSE TEXT -> FLOAT)
         df_data_only = edited_df[edited_df["No"] != "TOTAL"]
         data_changed = False
         
         if len(df_data_only) == len(st.session_state.quote_df):
             for idx, row in df_data_only.iterrows():
-                 # 1. Sync các cột thông thường
+                 # 1. Sync Text thông thường
                  for c in ["Q'ty", "Item name", "Specs", "Exchange rate"]:
                      if c in st.session_state.quote_df.columns:
                          old_val = st.session_state.quote_df.at[idx, c]
@@ -1176,20 +1195,19 @@ with t3:
                              st.session_state.quote_df.at[idx, c] = new_val
                              data_changed = True
 
-                 # 2. Sync các cột tiền (Parse "1,000,000" -> 1000000.0)
-                 # [NEW]: Logic này áp dụng cho cả AP và Unit Price để sửa được
-                 for c in editable_money_cols:
+                 # 2. Sync Tiền tệ (Lột dấu phẩy)
+                 all_money_cols = editable_money_cols + editable_rmb_cols
+                 for c in all_money_cols:
                      if c in st.session_state.quote_df.columns:
                          val_str = row[c]
-                         val_float = local_parse_money(val_str) # Lột dấu phẩy
+                         val_float = local_parse_money(val_str) 
                          old_float = to_float(st.session_state.quote_df.at[idx, c])
                          
-                         if abs(val_float - old_float) > 0.1: # Nếu thay đổi
+                         if abs(val_float - old_float) > 0.1: 
                              st.session_state.quote_df.at[idx, c] = val_float
                              data_changed = True
         
         if data_changed:
-            # Ngay lập tức tính toán lại toàn bộ logic
             st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
             st.rerun()
 
