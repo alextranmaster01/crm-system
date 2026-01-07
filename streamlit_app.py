@@ -746,26 +746,25 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ (FINAL PERFECTED VERSION) ---
+# --- TAB 3: BÁO GIÁ (FIXED: TYPE MISMATCH ERROR) ---
 
 # 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
 def local_parse_money(val):
-    """Chuyển chuỗi '1,000,000' thành số float 1000000.0 để tính toán"""
+    """Chuyển chuỗi '1,000,000' thành số float 1000000.0"""
     try:
         if pd.isna(val) or str(val).strip() == "": return 0.0
-        # Xóa dấu phẩy để Python hiểu là số
         return float(str(val).replace(",", "").strip())
     except: return 0.0
 
 def local_fmt_money(val):
-    """Chuyển số thành chuỗi '1,000,000' để hiển thị"""
+    """Chuyển số thành chuỗi '1,000,000'"""
     try:
         if pd.isna(val): return "0"
         return "{:,.0f}".format(float(val))
     except: return str(val)
 
 def local_fmt_float(val):
-    """Chuyển số thành chuỗi '1,000.00' (cho RMB/Rate)"""
+    """Chuyển số thành chuỗi '1,000.00'"""
     try:
         if pd.isna(val): return "0.00"
         return "{:,.2f}".format(float(val))
@@ -775,7 +774,7 @@ with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
     # =============================================================================
-    # [ADMIN SECTION: GIỮ NGUYÊN 100%]
+    # [ADMIN SECTION: GIỮ NGUYÊN]
     # =============================================================================
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
@@ -795,16 +794,14 @@ with t3:
                 else:
                     st.error("Sai mật khẩu Admin!")
 
-    # =============================================================================
-    # [TRA CỨU & LỊCH SỬ: GIỮ NGUYÊN 100%]
-    # =============================================================================
+    # ------------------ TRA CỨU LỊCH SỬ (GIỮ NGUYÊN) ------------------
     with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
         c_src1, c_src2 = st.columns(2)
         search_kw = c_src1.text_input("Nhập từ khóa (Tên Khách, Quote No, Code, Name, Date)", help="Tìm kiếm trong lịch sử")
         up_src = c_src2.file_uploader("Hoặc Import Excel kiểm tra", type=["xlsx"], key="src_up")
         
         if st.button("Kiểm tra trạng thái"):
-            df_hist = load_data("crm_shared_history") # Load từ DB để tìm kiếm
+            df_hist = load_data("crm_shared_history")
             df_po = load_data("db_customer_orders")
             df_items = load_data("crm_purchases") 
 
@@ -1106,7 +1103,7 @@ with t3:
     
     if not st.session_state.quote_df.empty:
         # =========================================================================
-        # FIX: DATA EDITOR MASKING LOGIC
+        # FIX: DATA EDITOR MASKING LOGIC + TYPE FIX
         # =========================================================================
         if "Select" not in st.session_state.quote_df.columns:
             st.session_state.quote_df.insert(0, "Select", False)
@@ -1141,6 +1138,10 @@ with t3:
         for c in editable_rmb_cols:
             if c in df_display.columns:
                 df_display[c] = df_display[c].apply(local_fmt_float)
+        
+        # FIX: Chuyển Exchange rate thành string để khớp config TextColumn
+        if "Exchange rate" in df_display.columns:
+            df_display["Exchange rate"] = df_display["Exchange rate"].apply(local_fmt_float)
 
         # TÍNH TỔNG (TOTAL ROW)
         cols_to_sum = ["Q'ty", "Total buying price(rmb)"] + editable_money_cols
@@ -1187,7 +1188,8 @@ with t3:
         if len(df_data_only) == len(st.session_state.quote_df):
             for idx, row in df_data_only.iterrows():
                  # 1. Sync Text thông thường
-                 for c in ["Q'ty", "Item name", "Specs", "Exchange rate"]:
+                 # (Thêm "Exchange rate" vào đây để xử lý sự thay đổi)
+                 for c in ["Q'ty", "Item name", "Specs"]:
                      if c in st.session_state.quote_df.columns:
                          old_val = st.session_state.quote_df.at[idx, c]
                          new_val = row[c]
@@ -1195,7 +1197,16 @@ with t3:
                              st.session_state.quote_df.at[idx, c] = new_val
                              data_changed = True
 
-                 # 2. Sync Tiền tệ (Lột dấu phẩy)
+                 # 2. Sync Exchange rate (đặc biệt vì là số hiển thị text)
+                 if "Exchange rate" in st.session_state.quote_df.columns:
+                     val_str = row["Exchange rate"]
+                     val_float = local_parse_money(val_str)
+                     old_float = to_float(st.session_state.quote_df.at[idx, "Exchange rate"])
+                     if abs(val_float - old_float) > 0.001:
+                         st.session_state.quote_df.at[idx, "Exchange rate"] = val_float
+                         data_changed = True
+
+                 # 3. Sync Tiền tệ (Lột dấu phẩy)
                  all_money_cols = editable_money_cols + editable_rmb_cols
                  for c in all_money_cols:
                      if c in st.session_state.quote_df.columns:
