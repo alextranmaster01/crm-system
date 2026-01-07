@@ -746,19 +746,18 @@ with t2:
                 use_container_width=True, height=700, hide_index=True
             )
         else: st.info("Kho hàng trống.")
-# --- TAB 3: BÁO GIÁ ---
+# --- TAB 3: BÁO GIÁ (FINAL FIX: SAVE DB + EDIT ALL) ---
 
-# 1. Hàm hỗ trợ xử lý số liệu hiển thị (Để giải quyết vấn đề nhập liệu Excel)
+# 1. Hàm hỗ trợ xử lý số liệu hiển thị (Local scope)
 def local_parse_money(val):
-    """Chuyển chuỗi '1,000,000' thành số float 1000000.0 để tính toán"""
+    """Chuyển chuỗi '1,000,000' thành số float 1000000.0"""
     try:
         if pd.isna(val) or str(val).strip() == "": return 0.0
-        # Xóa dấu phẩy để Python hiểu là số
         return float(str(val).replace(",", "").strip())
     except: return 0.0
 
 def local_fmt_money(val):
-    """Chuyển số float thành chuỗi '1,000,000' để hiển thị"""
+    """Chuyển số thành chuỗi '1,000,000'"""
     try:
         if pd.isna(val): return "0"
         return "{:,.0f}".format(float(val))
@@ -768,33 +767,34 @@ with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
     # =============================================================================
-    # [ADMIN SECTION: GIỮ NGUYÊN]
+    # [NEW] ADMIN: RESET DATABASE SECTION
     # =============================================================================
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
         with c_adm1:
-            st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history).")
+            st.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá (crm_shared_history). Hành động này không thể hoàn tác!")
         with c_adm2:
             adm_pass_q = st.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote_tab3")
             if st.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
-                if adm_pass_q == "admin":
+                if adm_pass_q == "admin": 
                     try:
                         supabase.table("crm_shared_history").delete().neq("id", 0).execute()
                         st.toast("✅ Đã xóa toàn bộ lịch sử báo giá!", icon="🗑️")
-                        time.sleep(1.5); st.rerun()
-                    except Exception as e: st.error(f"Lỗi: {e}")
-                else: st.error("Sai mật khẩu!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi khi xóa DB: {e}")
+                else:
+                    st.error("Sai mật khẩu Admin!")
 
-    # =============================================================================
-    # [TRA CỨU & LỊCH SỬ: GIỮ NGUYÊN 100%]
-    # =============================================================================
+    # ------------------ TRA CỨU LỊCH SỬ (GIỮ NGUYÊN) ------------------
     with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
         c_src1, c_src2 = st.columns(2)
         search_kw = c_src1.text_input("Nhập từ khóa (Tên Khách, Quote No, Code, Name, Date)", help="Tìm kiếm trong lịch sử")
         up_src = c_src2.file_uploader("Hoặc Import Excel kiểm tra", type=["xlsx"], key="src_up")
         
         if st.button("Kiểm tra trạng thái"):
-            df_hist = load_data("crm_shared_history")
+            df_hist = load_data("crm_shared_history") # Load từ DB để tìm kiếm
             df_po = load_data("db_customer_orders")
             df_items = load_data("crm_purchases") 
 
@@ -893,7 +893,8 @@ with t3:
                     config_loaded = {}
                     
                     if hist_config_row is not None and 'config_data' in hist_config_row and hist_config_row['config_data']:
-                        try: config_loaded = json.loads(hist_config_row['config_data'])
+                        try:
+                            config_loaded = json.loads(hist_config_row['config_data'])
                         except: pass
                     
                     if not config_loaded:
@@ -904,7 +905,8 @@ with t3:
                               if fh_cfg:
                                   try:
                                       df_cfg = pd.read_excel(fh_cfg)
-                                      if not df_cfg.empty: config_loaded = df_cfg.iloc[0].to_dict()
+                                      if not df_cfg.empty:
+                                          config_loaded = df_cfg.iloc[0].to_dict()
                                   except: pass
 
                     if config_loaded:
@@ -1017,8 +1019,10 @@ with t3:
                     and clean_key(rec['specs']) == clean_key(specs_excel)
                 ]
 
-                if candidates: match = candidates[0]
-                else: warning_msg = "⚠️ KHÔNG KHỚP DATA"
+                if candidates:
+                    match = candidates[0]
+                else:
+                    warning_msg = "⚠️ KHÔNG KHỚP DATA"
 
                 if match:
                     buy_rmb = to_float(match.get('buying_price_rmb', 0))
@@ -1173,7 +1177,7 @@ with t3:
                              data_changed = True
 
                  # 2. Sync các cột tiền (Parse "1,000,000" -> 1000000.0)
-                 # [QUAN TRỌNG]: Logic này áp dụng cho cả AP và Unit Price
+                 # [NEW]: Logic này áp dụng cho cả AP và Unit Price để sửa được
                  for c in editable_money_cols:
                      if c in st.session_state.quote_df.columns:
                          val_str = row[c]
@@ -1312,16 +1316,50 @@ with t3:
 
         with c_sv:
             st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-            # FIX 2: NGẮT KẾT NỐI DASHBOARD (CHỈ LƯU DRIVE)
-            if st.button("💾 LƯU LỊCH SỬ (DRIVE ONLY)"):
+            if st.button("💾 LƯU LỊCH SỬ (QUAN TRỌNG)"):
                 if cust_name:
                     clean_params = {}
                     for k, v in params.items():
                         if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
                         else: clean_params[k] = v
+                    config_json = json.dumps(clean_params) 
                     
+                    recs = []
+                    for r in st.session_state.quote_df.to_dict('records'):
+                        val_qty = to_float(r["Q'ty"])
+                        val_unit = to_float(r["Unit price(VND)"])
+                        val_total = to_float(r["Total price(VND)"])
+                        val_profit = to_float(r["Profit(VND)"])
+                        
+                        if np.isnan(val_qty) or np.isinf(val_qty): val_qty = 0.0
+                        if np.isnan(val_unit) or np.isinf(val_unit): val_unit = 0.0
+                        if np.isnan(val_total) or np.isinf(val_total): val_total = 0.0
+                        if np.isnan(val_profit) or np.isinf(val_profit): val_profit = 0.0
+
+                        recs.append({
+                            "history_id": f"{cust_name}_{int(time.time())}", "date": datetime.now().strftime("%Y-%m-%d"),
+                            "quote_no": quote_no, "customer": cust_name,
+                            "item_code": r["Item code"], "qty": val_qty,
+                            "unit_price": val_unit,
+                            "total_price_vnd": val_total,
+                            "profit_vnd": val_profit,
+                            "config_data": config_json 
+                        })
+                    
+                    # [RESTORED]: GHI LẠI VÀO DB ĐỂ TRA CỨU
                     try:
-                        # Chỉ lưu file backup CSV lên Drive
+                        try:
+                            supabase.table("crm_shared_history").insert(recs).execute()
+                        except Exception as e:
+                            if "config_data" in str(e) or "PGRST204" in str(e):
+                                 recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
+                                 supabase.table("crm_shared_history").insert(recs_fallback).execute()
+                            else: raise e
+                    except Exception as e:
+                        st.error(f"Lỗi lưu DB: {e}")
+                        st.stop()
+
+                    try:
                         csv_buffer = io.BytesIO()
                         st.session_state.quote_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
                         csv_buffer.seek(0)
@@ -1331,7 +1369,6 @@ with t3:
                         path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
                         lnk, _ = upload_to_drive_structured(csv_buffer, path_list_hist, csv_name)
                         
-                        # Lưu file config riêng
                         df_cfg = pd.DataFrame([clean_params])
                         cfg_buffer = io.BytesIO()
                         df_cfg.to_excel(cfg_buffer, index=False)
@@ -1339,8 +1376,7 @@ with t3:
                         cfg_name = f"CONFIG_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
                         upload_to_drive_structured(cfg_buffer, path_list_hist, cfg_name)
                         
-                        st.success("✅ Đã lưu file lịch sử & config lên Drive!")
-                        st.warning("⚠️ Dữ liệu này KHÔNG được link sang Dashboard (để tránh sai lệch doanh số).")
+                        st.success("✅ Đã lưu thành công (DB & Drive)!")
                         st.markdown(f"📂 [Folder Lịch Sử]({lnk})", unsafe_allow_html=True)
                     except Exception as e: st.error(f"Lỗi lưu Drive: {e}")
                 else: st.error("Chọn khách!")
