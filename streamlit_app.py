@@ -529,11 +529,17 @@ with t1:
     else:
         st.info("Chưa có dữ liệu lịch sử để vẽ biểu đồ. Hãy tạo Báo Giá và Lưu Lịch Sử.")
 
-# --- TAB 2: KHO HÀNG (UPDATED: DUPLICATE LOGIC & IMAGE FIX) ---
+# --- TAB 2: KHO HÀNG (UPDATED: LOGIC MATCHING 4 BIẾN & DELETE ROW) ---
 with t2:
     st.subheader("QUẢN LÝ KHO HÀNG (Excel Online)")
     c_imp, c_view = st.columns([1, 4])
     
+    # --- HÀM LÀM SẠCH DỮ LIỆU TUYỆT ĐỐI (Xóa mọi khoảng trắng/ẩn) ---
+    def clean_strict(val):
+        if val is None: return ""
+        # Xóa toàn bộ khoảng trắng (\s), tab, xuống dòng và đưa về chữ thường
+        return re.sub(r'\s+', '', str(val)).lower()
+
     with c_imp:
         st.markdown("**📥 Import Kho Hàng**")
         st.caption("Excel cột A->O")
@@ -555,48 +561,30 @@ with t2:
                 
                 # --- FIX: XỬ LÝ ẢNH THÔNG MINH (TRÁNH BỊ ĐÈ ẢNH) ---
                 img_map = {}
-                
-                # 1. Lấy tất cả ảnh và dòng neo (anchor) của nó
                 detected_images = []
                 for image in getattr(ws, '_images', []):
                     try:
-                        # anchor._from.row là 0-indexed. Dữ liệu bắt đầu từ Excel Row 2 (index 1).
-                        # Code bên dưới loop df dùng i (0-indexed) + 2 để map.
-                        # Tức là dòng 1 data (Excel Row 2) tương ứng key = 2.
                         r_idx = image.anchor._from.row + 1
-                        
-                        # Lấy tên để đặt tên file ảnh (Specs ở cột 4)
                         cell_specs = ws.cell(row=r_idx, column=4).value 
                         specs_val = safe_str(cell_specs)
                         safe_name = re.sub(r'[\\/*?:"<>|]', "", specs_val).strip()
                         if not safe_name: safe_name = f"NO_SPECS_R{r_idx}"
                         fname = f"{safe_name}.png"
-                        
                         detected_images.append({'row': r_idx, 'name': fname, 'data': image._data()})
                     except: continue
 
-                # 2. Sắp xếp ảnh theo thứ tự dòng xuất hiện
                 detected_images.sort(key=lambda x: x['row'])
 
-                # 3. Map ảnh vào dòng (Xử lý va chạm: Nếu dòng đã có ảnh, đẩy xuống dòng dưới)
-                # Đây là fix cho trường hợp ảnh bị chồm lên dòng trên
                 for img in detected_images:
                     r = img['row']
-                    # Upload
                     buf = io.BytesIO(img['data'])
                     link, _ = upload_to_drive_simple(buf, "CRM_PRODUCT_IMAGES", img['name'])
-                    
-                    if r not in img_map:
-                        img_map[r] = link
-                    elif (r + 1) not in img_map:
-                        # Nếu dòng r đã có ảnh, thử dòng r+1 (do ảnh bị lệch neo)
-                        img_map[r + 1] = link
-                    # Nếu cả r và r+1 đều có rồi thì đành chịu (hoặc ghi đè tùy logic, ở đây giữ cái đầu tiên)
+                    if r not in img_map: img_map[r] = link
+                    elif (r + 1) not in img_map: img_map[r + 1] = link
 
-                # --- HẾT PHẦN FIX ẢNH ---
-                
+                # --- ĐỌC DATA ---
                 df = pd.read_excel(up_file, header=None, skiprows=1, dtype=str).fillna("")
-                records = []
+                raw_records = []
                 prog = st.progress(0)
                 cols_map = ["no", "item_code", "item_name", "specs", "qty", "buying_price_rmb", 
                             "total_buying_price_rmb", "exchange_rate", "buying_price_vnd", 
@@ -607,11 +595,9 @@ with t2:
                     for idx, field in enumerate(cols_map):
                         if idx < len(r): d[field] = safe_str(r.iloc[idx])
                         else: d[field] = ""
+                    
                     has_data = d['item_code'] or d['item_name'] or d['specs']
                     if has_data:
-                        # i là 0-indexed của dataframe. Excel header là row 1. Data bắt đầu row 2.
-                        # i=0 tương ứng Excel Row 2.
-                        # img_map dùng key = row index Excel (1-based)
                         if not d.get('image_path') and (i+2) in img_map: 
                             d['image_path'] = img_map[i+2]
                             
@@ -622,52 +608,63 @@ with t2:
                         d['exchange_rate'] = to_float(d['exchange_rate'])
                         d['buying_price_vnd'] = to_float(d['buying_price_vnd'])
                         d['total_buying_price_vnd'] = to_float(d['total_buying_price_vnd'])
-                        records.append(d)
+                        raw_records.append(d)
                     prog.progress((i + 1) / len(df))
                 
-                if records:
-                    # --- BƯỚC 1: KIỂM TRA TRÙNG LẶP (4 BIẾN: Code, Name, Specs, NUOC) ---
+                # --- LOGIC MỚI: LỌC TRÙNG 4 BIẾN (GIỮ GIÁ NHỎ NHẤT) TRONG FILE EXCEL ---
+                if raw_records:
+                    best_records_map = {} # Key: (Code, Name, Specs, NUOC) -> Value: Record
+
+                    for rec in raw_records:
+                        # Tạo chữ ký 4 biến đã làm sạch tuyệt đối
+                        sig = (
+                            clean_strict(rec.get('item_code')), 
+                            clean_strict(rec.get('item_name')), 
+                            clean_strict(rec.get('specs')), 
+                            clean_strict(rec.get('nuoc'))
+                        )
+                        
+                        price_curr = rec['buying_price_rmb']
+                        
+                        if sig not in best_records_map:
+                            best_records_map[sig] = rec
+                        else:
+                            # Nếu trùng, so sánh giá mua RMB
+                            price_exist = best_records_map[sig]['buying_price_rmb']
+                            if price_curr < price_exist:
+                                best_records_map[sig] = rec # Cập nhật item có giá tốt hơn
+                    
+                    # Danh sách đã lọc (Mỗi bộ 4 biến chỉ còn 1 item có giá tốt nhất)
+                    processed_records = list(best_records_map.values())
+
+                    # --- BƯỚC 2: SO SÁNH VỚI DATABASE (4 BIẾN) ---
                     df_db = load_data("crm_purchases")
                     
-                    # Tạo Map dữ liệu cũ: Key=(Code, Name, Specs, NUOC) -> Value=Price_RMB
-                    existing_map = {}
+                    existing_sigs = set()
                     if not df_db.empty:
                         for r in df_db.to_dict('records'):
-                            # Xử lý data thật chính xác, xóa khoảng trống thừa
-                            k_code = clean_key(r.get('item_code', '')).strip()
-                            k_name = clean_key(r.get('item_name', '')).strip()
-                            k_specs = clean_key(r.get('specs', '')).strip()
-                            k_nuoc = clean_key(r.get('nuoc', '')).strip()
-                            
-                            sig = (k_code, k_name, k_specs, k_nuoc)
-                            price = to_float(r.get('buying_price_rmb', 0))
-                            
-                            # Nếu DB có trùng nội bộ, giữ cái nhỏ nhất làm chuẩn so sánh
-                            if sig not in existing_map or price < existing_map[sig]:
-                                existing_map[sig] = price
+                            # Tạo chữ ký DB cũng phải clean strict tương tự
+                            sig_db = (
+                                clean_strict(r.get('item_code')), 
+                                clean_strict(r.get('item_name')), 
+                                clean_strict(r.get('specs')),
+                                clean_strict(r.get('nuoc'))
+                            )
+                            existing_sigs.add(sig_db)
                     
                     dups = []
                     non_dups = []
                     
-                    for rec in records:
-                        # Xử lý data input chính xác như DB
-                        i_code = clean_key(rec.get('item_code', '')).strip()
-                        i_name = clean_key(rec.get('item_name', '')).strip()
-                        i_specs = clean_key(rec.get('specs', '')).strip()
-                        i_nuoc = clean_key(rec.get('nuoc', '')).strip()
+                    for rec in processed_records:
+                        sig_rec = (
+                            clean_strict(rec.get('item_code')), 
+                            clean_strict(rec.get('item_name')), 
+                            clean_strict(rec.get('specs')),
+                            clean_strict(rec.get('nuoc'))
+                        )
                         
-                        sig = (i_code, i_name, i_specs, i_nuoc)
-                        i_price = rec.get('buying_price_rmb', 0)
-                        
-                        if sig in existing_map:
-                            db_price = existing_map[sig]
-                            # LOGIC: Trùng nhau -> Giữ item có giá mua RMB nhỏ nhất
-                            if i_price < db_price:
-                                # Giá mới rẻ hơn -> Cho phép import (coi như không trùng để insert mới)
-                                non_dups.append(rec)
-                            else:
-                                # Giá mới đắt hơn hoặc bằng -> Báo trùng (Bỏ qua)
-                                dups.append(rec)
+                        if sig_rec in existing_sigs:
+                            dups.append(rec)
                         else:
                             non_dups.append(rec)
                     
@@ -678,26 +675,26 @@ with t2:
                     st.rerun()
 
             except Exception as e: 
-                st.error(f"Lỗi đọc file: {e}")
+                st.error(f"Lỗi xử lý file: {e}")
 
         # --- LOGIC XỬ LÝ SAU KHI CLICK IMPORT ---
         step = st.session_state.get("import_step", None)
         
         if step == "confirm":
-            st.warning(f"⚠️ Phát hiện {len(st.session_state.import_dups)} dòng bị TRÙNG (Khớp 4 biến & Giá nhập >= Giá cũ)!")
-            st.write("Dữ liệu trùng (Sẽ bỏ qua):")
-            st.dataframe(pd.DataFrame(st.session_state.import_dups)[['item_code', 'item_name', 'specs', 'nuoc', 'buying_price_rmb']], hide_index=True)
+            st.warning(f"⚠️ Có {len(st.session_state.import_dups)} item ĐÃ TỒN TẠI trong kho (Trùng Code, Name, Specs, NUOC).")
+            st.info("Hệ thống đã tự động giữ lại item có giá mua thấp nhất trong file Excel trước khi so sánh.")
+            
+            with st.expander("Xem danh sách trùng"):
+                st.dataframe(pd.DataFrame(st.session_state.import_dups)[['item_code', 'item_name', 'specs', 'nuoc', 'buying_price_rmb']], hide_index=True)
             
             c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("✅ Chỉ Import dòng mới/giá tốt hơn"):
-                final_batch = st.session_state.import_non_dups
-                st.session_state.final_import_list = final_batch
+            if c_btn1.button("✅ Chỉ Import dòng mới"):
+                st.session_state.final_import_list = st.session_state.import_non_dups
                 st.session_state.import_step = "executing"
                 st.rerun()
                 
-            if c_btn2.button("⚠️ Import TẤT CẢ (Chấp nhận trùng)"):
-                final_batch = st.session_state.import_dups + st.session_state.import_non_dups
-                st.session_state.final_import_list = final_batch
+            if c_btn2.button("⚠️ Import TẤT CẢ (Ghi đè/Thêm mới)"):
+                st.session_state.final_import_list = st.session_state.import_dups + st.session_state.import_non_dups
                 st.session_state.import_step = "executing"
                 st.rerun()
 
@@ -713,7 +710,6 @@ with t2:
                     chunk_ins = 100
                     for k in range(0, len(final_list), chunk_ins):
                         batch = final_list[k:k+chunk_ins]
-                        # Xóa row_order nếu DB cũ không có (để tránh lỗi)
                         try:
                             supabase.table("crm_purchases").insert(batch).execute()
                         except Exception as e_ins:
@@ -724,81 +720,91 @@ with t2:
                              else: raise e_ins
                              
                     st.success(f"✅ Đã import thành công {len(final_list)} dòng!")
-                    st.session_state.import_step = None # Reset
+                    st.session_state.import_step = None 
                     st.session_state.import_dups = []
                     st.session_state.import_non_dups = []
                     time.sleep(1); st.cache_data.clear(); st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi Import SQL: {e}")
-                    st.session_state.import_step = None # Reset on error
+                    st.session_state.import_step = None 
 
     with c_view:
-        # Load data đã fix sort
+        # Load data
         df_pur = load_data("crm_purchases", order_by="row_order", ascending=True) 
-        cols_to_drop = ['created_at', 'row_order']
+        
+        # Không drop cột 'id' nếu có, để dùng cho chức năng xóa
+        cols_to_drop = ['created_at', 'row_order'] # Giữ lại id
         df_pur = df_pur.drop(columns=[c for c in cols_to_drop if c in df_pur.columns], errors='ignore')
 
-        # --- FIX: ĐỔI THỨ TỰ CỘT ĐỂ CỘT 'no' HOẶC 'No' LÊN ĐẦU ---
-        current_cols = df_pur.columns.tolist()
-        no_col = next((c for c in current_cols if c.lower() == 'no'), None)
-        
-        if no_col:
-            current_cols.remove(no_col)
-            current_cols.insert(0, no_col)
-            df_pur = df_pur[current_cols]
-
-        # --- CHỨC NĂNG XÓA DÒNG (ADMIN ONLY) ---
-        with st.expander("🗑️ Xóa dòng (Admin Only)"):
-            if not df_pur.empty:
-                # Tạo danh sách hiển thị cho Selectbox
-                del_opts = df_pur.apply(lambda x: f"{x.get('item_code','')} | {x.get('item_name','')} | {x.get('specs','')}", axis=1).tolist()
-                sel_del = st.selectbox("Chọn sản phẩm cần xóa:", [""] + del_opts)
-                pass_del = st.text_input("Mật khẩu Admin để xóa:", type="password", key="pass_del_row")
-                
-                if st.button("❌ Xác nhận xóa"):
-                    if pass_del == "admin":
-                        if sel_del:
-                            # Lấy Item Code từ chuỗi đã chọn để xóa
-                            code_to_del = sel_del.split(" | ")[0].strip()
-                            try:
-                                supabase.table("crm_purchases").delete().eq("item_code", code_to_del).execute()
-                                st.success(f"Đã xóa thành công item: {code_to_del}")
-                                time.sleep(1); st.rerun()
-                            except Exception as e:
-                                st.error(f"Lỗi khi xóa: {e}")
-                        else:
-                            st.warning("Vui lòng chọn dòng để xóa!")
-                    else:
-                        st.error("Sai mật khẩu Admin!")
-        # ---------------------------------------
-
         search = st.text_input("🔍 Tìm kiếm (Name, Code, Specs...)", key="search_pur")
+        
         if not df_pur.empty:
             if search:
                 mask = df_pur.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
                 df_pur = df_pur[mask]
             
+            # Format tiền tệ để hiển thị
             cols_money = ["buying_price_vnd", "total_buying_price_vnd", "buying_price_rmb", "total_buying_price_rmb"]
             for c in cols_money:
                 if c in df_pur.columns: df_pur[c] = df_pur[c].apply(fmt_num)
 
-            st.dataframe(
-                df_pur, 
-                column_config={
-                    "image_path": st.column_config.ImageColumn("Images"),
-                    "item_code": st.column_config.TextColumn("Code", width="medium"),
-                    "item_name": st.column_config.TextColumn("Name", width="medium"),
-                    "specs": st.column_config.TextColumn("Specs", width="large"),
-                    "buying_price_vnd": st.column_config.TextColumn("Buying (VND)"),
-                    "total_buying_price_vnd": st.column_config.TextColumn("Total (VND)"),
-                    "buying_price_rmb": st.column_config.TextColumn("Buying (RMB)"),
-                    "total_buying_price_rmb": st.column_config.TextColumn("Total (RMB)"),
-                    "qty": st.column_config.NumberColumn("Qty", format="%d"),
-                }, 
-                use_container_width=True, height=700, hide_index=True
-            )
-        else: st.info("Kho hàng trống.")
+            # --- TÍNH NĂNG XÓA DÒNG (SELECT BOX) ---
+            # Thêm cột Select vào đầu DataFrame
+            df_pur.insert(0, "Select", False)
+            
+            # Cấu hình hiển thị cột, ẩn ID nhưng vẫn giữ trong Dataframe
+            column_config = {
+                "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
+                "id": st.column_config.Column("ID", hidden=True), # Ẩn ID khỏi giao diện
+                "image_path": st.column_config.ImageColumn("Images", width="small"),
+                "item_code": st.column_config.TextColumn("Code", width="medium"),
+                "item_name": st.column_config.TextColumn("Name", width="medium"),
+                "specs": st.column_config.TextColumn("Specs", width="large"),
+                "nuoc": st.column_config.TextColumn("N/U/O/C", width="small"),
+                "buying_price_vnd": st.column_config.TextColumn("Buying (VND)"),
+                "qty": st.column_config.NumberColumn("Qty", format="%d"),
+            }
 
+            # Hiển thị bảng dạng Data Editor để cho phép chọn
+            edited_df = st.data_editor(
+                df_pur,
+                column_config=column_config,
+                use_container_width=True,
+                height=700,
+                hide_index=True,
+                key="data_editor_inventory"
+            )
+
+            # --- XỬ LÝ XÓA DÒNG ĐÃ CHỌN ---
+            # Lọc các dòng được tick chọn
+            selected_rows = edited_df[edited_df["Select"] == True]
+            
+            if not selected_rows.empty:
+                st.divider()
+                st.warning(f"🛑 Bạn đang chọn xóa {len(selected_rows)} dòng dữ liệu.")
+                
+                c_del1, c_del2 = st.columns([2, 1])
+                pass_del = c_del1.text_input("Nhập mật khẩu Admin để xóa:", type="password", key="pass_del_row")
+                
+                if c_del2.button("🔥 XÁC NHẬN XÓA"):
+                    if pass_del == "admin":
+                        try:
+                            # Lấy danh sách ID cần xóa
+                            ids_to_delete = selected_rows['id'].tolist()
+                            if ids_to_delete:
+                                supabase.table("crm_purchases").delete().in_("id", ids_to_delete).execute()
+                                st.success(f"Đã xóa thành công {len(ids_to_delete)} dòng!")
+                                time.sleep(1)
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error("Không tìm thấy ID để xóa.")
+                        except Exception as e:
+                            st.error(f"Lỗi khi xóa: {e}")
+                    else:
+                        st.error("Sai mật khẩu Admin!")
+        else:
+            st.info("Kho hàng trống.")
 # --- TAB 3: BÁO GIÁ (FULL CODE - INTEGRATED & OPTIMIZED) ---
 with t3:
     # --- A. CÁC HÀM HỖ TRỢ NỘI BỘ ---
