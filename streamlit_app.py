@@ -1424,17 +1424,16 @@ with t3:
                 else: st.error("Chọn khách!")
             st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (STRICT MODE - ADVANCED CLEANING - FULL) ---
+# --- TAB 4: QUẢN LÝ PO (STRICT MODE - REGEX NORMALIZATION - FINAL) ---
 # =============================================================================
 import re # Thư viện xử lý chuỗi mạnh (Regular Expression)
 
 with t4:
-    # --- HÀM LÀM SẠCH DỮ LIỆU CỰC MẠNH (ADVANCED NORMALIZATION) ---
+    # --- HÀM LÀM SẠCH DỮ LIỆU CỰC MẠNH (REGEX ALGORITHM) ---
     def normalize_data(val):
         """
-        Hàm này làm sạch dữ liệu triệt để để so sánh nội dung.
-        Giải quyết vấn đề: Ký tự ẩn, dấu cách lạ, lỗi float .0, khoảng trắng thừa.
-        Vẫn đảm bảo tính nghiêm ngặt về nội dung (Không nới lỏng).
+        Hàm này sử dụng thuật toán Regex để làm sạch dữ liệu triệt để.
+        Giải quyết vấn đề: 10.0 khác 10, Size 10.0mm khác Size 10mm.
         """
         if pd.isna(val) or val is None: return ""
         
@@ -1444,26 +1443,26 @@ with t4:
         # 2. Xử lý trường hợp "nan"
         if s.lower() == "nan": return ""
         
-        # 3. Xử lý số học: 10.0 -> 10, Size 1.0 -> Size 1
-        # Logic cũ bị sai vì chỉ check isdigit(). Logic mới dùng Regex thay thế tận gốc.
-        if s.endswith(".0"):
-            s = s[:-2]
+        # 3. THUẬT TOÁN SỬA LỖI SỐ HỌC (QUAN TRỌNG NHẤT)
+        # Tìm bất kỳ số nào kết thúc bằng .0 hoặc .00... và xóa phần thập phân đó đi
+        # Bất kể nó nằm ở cuối chuỗi hay giữa chuỗi (VD: "D10.0mm" -> "D10mm")
+        # Regex: Tìm số (\d), theo sau là .0+, theo sau là KHÔNG PHẢI SỐ (\D) hoặc HẾT CHUỖI ($)
+        s = re.sub(r'(\d)\.0+(?=\D|$)', r'\1', s)
         
         # 4. Chuyển về chữ thường để so sánh
         s = s.lower()
         
-        # 5. Thay thế các ký tự trắng đặc biệt (Non-breaking space \xa0) thành dấu cách thường
+        # 5. Thay thế các ký tự trắng đặc biệt (Non-breaking space)
         s = s.replace(u'\xa0', ' ')
         
         # 6. Thay thế xuống dòng, tab thành dấu cách
         s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
         
-        # 7. Gộp nhiều dấu cách liên tiếp thành 1 dấu cách duy nhất (VD: "A   B" -> "A B")
+        # 7. Gộp nhiều dấu cách liên tiếp thành 1 dấu cách duy nhất
         s = re.sub(r'\s+', ' ', s)
         
-        # 8. Loại bỏ hoàn toàn khoảng trắng để so sánh nội dung cốt lõi
-        # Điều này giúp "PZ - G" khớp với "PZ-G" hoặc "Item A" khớp "ItemA"
-        # Đây là cách an toàn nhất để tránh lỗi do gõ máy
+        # 8. Loại bỏ hoàn toàn các ký tự đặc biệt làm nhiễu (giữ lại chữ và số)
+        # Giúp so sánh "PZ-G" khớp với "PZ G" hoặc "Item_A" khớp "Item A"
         s = s.replace(" ", "").replace("-", "").replace("_", "").replace(",", "").replace(".", "")
         
         return s.strip()
@@ -1524,7 +1523,7 @@ with t4:
         else:
             try:
                 # Load Data (Hỗ trợ cả Excel và CSV)
-                # QUAN TRỌNG: dtype=str để ép kiểu text, tránh lỗi 10.0 != 10 ngay từ đầu
+                # Dùng dtype=str để ép kiểu text ngay từ đầu
                 if po_data_file.name.lower().endswith('.csv'):
                      df_up = pd.read_csv(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 else:
@@ -1544,7 +1543,7 @@ with t4:
                         k_code = clean_key(r.get('item_code', ''))
                         if k_code:
                             if k_code not in history_map: history_map[k_code] = []
-                            # LƯU Ý: Chuẩn hóa specs trong DB trước khi lưu vào map để so sánh
+                            # Chuẩn hóa specs trong DB trước khi lưu vào map
                             history_map[k_code].append({
                                 'specs_norm': normalize_data(r.get('specs', '')),
                                 'unit_price': to_float(r.get('unit_price', 0)),
@@ -1558,17 +1557,17 @@ with t4:
                     if not code: continue 
                     
                     qty = to_float(r.iloc[4])
-                    specs_input_raw = safe_str(r.iloc[3]) # Specs gốc để hiển thị
+                    specs_input_raw = safe_str(r.iloc[3]) # Specs gốc
                     name = safe_str(r.iloc[2])
                     
                     # Logic So Sánh Nghiêm Ngặt (Strict Comparison)
                     clean_c = clean_key(code)
-                    specs_input_norm = normalize_data(specs_input_raw) # Specs chuẩn hóa để so sánh
+                    specs_input_norm = normalize_data(specs_input_raw) # Specs chuẩn hóa
                     
                     final_unit_price = 0.0
                     warning_msg = "⚠️ Chưa báo giá"
                     
-                    # Ưu tiên 1: Giá trong file Excel upload (nếu có sẵn)
+                    # Ưu tiên 1: Giá trong file Excel upload
                     excel_price = to_float(r.iloc[5]) if len(r) > 5 else 0.0
                     
                     if excel_price > 0:
@@ -1578,23 +1577,23 @@ with t4:
                         hist_list = history_map[clean_c]
                         found_match = False
                         
-                        # Loop tìm Specs khớp CHÍNH XÁC (sau khi đã làm sạch rác)
+                        # Loop tìm Specs khớp CHÍNH XÁC (sau khi đã dùng thuật toán làm sạch)
                         for h in hist_list:
                             # So sánh 2 chuỗi đã được làm sạch tuyệt đối
-                            if h['specs_norm'] == specs_input_norm:
+                            # HOẶC: Nếu trong lịch sử Specs rỗng (Data cũ) -> Chấp nhận luôn
+                            if h['specs_norm'] == specs_input_norm or h['specs_norm'] == "":
                                 final_unit_price = h['unit_price']
                                 warning_msg = "" 
                                 found_match = True
-                                # Loop tiếp để lấy giá mới nhất (do đã sort date)
+                                # Loop tiếp để lấy giá mới nhất
                         
                         # Nếu KHÔNG khớp Specs
                         if not found_match:
-                            # KHÔNG TỰ ĐỘNG LẤY GIÁ -> Bắt buộc phải check lại
+                            # Cảnh báo nhưng không lấy giá
                             final_unit_price = 0.0
-                            # Debug: Có thể hiện specs tìm thấy gần nhất để đối chiếu (optional)
                             warning_msg = "⚠️ Sai Specs" 
                     
-                    # Lookup Info từ Master Data (Lấy giá mua)
+                    # Lookup Info từ Master Data
                     match = item_map.get(clean_c)
                     
                     buy_rmb = 0.0; rate = 0.0; buy_vnd = 0.0; supplier = ""; leadtime = "0"
@@ -1604,7 +1603,6 @@ with t4:
                         buy_vnd = to_float(match.get('buying_price_vnd', 0))
                         supplier = match.get('supplier_name', '')
                         leadtime = match.get('leadtime', '0')
-                        # Nếu file excel thiếu specs/name thì lấy từ master
                         if not specs_input_raw: specs_input_raw = match.get('specs', '')
                         if not name: name = match.get('item_name', '')
                     
@@ -1614,26 +1612,20 @@ with t4:
                         "Cảnh báo": warning_msg, 
                         "Item code": code, 
                         "Item name": name, 
-                        "Specs": specs_input_raw, # Hiển thị specs gốc
+                        "Specs": specs_input_raw,
                         "Q'ty": qty,
-                        
                         "Buying price(RMB)": buy_rmb,
                         "Total buying price(RMB)": buy_rmb * qty,
                         "Exchange rate": rate,
                         "Buying price(VND)": buy_vnd,
                         "Total buying price(VND)": buy_vnd * qty,
-                        
                         "AP price(VND)": 0.0, 
                         "AP total price(VND)": 0.0, 
-                        
                         "Unit price(VND)": final_unit_price, 
                         "Total price(VND)": final_unit_price * qty,
-                        
                         "GAP": 0.0, 
-                        
                         "End user(%)": 0.0, "Buyer(%)": 0.0, "Import tax(%)": 0.0,
                         "VAT": 0.0, "Transportation": 0.0, "Management fee(%)": 0.0, "Payback(%)": 0.0,
-                        
                         "Profit(VND)": 0.0, "Profit(%)": "0%",
                         "Supplier": supplier, "Leadtime": leadtime 
                     }
@@ -1644,14 +1636,14 @@ with t4:
                     # Tính toán lại lần đầu 
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
-                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Chế độ Strict Mode + Advanced Clean)")
+                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Đã xử lý lỗi 10.0 vs 10)")
                 else: st.warning("Không đọc được dữ liệu nào từ file.")
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
 
-    # --- MAIN TABLE EDITOR (UPDATED LOGIC FROM TAB 3) ---
+    # --- MAIN TABLE EDITOR ---
     if not st.session_state.po_main_df.empty:
-        # 1. Tính toán trước khi hiển thị
+        # 1. Tính toán
         params = {
             "end": to_float(st.session_state.get("pct_end", 0)),
             "buy": to_float(st.session_state.get("pct_buy", 0)),
@@ -1665,7 +1657,7 @@ with t4:
         
         st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp):**")
         
-        # 2. Chuẩn bị DataFrame hiển thị
+        # 2. DataFrame hiển thị
         ordered_cols = [
             "No", "Cảnh báo", "Item code", "Item name", "Specs", "Q'ty", 
             "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate",
@@ -1679,7 +1671,7 @@ with t4:
         cols_display = [c for c in ordered_cols if c in st.session_state.po_main_df.columns]
         df_display = st.session_state.po_main_df[cols_display].copy()
 
-        # Tạo dòng Total (SỬA LỖI TỔNG SAI: Ép kiểu numeric trước khi sum)
+        # Tạo dòng Total
         total_row = {"No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": ""}
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(RMB)", 
                     "Buying price(VND)", "Total buying price(VND)",
@@ -1690,7 +1682,6 @@ with t4:
         
         for c in sum_cols:
             if c in df_display.columns:
-                # Dùng pd.to_numeric với errors='coerce' để biến chuỗi thành số, tránh lỗi cộng chuỗi
                 total_row[c] = pd.to_numeric(df_display[c], errors='coerce').fillna(0).sum()
         
         # Tính % Profit tổng
@@ -1718,7 +1709,7 @@ with t4:
             use_container_width=True, height=500, key="editor_po_main", hide_index=True
         )
         
-        # 4. LOGIC ĐỒNG BỘ DỮ LIỆU
+        # 4. LOGIC ĐỒNG BỘ
         df_new_data = edited_po[edited_po["No"] != "TOTAL"].reset_index(drop=True)
         
         if not df_new_data.empty and len(df_new_data) == len(st.session_state.po_main_df):
@@ -1726,7 +1717,7 @@ with t4:
             for i, row_new in df_new_data.iterrows():
                 row_old = st.session_state.po_main_df.iloc[i]
                 
-                # Check AP Change -> Recalc Unit Price
+                # Check AP Change
                 if "AP price(VND)" in row_new:
                     new_ap = to_float(row_new["AP price(VND)"])
                     old_ap = to_float(row_old.get("AP price(VND)", 0))
@@ -1750,7 +1741,7 @@ with t4:
                             st.session_state.po_main_df.at[i, col] = new_val
                             data_changed = True
                 
-                # Check Text (Name/Specs)
+                # Check Text
                 for col in ["Item name", "Specs"]:
                     if col in row_new and str(row_new[col]) != str(row_old.get(col, "")):
                         st.session_state.po_main_df.at[i, col] = str(row_new[col])
@@ -1766,7 +1757,6 @@ with t4:
         
         # 1. REVIEW & ĐẶT HÀNG NCC
         with st.expander("📦 Review và đặt hàng nhà cung cấp (Đặt NCC)", expanded=False):
-            # Columns NCC View
             cols_ncc = ["No", "Item code", "Item name", "Specs", "Q'ty", 
                         "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate", 
                         "Buying price(VND)", "Total buying price(VND)", "Supplier"]
@@ -1781,7 +1771,6 @@ with t4:
             for c in sum_cols_ncc:
                 total_row_ncc[c] = df_ncc_view[c].apply(to_float).sum()
                 
-            # Formatting & Display
             df_ncc_fmt = df_ncc_view.copy()
             for c in ["Buying price(RMB)", "Total buying price(RMB)"]:
                 df_ncc_fmt[c] = df_ncc_fmt[c].apply(fmt_float_2)
