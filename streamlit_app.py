@@ -921,21 +921,33 @@ with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
     # -------------------------------------------------------------------------
-    # 1. ADMIN SECTION
+    # 1. ADMIN SECTION (ĐÃ FIX HIỂN THỊ LỖI CHI TIẾT)
     # -------------------------------------------------------------------------
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
-        c_adm1.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá.")
+        c_adm1.warning("⚠️ Chức năng này sẽ xóa dữ liệu trong Database. Hãy cẩn thận!")
         adm_pass_q = c_adm2.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote_tab3")
+        
         if c_adm2.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
             if adm_pass_q == "admin": 
                 try:
+                    # 1. Xóa bảng shared_history trước (nếu có liên kết khóa ngoại)
+                    try:
+                        supabase.table("crm_shared_history").delete().neq("id", 0).execute()
+                    except: pass # Bỏ qua nếu bảng này trống hoặc không lỗi
+                    
+                    # 2. Xóa bảng quotations_log
                     supabase.table("crm_quotations_log").delete().neq("id", 0).execute()
+                    
                     st.toast("✅ Đã xóa toàn bộ lịch sử!", icon="🗑️")
                     time.sleep(1)
                     st.rerun()
-                except: st.error("Lỗi xóa DB")
-            else: st.error("Sai mật khẩu!")
+                except Exception as e:
+                    # HIỂN THỊ LỖI CHI TIẾT ĐỂ DEBUG
+                    st.error(f"Không thể xóa DB. Lỗi chi tiết:\n{e}")
+                    st.info("💡 Gợi ý: Hãy kiểm tra xem RLS (Row Level Security) trên Supabase có đang bật không? Nếu có, hãy tắt nó đi (Disable RLS).")
+            else: 
+                st.error("Sai mật khẩu!")
 
     # -------------------------------------------------------------------------
     # 2. TRA CỨU & TRẠNG THÁI
