@@ -799,6 +799,14 @@ with t3:
             return "{:,.2f}".format(float(val))
         except: return str(val)
 
+    # [NEW] Hàm làm sạch số liệu trước khi lưu DB (10.0 -> 10)
+    def clean_number_for_db(val):
+        try:
+            f = float(val)
+            if f.is_integer(): return int(f) # Trả về số nguyên nếu không có phần lẻ
+            return f
+        except: return val
+
     # [UPDATED] Hàm xử lý công thức toán học thông minh (Lấy từ V6032)
     # Hỗ trợ viết dính liền (BUY*1.1), thay thế từ khóa thông minh
     def local_eval_formula(formula_str, val_buy, val_ap):
@@ -1275,11 +1283,11 @@ with t3:
                 
                 # Check Text/Select
                 if "Select" in row_new and row_new["Select"] != row_old.get("Select", False):
-                     st.session_state.quote_df.at[i, "Select"] = row_new["Select"]
-                     data_changed = True
+                      st.session_state.quote_df.at[i, "Select"] = row_new["Select"]
+                      data_changed = True
                 if "Item name" in row_new and str(row_new["Item name"]) != str(row_old.get("Item name","")):
-                     st.session_state.quote_df.at[i, "Item name"] = str(row_new["Item name"])
-                     data_changed = True
+                      st.session_state.quote_df.at[i, "Item name"] = str(row_new["Item name"])
+                      data_changed = True
 
             if data_changed:
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
@@ -1379,10 +1387,18 @@ with t3:
                         if np.isnan(val_total) or np.isinf(val_total): val_total = 0.0
                         if np.isnan(val_profit) or np.isinf(val_profit): val_profit = 0.0
 
+                        # [NEW] Làm sạch dữ liệu số trước khi lưu DB
+                        val_qty_clean = clean_number_for_db(val_qty)
+                        val_name = str(r.get("Item name", ""))
+                        val_specs = str(r.get("Specs", ""))
+
                         recs.append({
                             "history_id": f"{cust_name}_{int(time.time())}", "date": datetime.now().strftime("%Y-%m-%d"),
                             "quote_no": quote_no, "customer": cust_name,
-                            "item_code": r["Item code"], "qty": val_qty,  # <--- ĐANG THIẾU NAME VÀ SPECS
+                            "item_code": r["Item code"], 
+                            "item_name": val_name, # [NEW] Thêm Name
+                            "specs": val_specs,    # [NEW] Thêm Specs
+                            "qty": val_qty_clean,  # [NEW] Số lượng đã làm sạch
                             "unit_price": val_unit,
                             "total_price_vnd": val_total,
                             "profit_vnd": val_profit,
@@ -1403,13 +1419,16 @@ with t3:
                         st.error(f"Lỗi lưu DB: {e}"); st.stop()
 
                     try:
-                        csv_buffer = io.BytesIO()
-                        st.session_state.quote_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                        csv_buffer.seek(0)
-                        csv_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.csv"
+                        # [MODIFIED] Lưu lịch sử bằng file EXCEL (.xlsx) thay vì CSV
+                        xlsx_buffer = io.BytesIO()
+                        st.session_state.quote_df.to_excel(xlsx_buffer, index=False)
+                        xlsx_buffer.seek(0)
+                        # Đổi đuôi file thành .xlsx
+                        xlsx_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
                         curr_year = datetime.now().strftime("%Y"); curr_month = datetime.now().strftime("%b").upper()
                         path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
-                        lnk, _ = upload_to_drive_structured(csv_buffer, path_list_hist, csv_name)
+                        # Upload file Excel
+                        lnk, _ = upload_to_drive_structured(xlsx_buffer, path_list_hist, xlsx_name)
                         
                         df_cfg = pd.DataFrame([clean_params])
                         cfg_buffer = io.BytesIO()
