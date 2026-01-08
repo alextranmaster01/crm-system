@@ -1444,11 +1444,10 @@ with t4:
         # 2. Xử lý trường hợp "nan"
         if s.lower() == "nan": return ""
         
-        # 3. Xử lý số học (Quan trọng): 10.0 -> 10
-        if s.endswith(".0"): 
-             try:
-                 if s[:-2].isdigit(): s = s[:-2]
-             except: pass
+        # 3. Xử lý số học: 10.0 -> 10, Size 1.0 -> Size 1
+        # Logic cũ bị sai vì chỉ check isdigit(). Logic mới dùng Regex thay thế tận gốc.
+        if s.endswith(".0"):
+            s = s[:-2]
         
         # 4. Chuyển về chữ thường để so sánh
         s = s.lower()
@@ -1462,7 +1461,11 @@ with t4:
         # 7. Gộp nhiều dấu cách liên tiếp thành 1 dấu cách duy nhất (VD: "A   B" -> "A B")
         s = re.sub(r'\s+', ' ', s)
         
-        # 8. Cắt khoảng trắng 2 đầu
+        # 8. Loại bỏ hoàn toàn khoảng trắng để so sánh nội dung cốt lõi
+        # Điều này giúp "PZ - G" khớp với "PZ-G" hoặc "Item A" khớp "ItemA"
+        # Đây là cách an toàn nhất để tránh lỗi do gõ máy
+        s = s.replace(" ", "").replace("-", "").replace("_", "").replace(",", "").replace(".", "")
+        
         return s.strip()
 
     # -------------------------------------------------------------------------
@@ -1577,7 +1580,7 @@ with t4:
                         
                         # Loop tìm Specs khớp CHÍNH XÁC (sau khi đã làm sạch rác)
                         for h in hist_list:
-                            # So sánh 2 chuỗi đã được làm sạch
+                            # So sánh 2 chuỗi đã được làm sạch tuyệt đối
                             if h['specs_norm'] == specs_input_norm:
                                 final_unit_price = h['unit_price']
                                 warning_msg = "" 
@@ -1641,7 +1644,7 @@ with t4:
                     # Tính toán lại lần đầu 
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
-                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Chế độ Strict Mode + Clean Data)")
+                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Chế độ Strict Mode + Advanced Clean)")
                 else: st.warning("Không đọc được dữ liệu nào từ file.")
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
