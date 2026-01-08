@@ -799,26 +799,39 @@ with t3:
             return "{:,.2f}".format(float(val))
         except: return str(val)
 
-    # [NEW] Hàm xử lý công thức toán học nội bộ (Excel-like) - Đảm bảo ổn định
+    # [UPDATED] Hàm xử lý công thức toán học thông minh (Lấy từ V6032)
+    # Hỗ trợ viết dính liền (BUY*1.1), thay thế từ khóa thông minh
     def local_eval_formula(formula_str, val_buy, val_ap):
-        try:
-            # 1. Làm sạch chuỗi công thức
-            f = str(formula_str).strip().upper()
-            if f.startswith("="): f = f[1:] # Bỏ dấu = nếu có
-            
-            # 2. Thay thế biến số
-            f = f.replace("BUY", str(val_buy))
-            f = f.replace("AP", str(val_ap))
-            
-            # 3. Tính toán an toàn
-            # Chỉ cho phép các ký tự toán học cơ bản để tránh lỗi security
-            allowed_chars = "0123456789.+-*/() "
-            if not all(c in allowed_chars for c in f):
-                return 0.0
-            
-            return float(eval(f))
-        except:
-            return 0.0
+        if not formula_str: return 0.0
+        
+        # 1. Chuẩn hóa: Viết hoa và xóa khoảng trắng thừa đầu đuôi
+        s = str(formula_str).strip().upper()
+        
+        # 2. Xử lý dấu bằng ở đầu (nếu có)
+        if s.startswith("="): s = s[1:]
+        
+        # 3. Thay thế biến số (Replace Keywords)
+        # Lưu ý: Thay từ dài trước để tránh lỗi chuỗi con
+        s = s.replace("AP PRICE", str(val_ap))
+        s = s.replace("BUYING PRICE", str(val_buy))
+        
+        # Handle shorthands (Xử lý viết tắt)
+        s = s.replace("AP", str(val_ap))
+        s = s.replace("BUY", str(val_buy))
+        
+        # 4. Làm sạch cú pháp (Cleanup Syntax)
+        # Thay dấu phẩy thành chấm (kiểu VN), % thành chia 100, X thành nhân
+        s = s.replace(",", ".").replace("%", "/100").replace("X", "*")
+        
+        # 5. Lọc ký tự an toàn (Chỉ giữ lại số và phép tính) - Dùng Regex
+        import re
+        s = re.sub(r'[^0-9.+\-*/()]', '', s)
+        
+        try: 
+            if not s: return 0.0
+            # Dùng eval để tính toán chuỗi toán học đã được làm sạch
+            return float(eval(s))
+        except: return 0.0
 
     # --- B. HÀM TÍNH TOÁN LOGIC (CORE) ---
     def recalculate_quote_logic(df, params):
@@ -1111,33 +1124,33 @@ with t3:
 
     c_form1, c_form2 = st.columns(2)
     with c_form1:
-        ap_f = st.text_input("Formula AP (=BUY*1.1)", key="f_ap")
+        ap_f = st.text_input("Formula AP (vd: BUY*1.1)", key="f_ap")
         if st.button("Apply AP"):
             if not st.session_state.quote_df.empty:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
-                    # Sử dụng hàm nội bộ local_eval_formula thay cho parse_formula cũ
+                    # Sử dụng hàm nội bộ local_eval_formula mới
                     new_ap = local_eval_formula(ap_f, buy, ap)
                     
                     st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
                     
-                    # Tự động cập nhật Unit Price theo markup hiện tại để đồng bộ
+                    # Tự động cập nhật Unit Price theo markup hiện tại
                     old_unit = local_parse_money(row.get("Unit price(VND)", 0))
                     markup = old_unit/ap if ap > 0 else 1.1
                     if new_ap > 0:
-                         st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                          st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
                 st.toast("✅ Đã áp dụng công thức AP!", icon="✨")
                 st.rerun()
                 
     with c_form2:
-        unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
+        unit_f = st.text_input("Formula Unit (vd: AP*1.2)", key="f_unit")
         if st.button("Apply Unit"):
             if not st.session_state.quote_df.empty:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
-                    # Sử dụng hàm nội bộ local_eval_formula
+                    # Sử dụng hàm nội bộ local_eval_formula mới
                     new_unit = local_eval_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
                 st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
@@ -1178,10 +1191,9 @@ with t3:
         for c in cols_rmb_fmt:
             if c in df_display.columns: df_display[c] = df_display[c].apply(local_fmt_rmb)
         
-        # --- ADD TOTAL ROW ---
+        # --- ADD TOTAL ROW (Inside Table) ---
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         
-        # Các cột cần tính tổng theo yêu cầu
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
                     "Buying price(VND)", "Total buying price(VND)",
                     "AP price(VND)", "AP total price(VND)", 
@@ -1226,6 +1238,10 @@ with t3:
             column_config=col_cfg,
             use_container_width=True, height=600, key="main_editor", hide_index=True
         )
+
+        # --- [NEW] DÒNG TỔNG CỘNG RIÊNG BIỆT (GIỐNG REVIEW) ---
+        total_q_val = st.session_state.quote_df["Total price(VND)"].apply(local_parse_money).sum()
+        st.markdown(f'<div class="total-view">💰 TỔNG CỘNG: {local_fmt_vnd(total_q_val)} VND</div>', unsafe_allow_html=True)
 
         # --- LOGIC ĐỒNG BỘ (STABLE ENGINE) ---
         df_new_data = edited_df[edited_df["No"] != "TOTAL"].reset_index(drop=True)
@@ -1292,8 +1308,8 @@ with t3:
             total_price = df_review["Total price(VND)"].apply(local_parse_money).sum() if "Total price(VND)" in df_review.columns else 0
             
             # Format
-            if "Unit price(VND)" in df_review.columns: df_review["Unit price(VND)"] = df_review["Unit price(VND)"].apply(local_fmt_vnd)
-            if "Total price(VND)" in df_review.columns: df_review["Total price(VND)"] = df_review["Total price(VND)"].apply(local_fmt_vnd)
+            if "Unit price(VND)" in df_review.columns: df_review["Unit price(VND)"].apply(local_fmt_vnd)
+            if "Total price(VND)" in df_review.columns: df_review["Total price(VND)"].apply(local_fmt_vnd)
             
             # Total Row
             rev_total = {"No": "TOTAL", "Q'ty": total_qty, "Unit price(VND)": local_fmt_vnd(total_unit), "Total price(VND)": local_fmt_vnd(total_price)}
