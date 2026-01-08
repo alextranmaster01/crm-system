@@ -1435,8 +1435,7 @@ with t3:
                     else: st.error("Chọn khách!")
                 st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
-# =============================================================================
-# --- TAB 4: QUẢN LÝ PO (FULL FIX: UPLOAD VAR, COST LINKING, FORMATTING) ---
+# --- TAB 4: QUẢN LÝ PO (FULL FIX: EMOJI, OLD DATA FALLBACK, COST LINKING) ---
 # =============================================================================
 import re
 import json
@@ -1525,17 +1524,6 @@ with t4:
                 total_price = round(unit_price * qty, 0)
                 gap = total_price - ap_total
 
-                # Logic tính chi phí: Nếu cột đã có giá trị (do load từ lịch sử) thì giữ nguyên
-                # Nếu không (hoặc muốn tính lại theo % config ở Tab 4) thì dùng công thức dưới
-                # Ở đây ưu tiên: Nếu load được từ DB (link ngược) thì dùng số đó. 
-                # Tuy nhiên hàm này được gọi khi edit, nên ta sẽ tính lại dựa trên params hiện tại của Tab 4
-                # (Nếu muốn giữ số load từ DB, cần logic phức tạp hơn. Ở đây tính lại theo cấu hình hiện tại cho nhất quán)
-                
-                # val_imp_tax = round(total_buy_vnd * p_tax, 0) 
-                # val_end = round(ap_total * p_end, 0)
-                # ... (Logic này của Tab 3). Ở Tab 4, ta muốn giữ số đã load từ lịch sử trừ khi user sửa params.
-                # Do đó, chỉ update các cột tổng, Profit. Các cột chi phí (End, Tax...) giữ nguyên giá trị trong DF (đã load/edit)
-                
                 # Lấy giá trị hiện tại trong DF (đã load từ lịch sử hoặc user nhập)
                 val_imp_tax = local_parse_money(row.get("Import tax(%)", 0))
                 val_end = local_parse_money(row.get("End user(%)", 0))
@@ -1546,8 +1534,6 @@ with t4:
                 val_payback = local_parse_money(row.get("Payback(%)", 0))
 
                 sum_deductions = (total_buy_vnd + gap + val_end + val_buyer + val_imp_tax + val_vat + val_trans + val_mgmt)
-                # Lưu ý: Công thức Profit có thể khác nhau tùy logic, ở đây dùng logic tổng quát
-                # Nếu dùng logic Tab 3: Profit = Total - Sum_Deductions + Payback
                 val_profit = round(total_price - sum_deductions + val_payback, 0)
                 
                 pct_profit = 0.0
@@ -1592,6 +1578,8 @@ with t4:
         keys_to_reset = ["po_no_main", "cust_name_po", "po_up_data_main", "po_up_docs_main"]
         for k in keys_to_reset:
             if k in st.session_state: del st.session_state[k]
+        try: st.cache_data.clear() # Xóa cache để đảm bảo load cột mới nhất
+        except: pass
         st.rerun()
 
     if 'po_main_df' not in st.session_state: st.session_state.po_main_df = pd.DataFrame()
@@ -1604,11 +1592,10 @@ with t4:
     cust_name = c_in2.selectbox("Chọn Khách Hàng", [""] + cust_list, key="cust_name_po")
     
     with c_in3:
-        # [QUAN TRỌNG] Biến uploaded_po được định nghĩa ở đây
         uploaded_po = st.file_uploader("1. File Dữ liệu (Excel/CSV)", type=["xlsx", "csv"], key="po_up_data_main")
         po_docs_files = st.file_uploader("2. File Đính kèm (PDF/Ảnh)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="po_up_docs_main")
 
-    # [NEW] COPY CẤU HÌNH CHI PHÍ TỪ TAB 3 ĐỂ TÍNH TOÁN CÁC CỘT ẨN
+    # [NEW] COPY CẤU HÌNH CHI PHÍ TỪ TAB 3
     with st.expander("Cấu hình chi phí (%) - (Để tính End User, Trans, Mgmt...)", expanded=False):
         cols = st.columns(7)
         keys = ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]
@@ -1619,7 +1606,7 @@ with t4:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val)
 
-    # NÚT: TẢI DỮ LIỆU & TÍNH TOÁN (TAB 4) - ĐÃ SỬA LOGIC LINK NGƯỢC
+    # NÚT: TẢI DỮ LIỆU & TÍNH TOÁN (TAB 4) - ĐÃ SỬA LỖI & THÊM FALLBACK
     if st.button("Tải dữ liệu & Tính toán", key="btn_load_po_t4"):
         if uploaded_po is not None:
             try:
@@ -1671,27 +1658,61 @@ with t4:
                     val_end = 0; val_buyer = 0; val_tax = 0; val_vat = 0; val_trans = 0; val_mgmt = 0; val_payback = 0
                     
                     if match_hist:
-                        # 1. Lấy giá vốn
+                        # 1. Lấy giá vốn (Cột Mới)
                         buy_rmb = to_float(match_hist.get('buying_price_rmb', 0))
                         ex_rate = to_float(match_hist.get('exchange_rate', 0))
                         buy_vnd = to_float(match_hist.get('buying_price_vnd', 0))
                         ap_vnd  = to_float(match_hist.get('ap_price_vnd', 0))
                         
+                        # [FALLBACK QUAN TRỌNG] Nếu cột mới = 0 (Data cũ), thử đọc từ JSON config_data
+                        if buy_vnd == 0 and 'config_data' in match_hist and match_hist['config_data']:
+                            try:
+                                data_json = json.loads(match_hist['config_data'])
+                                # config_data chứa full list, cần tìm item khớp
+                                for item_json in data_json.get('full_data', []):
+                                     if normalize_match_str(item_json.get('Item code')) == norm_code:
+                                          buy_rmb = to_float(item_json.get('Buying price(RMB)', 0))
+                                          ex_rate = to_float(item_json.get('Exchange rate', 0))
+                                          buy_vnd = to_float(item_json.get('Buying price(VND)', 0))
+                                          ap_vnd = to_float(item_json.get('AP price(VND)', 0))
+                                          # Link các chi phí cũ
+                                          val_end = to_float(item_json.get('End user(%)', 0))
+                                          val_buyer = to_float(item_json.get('Buyer(%)', 0))
+                                          val_tax = to_float(item_json.get('Import tax(%)', 0))
+                                          val_vat = to_float(item_json.get('VAT', 0))
+                                          val_trans = to_float(item_json.get('Transportation', 0))
+                                          val_mgmt = to_float(item_json.get('Management fee(%)', 0))
+                                          val_payback = to_float(item_json.get('Payback(%)', 0))
+                                          break
+                            except: pass
+
                         if buy_vnd == 0 and buy_rmb > 0 and ex_rate > 0:
                             buy_vnd = buy_rmb * ex_rate
 
-                        # 2. --- LẤY CHI TIẾT CÁC LOẠI PHÍ TỪ LỊCH SỬ (LINK NGƯỢC) ---
+                        # 2. Link chi phí (Nếu chưa lấy được từ JSON Fallback thì lấy từ cột)
                         old_qty = to_float(match_hist.get('qty', 1))
                         if old_qty == 0: old_qty = 1
-                        ratio_qty = p_qty / old_qty # Hệ số nhân theo số lượng mới
+                        ratio_qty = p_qty / old_qty 
+                        
+                        # Chỉ lấy từ cột nếu giá trị fallback ở trên vẫn là 0
+                        if val_end == 0: val_end = to_float(match_hist.get('end_user_pct', 0))
+                        if val_buyer == 0: val_buyer = to_float(match_hist.get('buyer_pct', 0))
+                        if val_tax == 0: val_tax = to_float(match_hist.get('import_tax_pct', 0))
+                        if val_vat == 0: val_vat = to_float(match_hist.get('vat_money', 0))
+                        if val_trans == 0: val_trans = to_float(match_hist.get('transportation', 0))
+                        if val_mgmt == 0: val_mgmt = to_float(match_hist.get('management_fee_pct', 0))
+                        if val_payback == 0: val_payback = to_float(match_hist.get('payback_pct', 0))
 
-                        val_end     = to_float(match_hist.get('end_user_pct', 0)) * ratio_qty
-                        val_buyer   = to_float(match_hist.get('buyer_pct', 0)) * ratio_qty
-                        val_tax     = to_float(match_hist.get('import_tax_pct', 0)) * ratio_qty
-                        val_vat     = to_float(match_hist.get('vat_money', 0)) * ratio_qty
-                        val_trans   = to_float(match_hist.get('transportation', 0)) * ratio_qty
-                        val_mgmt    = to_float(match_hist.get('management_fee_pct', 0)) * ratio_qty
-                        val_payback = to_float(match_hist.get('payback_pct', 0)) * ratio_qty
+                        # Scale theo số lượng mới (Nếu dùng logic tiền, cần nhân tỷ lệ)
+                        # Lưu ý: Nếu lấy từ JSON (đơn cũ), nó là số tiền cũ -> cần nhân ratio
+                        # Nếu lấy từ Cột (đơn cũ), nó cũng là số tiền cũ -> cần nhân ratio
+                        val_end *= ratio_qty
+                        val_buyer *= ratio_qty
+                        val_tax *= ratio_qty
+                        val_vat *= ratio_qty
+                        val_trans *= ratio_qty
+                        val_mgmt *= ratio_qty
+                        val_payback *= ratio_qty
                         
                     else:
                         warning = "⚠️ No History"
@@ -1724,7 +1745,7 @@ with t4:
                         "Unit price(VND)": p_unit_sell,
                         "Total price(VND)": total_sell,
                         
-                        # --- CÁC CỘT CHI PHÍ (Đã scale theo số lượng mới) ---
+                        # --- CÁC CỘT CHI PHÍ ---
                         "End user(%)": val_end,
                         "Buyer(%)": val_buyer,
                         "Import tax(%)": val_tax,
@@ -1742,7 +1763,8 @@ with t4:
                     res_po.append(row_data)
 
                 st.session_state.po_main_df = pd.DataFrame(res_po)
-                st.toast("✅ Đã khớp toàn bộ Chi Phí Cấu Hình!", icon="rocket")
+                # [FIXED] Dùng emoji thực tế
+                st.toast("✅ Đã khớp toàn bộ Chi Phí Cấu Hình!", icon="🚀") 
                 st.rerun()
 
             except Exception as e:
@@ -1752,7 +1774,7 @@ with t4:
 
     # --- MAIN TABLE EDITOR ---
     if not st.session_state.po_main_df.empty:
-        # Tính toán lại trước khi hiển thị để đảm bảo số liệu được cập nhật
+        # Tính toán lại trước khi hiển thị
         st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params)
         
         st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp):**")
@@ -1771,7 +1793,7 @@ with t4:
         
         df_display = st.session_state.po_main_df[cols_display].copy()
 
-        # Format các cột tiền tệ VND (Thêm dấu phẩy)
+        # Format các cột tiền tệ VND
         cols_vnd_fmt = ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
                         "Unit price(VND)", "Total price(VND)", "GAP", "Profit(VND)", 
                         "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
@@ -1828,7 +1850,6 @@ with t4:
             for i, row_new in df_new_data.iterrows():
                 row_old = st.session_state.po_main_df.iloc[i]
                 
-                # Check AP Change
                 if "AP price(VND)" in row_new:
                     new_ap = local_parse_money(row_new["AP price(VND)"])
                     old_ap = local_parse_money(row_old.get("AP price(VND)", 0))
@@ -1841,7 +1862,6 @@ with t4:
                         data_changed = True
                         continue
 
-                # Check Other Columns Change
                 check_cols = ["Q'ty", "Buying price(VND)", "Unit price(VND)", "Buying price(RMB)", 
                               "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
                 for col in check_cols:
@@ -1863,7 +1883,7 @@ with t4:
 
         st.divider()
         
-        # --- 3 ACTION SECTIONS ---
+        # --- 3 ACTION SECTIONS (Giữ nguyên logic tạo file) ---
         with st.expander("📦 Review và đặt hàng nhà cung cấp (Đặt NCC)", expanded=False):
             cols_ncc = ["No", "Item code", "Item name", "Specs", "Q'ty", 
                         "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate", 
