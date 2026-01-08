@@ -1337,91 +1337,103 @@ with t3:
                     except Exception as e: st.error(f"Lỗi xuất Excel: {e}")
             st.markdown('</div>', unsafe_allow_html=True)
 
-        with c_sv:
-            st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
-            if st.button("💾 LƯU LỊCH SỬ (QUAN TRỌNG)"):
-                if cust_name:
-                    clean_params = {}
-                    for k, v in params.items():
-                        if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
-                        else: clean_params[k] = v
-                    
-                    # [SAVE ALL COLUMNS] Serialize entire row data to JSON
-                    # This is the Key Fix: Save everything so Tab 4 can load everything
-                    full_data_list = []
-                    for r in st.session_state.quote_df.to_dict('records'):
-                        # Ensure numeric types are JSON serializable
-                        clean_row = {}
-                        for k_row, v_row in r.items():
-                            if isinstance(v_row, (pd.Timestamp, datetime)):
-                                clean_row[k_row] = str(v_row)
-                            else:
-                                clean_row[k_row] = v_row
-                        full_data_list.append(clean_row)
+       # ... (Đoạn code phía trên giữ nguyên)
+            
+            # [PHẦN CẦN SỬA: LOGIC LƯU DB]
+            with c_sv:
+                st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
+                if st.button("💾 LƯU LỊCH SỬ (QUAN TRỌNG)"):
+                    if cust_name:
+                        # 1. Chuẩn bị params config
+                        clean_params = {}
+                        for k, v in params.items():
+                            if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
+                            else: clean_params[k] = v
                         
-                    config_json = json.dumps({
-                        "params": clean_params,
-                        "full_data": full_data_list # Store full table data here!
-                    })
-                    
-                    recs = []
-                    for r in st.session_state.quote_df.to_dict('records'):
-                        val_qty = local_parse_money(r["Q'ty"])
-                        val_unit = local_parse_money(r["Unit price(VND)"])
-                        val_total = local_parse_money(r["Total price(VND)"])
-                        val_profit = local_parse_money(r["Profit(VND)"])
+                        # 2. Chuẩn bị data full cho JSON (Backup)
+                        full_data_list = []
+                        for r in st.session_state.quote_df.to_dict('records'):
+                            clean_row = {}
+                            for k_row, v_row in r.items():
+                                if isinstance(v_row, (pd.Timestamp, datetime)): clean_row[k_row] = str(v_row)
+                                else: clean_row[k_row] = v_row
+                            full_data_list.append(clean_row)
+                            
+                        config_json = json.dumps({"params": clean_params, "full_data": full_data_list})
                         
-                        val_qty_clean = clean_number_for_db(val_qty)
-                        val_name = str(r.get("Item name", ""))
-                        val_specs = str(r.get("Specs", ""))
+                        # 3. MAP DATA VÀO TỪNG CỘT SQL (QUAN TRỌNG)
+                        recs = []
+                        history_id_gen = f"{cust_name}_{int(time.time())}"
+                        now_str = datetime.now().strftime("%Y-%m-%d")
 
-                        recs.append({
-                            "history_id": f"{cust_name}_{int(time.time())}", "date": datetime.now().strftime("%Y-%m-%d"),
-                            "quote_no": quote_no, "customer": cust_name,
-                            "item_code": r["Item code"], 
-                            "item_name": val_name, 
-                            "specs": val_specs,    
-                            "qty": val_qty_clean,
-                            "unit_price": val_unit,
-                            "total_price_vnd": val_total,
-                            "profit_vnd": val_profit,
-                            "config_data": config_json # Contains FULL DATA
-                        })
-                    
-                    try:
+                        for r in st.session_state.quote_df.to_dict('records'):
+                            # Hàm rút gọn để lấy giá trị số an toàn
+                            def get_num(key): 
+                                return local_parse_money(r.get(key, 0))
+
+                            recs.append({
+                                # --- CÁC CỘT CƠ BẢN ---
+                                "history_id": history_id_gen, 
+                                "date": now_str,
+                                "quote_no": quote_no, 
+                                "customer": cust_name,
+                                "item_code": str(r.get("Item code", "")), 
+                                "item_name": str(r.get("Item name", "")), 
+                                "specs": str(r.get("Specs", "")),    
+                                "qty": clean_number_for_db(get_num("Q'ty")),
+                                "unit_price": get_num("Unit price(VND)"),
+                                "total_price_vnd": get_num("Total price(VND)"),
+                                "profit_vnd": get_num("Profit(VND)"),
+                                
+                                # --- CÁC CỘT MỚI THÊM (FULL CHI TIẾT) ---
+                                "buying_price_rmb": get_num("Buying price(RMB)"),
+                                "total_buying_price_rmb": get_num("Total buying price(rmb)"),
+                                "exchange_rate": get_num("Exchange rate"),
+                                "buying_price_vnd": get_num("Buying price(VND)"),
+                                "total_buying_price_vnd": get_num("Total buying price(VND)"),
+                                "ap_price_vnd": get_num("AP price(VND)"),
+                                "ap_total_price_vnd": get_num("AP total price(VND)"),
+                                "gap": get_num("GAP"),
+                                "end_user_pct": get_num("End user(%)"),
+                                "buyer_pct": get_num("Buyer(%)"),
+                                "import_tax_pct": get_num("Import tax(%)"),
+                                "vat_money": get_num("VAT"), # Lưu ý: Map vào cột vat_money
+                                "transportation": get_num("Transportation"),
+                                "management_fee_pct": get_num("Management fee(%)"),
+                                "payback_pct": get_num("Payback(%)"),
+                                "profit_pct_display": str(r.get("Profit(%)", "")), # Lưu dạng text "10.5%"
+                                
+                                "config_data": config_json 
+                            })
+                        
+                        # 4. INSERT VÀO DATABASE
                         try:
                             supabase.table("crm_quotations_log").insert(recs).execute()
+                            
+                            # (Phần dưới giữ nguyên logic lưu file Excel lên Drive...)
+                            xlsx_buffer = io.BytesIO()
+                            st.session_state.quote_df.to_excel(xlsx_buffer, index=False)
+                            xlsx_buffer.seek(0)
+                            
+                            xlsx_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
+                            curr_year = datetime.now().strftime("%Y"); curr_month = datetime.now().strftime("%b").upper()
+                            path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
+                            lnk, _ = upload_to_drive_structured(xlsx_buffer, path_list_hist, xlsx_name)
+                            
+                            df_cfg = pd.DataFrame([clean_params])
+                            cfg_buffer = io.BytesIO()
+                            df_cfg.to_excel(cfg_buffer, index=False)
+                            cfg_buffer.seek(0)
+                            cfg_name = f"CONFIG_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
+                            upload_to_drive_structured(cfg_buffer, path_list_hist, cfg_name)
+                            
+                            st.success("✅ Đã lưu thành công (Full Columns DB & Drive)!")
+                            st.markdown(f"📂 [Folder Lịch Sử]({lnk})", unsafe_allow_html=True)
                         except Exception as e:
-                            # Fallback if config_data column issue (though you likely fixed DB)
-                            if "config_data" in str(e) or "PGRST204" in str(e):
-                                 recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
-                                 supabase.table("crm_quotations_log").insert(recs_fallback).execute()
-                            else: raise e
-                    except Exception as e:
-                        st.error(f"Lỗi lưu DB: {e}"); st.stop()
-
-                    try:
-                        xlsx_buffer = io.BytesIO()
-                        st.session_state.quote_df.to_excel(xlsx_buffer, index=False)
-                        xlsx_buffer.seek(0)
-                        
-                        xlsx_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
-                        curr_year = datetime.now().strftime("%Y"); curr_month = datetime.now().strftime("%b").upper()
-                        path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
-                        lnk, _ = upload_to_drive_structured(xlsx_buffer, path_list_hist, xlsx_name)
-                        
-                        df_cfg = pd.DataFrame([clean_params])
-                        cfg_buffer = io.BytesIO()
-                        df_cfg.to_excel(cfg_buffer, index=False)
-                        cfg_buffer.seek(0)
-                        cfg_name = f"CONFIG_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
-                        upload_to_drive_structured(cfg_buffer, path_list_hist, cfg_name)
-                        
-                        st.success("✅ Đã lưu thành công (DB & Drive - Excel format)!")
-                        st.markdown(f"📂 [Folder Lịch Sử]({lnk})", unsafe_allow_html=True)
-                    except Exception as e: st.error(f"Lỗi lưu Drive: {e}")
-                else: st.error("Chọn khách!")
-            st.markdown('</div>', unsafe_allow_html=True)
+                            st.error(f"Lỗi lưu DB: {e}")
+                            
+                    else: st.error("Chọn khách!")
+                st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
 # --- TAB 4: QUẢN LÝ PO (FIXED: FORMATTING, WARNINGS & COST CONFIG) ---
 # =============================================================================
