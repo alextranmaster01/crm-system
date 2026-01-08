@@ -779,8 +779,11 @@ with t2:
                     else: st.error("Sai mật khẩu!")
         else: st.info("Kho hàng trống.")
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE - SAVE ALL COLUMNS TO DB) ---
+# --- TAB 3: BÁO GIÁ (FULL CODE - MATCHING 4 BIẾN: CODE, NAME, SPECS, N/U/O/C) ---
 # =============================================================================
+import re
+import json
+
 with t3:
     # --- A. CÁC HÀM HỖ TRỢ NỘI BỘ ---
     def local_parse_money(val):
@@ -809,6 +812,14 @@ with t3:
             return f
         except: return val
 
+    # Hàm chuẩn hóa chuỗi để so sánh (Matching 4 biến)
+    def normalize_str(val):
+        if pd.isna(val) or val is None: return ""
+        s = str(val).lower().strip()
+        # Loại bỏ các ký tự đặc biệt, chỉ giữ lại chữ và số để so sánh tương đối chính xác
+        s = re.sub(r'[^a-z0-9]', '', s) 
+        return s
+
     # Hàm xử lý công thức toán học
     def local_eval_formula(formula_str, val_buy, val_ap):
         if not formula_str: return 0.0
@@ -817,7 +828,6 @@ with t3:
         s = s.replace("AP PRICE", str(val_ap)).replace("BUYING PRICE", str(val_buy))
         s = s.replace("AP", str(val_ap)).replace("BUY", str(val_buy))
         s = s.replace(",", ".").replace("%", "/100").replace("X", "*")
-        import re
         s = re.sub(r'[^0-9.+\-*/()]', '', s)
         try: 
             if not s: return 0.0
@@ -1020,6 +1030,7 @@ with t3:
                         try: config_loaded = json.loads(hist_row['config_data'])
                         except: pass
                     
+                    # Fallback tìm file config trên Drive nếu DB không có
                     if not config_loaded:
                           cfg_search_name = f"CONFIG_{q_no}_{cust}"
                           fid_cfg, _, _ = search_file_in_drive_by_name(cfg_search_name)
@@ -1030,13 +1041,20 @@ with t3:
                                       df_cfg = pd.read_excel(fh_cfg)
                                       if not df_cfg.empty: config_loaded = df_cfg.iloc[0].to_dict()
                                   except: pass
+                    
+                    # Nếu là config dạng FULL (có cả params và full_data) thì chỉ lấy params
+                    clean_config_for_ui = {}
+                    if "params" in config_loaded:
+                        clean_config_for_ui = config_loaded["params"]
+                    else:
+                        clean_config_for_ui = config_loaded
 
-                    if config_loaded:
-                        st.info(f"📊 **CẤU HÌNH (ĐÃ LOAD):** End:{config_loaded.get('end')}% | Buy:{config_loaded.get('buy')}% | Tax:{config_loaded.get('tax')}% | VAT:{config_loaded.get('vat')}%")
+                    if clean_config_for_ui:
+                        st.info(f"📊 **CẤU HÌNH (ĐÃ LOAD):** End:{clean_config_for_ui.get('end')}% | Buy:{clean_config_for_ui.get('buy')}% | Tax:{clean_config_for_ui.get('tax')}% | VAT:{clean_config_for_ui.get('vat')}%")
                         if sel_quote_hist != st.session_state.get('loaded_quote_id'):
                             for k in ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]:
-                                st.session_state[f"pct_{k}"] = str(config_loaded.get(k, 0))
-                                st.session_state[f"input_{k}"] = str(config_loaded.get(k, 0))
+                                st.session_state[f"pct_{k}"] = str(clean_config_for_ui.get(k, 0))
+                                st.session_state[f"input_{k}"] = str(clean_config_for_ui.get(k, 0))
                             st.session_state.loaded_quote_id = sel_quote_hist
                             st.rerun()
                     
@@ -1076,7 +1094,7 @@ with t3:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val) 
 
-    # 5. MATCHING & FORMULA
+    # 5. MATCHING & FORMULA (UPDATED: 4-VARIABLE MATCHING)
     cf1, cf2 = st.columns([1, 2])
     rfq = cf1.file_uploader("Upload RFQ (xlsx)", type=["xlsx"])
     if rfq and cf2.button("🔍 Matching"):
@@ -1087,17 +1105,47 @@ with t3:
             df_rfq = pd.read_excel(rfq, dtype=str).fillna("")
             res = []
             cols_found = {clean_key(c): c for c in df_rfq.columns}
+            
             for i, r in df_rfq.iterrows():
                 def get_val(kws):
                     for k in kws:
                         if cols_found.get(k): return safe_str(r[cols_found.get(k)])
                     return ""
+                
+                # Lấy dữ liệu từ Excel upload
                 code = get_val(["item code", "code", "part number"])
                 name = get_val(["item name", "name", "description"])
                 specs = get_val(["specs", "quy cách"])
+                nuoc = get_val(["n/u/o/c", "condition", "tình trạng", "loại", "quality"]) # [NEW] Biến thứ 4
                 qty = local_parse_money(get_val(["q'ty", "qty", "quantity"])) or 1.0
                 
-                match = next((x for x in db_recs if clean_key(x['item_code']) == clean_key(code)), None)
+                # [MATCHING 4 BIẾN]
+                match = None
+                norm_code = normalize_str(code)
+                norm_name = normalize_str(name)
+                norm_specs = normalize_str(specs)
+                norm_nuoc = normalize_str(nuoc)
+                
+                for x in db_recs:
+                    # Giả định DB crm_purchases có cột 'condition' hoặc tương tự. 
+                    # Nếu chưa có, ta tạm dùng logic cũ cho 3 biến và thêm điều kiện nếu có.
+                    # Ở đây tôi so sánh tương đối: Nếu Excel có N/U/O/C thì phải khớp, nếu không thì bỏ qua.
+                    db_code = normalize_str(x.get('item_code'))
+                    db_name = normalize_str(x.get('item_name'))
+                    db_specs = normalize_str(x.get('specs'))
+                    db_cond = normalize_str(x.get('condition', '')) # Cần đảm bảo DB có cột này
+                    
+                    if db_code == norm_code:
+                        # Logic Matching: Nếu Excel có thông tin thì bắt buộc DB phải khớp
+                        # Nếu Excel trống thì coi như khớp (nới lỏng)
+                        match_name = (not norm_name) or (norm_name in db_name or db_name in norm_name)
+                        match_specs = (not norm_specs) or (norm_specs == db_specs)
+                        match_cond = (not norm_nuoc) or (norm_nuoc == db_cond)
+                        
+                        # [STRICT MODE] Yêu cầu khớp cả 4 (nếu dữ liệu đầy đủ)
+                        if match_name and match_specs and match_cond:
+                            match = x
+                            break
                 
                 item = {
                     "Select": False, "No": i+1, "Cảnh báo": "" if match else "⚠️ No Data",
@@ -1120,14 +1168,11 @@ with t3:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
-                    new_ap = local_eval_formula(ap_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
-                    
                     old_unit = local_parse_money(row.get("Unit price(VND)", 0))
                     markup = old_unit/ap if ap > 0 else 1.1
-                    if new_ap > 0:
-                          st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
-                st.toast("✅ Đã áp dụng công thức AP!", icon="✨")
+                    new_ap = local_eval_formula(ap_f, buy, ap)
+                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
                 st.rerun()
     with c_form2:
         unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
@@ -1138,7 +1183,6 @@ with t3:
                     ap = local_parse_money(row.get("AP price(VND)", 0))
                     new_unit = local_eval_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
-                st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
                 st.rerun()
 
     # 6. HIỂN THỊ BẢNG (MAIN EDITOR)
@@ -1225,7 +1269,6 @@ with t3:
             data_changed = False
             for i, row_new in df_new_data.iterrows():
                 row_old = st.session_state.quote_df.iloc[i]
-                
                 if "AP price(VND)" in row_new:
                     new_ap = local_parse_money(row_new["AP price(VND)"])
                     old_ap = local_parse_money(row_old.get("AP price(VND)", 0))
@@ -1267,7 +1310,6 @@ with t3:
             if st.button("🔍 REVIEW BÁO GIÁ"): st.session_state.show_review = True
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # --- KHU VỰC REVIEW VÀ EXPORT ---
         if st.session_state.get('show_review', False):
             st.write("### 📋 BẢNG REVIEW")
             cols_review = ["No", "Item code", "Item name", "Specs", "Q'ty", "Unit price(VND)", "Total price(VND)", "Leadtime"]
@@ -1334,11 +1376,11 @@ with t3:
                     for k, v in params.items():
                         if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
                         else: clean_params[k] = v
-                    # [SAVE ALL COLUMNS] Serialize entire row data to JSON
-                    # This is the Key Fix: Save everything so Tab 4 can load everything
+                    
+                    # [QUAN TRỌNG] Gói toàn bộ dữ liệu (full columns) vào JSON
+                    # Để Tab 4 có thể load lại đầy đủ EndUser, Transportation...
                     full_data_list = []
                     for r in st.session_state.quote_df.to_dict('records'):
-                        # Ensure numeric types are JSON serializable
                         clean_row = {}
                         for k_row, v_row in r.items():
                             if isinstance(v_row, (pd.Timestamp, datetime)):
@@ -1349,7 +1391,7 @@ with t3:
                         
                     config_json = json.dumps({
                         "params": clean_params,
-                        "full_data": full_data_list # Store full table data here!
+                        "full_data": full_data_list # <--- KEY: Lưu cả bảng dữ liệu vào đây
                     })
                     
                     recs = []
@@ -1373,14 +1415,13 @@ with t3:
                             "unit_price": val_unit,
                             "total_price_vnd": val_total,
                             "profit_vnd": val_profit,
-                            "config_data": config_json # Contains FULL DATA
+                            "config_data": config_json 
                         })
                     
                     try:
                         try:
                             supabase.table("crm_quotations_log").insert(recs).execute()
                         except Exception as e:
-                            # Fallback if config_data column issue (though you likely fixed DB)
                             if "config_data" in str(e) or "PGRST204" in str(e):
                                  recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
                                  supabase.table("crm_quotations_log").insert(recs_fallback).execute()
