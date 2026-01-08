@@ -779,7 +779,7 @@ with t2:
                     else: st.error("Sai mật khẩu!")
         else: st.info("Kho hàng trống.")
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE - FIX DB CLEANING & EXCEL SAVE) ---
+# --- TAB 3: BÁO GIÁ (FULL CODE - SAVE ALL COLUMNS TO DB) ---
 # =============================================================================
 with t3:
     # --- A. CÁC HÀM HỖ TRỢ NỘI BỘ ---
@@ -801,15 +801,15 @@ with t3:
             return "{:,.2f}".format(float(val))
         except: return str(val)
 
-    # [NEW] Hàm làm sạch số liệu trước khi lưu DB (10.0 -> 10)
+    # Hàm làm sạch số liệu trước khi lưu DB
     def clean_number_for_db(val):
         try:
             f = float(val)
-            if f.is_integer(): return int(f) # Trả về số nguyên nếu không có phần lẻ
+            if f.is_integer(): return int(f) 
             return f
         except: return val
 
-    # [UPDATED] Hàm xử lý công thức toán học thông minh
+    # Hàm xử lý công thức toán học
     def local_eval_formula(formula_str, val_buy, val_ap):
         if not formula_str: return 0.0
         s = str(formula_str).strip().upper()
@@ -827,7 +827,6 @@ with t3:
     # --- B. HÀM TÍNH TOÁN LOGIC (CORE) ---
     def recalculate_quote_logic(df, params):
         if df.empty: return df
-        
         p_end = params.get('end', 0) / 100.0
         p_buy = params.get('buy', 0) / 100.0
         p_tax = params.get('tax', 0) / 100.0
@@ -845,7 +844,6 @@ with t3:
                 buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
                 ex_rate = local_parse_money(row.get("Exchange rate", 0))
 
-                # Tính Buying VND từ RMB nếu có
                 if buy_rmb > 0 and ex_rate > 0:
                     buy_vnd_unit = round(buy_rmb * ex_rate, 0)
 
@@ -853,10 +851,8 @@ with t3:
                 total_buy_rmb = round(buy_rmb * qty, 2)
                 ap_total = round(ap_vnd_unit * qty, 0)
                 total_price = round(unit_price * qty, 0)
-                
                 gap = total_price - ap_total
 
-                # Các chi phí
                 val_imp_tax = round(total_buy_vnd * p_tax, 0)
                 val_end = round(ap_total * p_end, 0)
                 val_buyer = round(total_price * p_buy, 0)
@@ -865,21 +861,17 @@ with t3:
                 val_trans = round(v_trans, 0)
                 val_payback = round(gap * p_pay, 0)
 
-                # Profit
                 sum_deductions = (total_buy_vnd + gap + val_end + val_buyer + val_imp_tax + val_vat + val_trans + val_mgmt)
                 val_profit = round(total_price - sum_deductions + val_payback, 0)
                 
                 pct_profit = 0.0
-                if total_price != 0:
-                    pct_profit = (val_profit / total_price) * 100
+                if total_price != 0: pct_profit = (val_profit / total_price) * 100
 
-                # Cảnh báo
                 current_warning = str(row.get("Cảnh báo", "")).replace("⚠️ (<10%)", "").replace(" | ", "").strip()
                 if pct_profit < 10.0:
                     if current_warning: current_warning += " | "
                     current_warning += "⚠️ (<10%)"
                 
-                # Update DataFrame
                 df.at[idx, "Cảnh báo"] = current_warning
                 df.at[idx, "Buying price(VND)"] = buy_vnd_unit
                 df.at[idx, "Total buying price(rmb)"] = total_buy_rmb
@@ -897,7 +889,6 @@ with t3:
                 df.at[idx, "Profit(VND)"] = val_profit
                 df.at[idx, "Profit(%)"] = f"{pct_profit:.2f}%"
                 df.at[idx, "Profit_Pct_Raw"] = pct_profit 
-
             except Exception: continue     
         return df
 
@@ -908,22 +899,21 @@ with t3:
     # -------------------------------------------------------------------------
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
-        c_adm1.warning("⚠️ Chức năng này sẽ xóa toàn bộ dữ liệu trong bảng Lịch sử báo giá.")
+        c_adm1.warning("⚠️ Chức năng này sẽ xóa vĩnh viễn dữ liệu.")
         adm_pass_q = c_adm2.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote_tab3")
+        
         if c_adm2.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
             if adm_pass_q == "admin": 
                 try:
-                    # Xóa bảng Dashboard trước
-                    try:
-                        supabase.table("crm_shared_history").delete().neq("id", 0).execute()
+                    st.cache_data.clear()
+                    try: supabase.table("crm_shared_history").delete().neq("history_id", "0").execute()
                     except: pass
-                    # Xóa bảng Log
-                    supabase.table("crm_quotations_log").delete().neq("id", 0).execute()
-                    
-                    st.toast("✅ Đã xóa toàn bộ lịch sử!", icon="🗑️")
+                    supabase.table("crm_quotations_log").delete().neq("history_id", "0").execute()
+                    st.toast("✅ Đã xóa sạch 100% dữ liệu và Cache!", icon="🗑️")
                     time.sleep(1)
                     st.rerun()
-                except Exception as e: st.error(f"Lỗi xóa DB: {e}. Vui lòng kiểm tra RLS trên Supabase.")
+                except Exception as e:
+                    st.error(f"Lỗi xóa DB: {e}. Vui lòng tắt RLS trên Supabase.")
             else: st.error("Sai mật khẩu!")
 
     # -------------------------------------------------------------------------
@@ -1055,7 +1045,6 @@ with t3:
                     if fid and st.button(f"📥 Tải file chi tiết: {fname}"):
                         fh = download_from_drive(fid)
                         if fh:
-                             # Hỗ trợ đọc cả CSV và Excel khi xem lại
                              if fname.lower().endswith('.csv'):
                                  st.dataframe(pd.read_csv(fh), use_container_width=True)
                              else:
@@ -1131,12 +1120,14 @@ with t3:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
-                    old_unit = local_parse_money(row.get("Unit price(VND)", 0))
-                    markup = old_unit/ap if ap > 0 else 1.1
-                    
                     new_ap = local_eval_formula(ap_f, buy, ap)
                     st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
-                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                    
+                    old_unit = local_parse_money(row.get("Unit price(VND)", 0))
+                    markup = old_unit/ap if ap > 0 else 1.1
+                    if new_ap > 0:
+                          st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                st.toast("✅ Đã áp dụng công thức AP!", icon="✨")
                 st.rerun()
     with c_form2:
         unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
@@ -1147,11 +1138,11 @@ with t3:
                     ap = local_parse_money(row.get("AP price(VND)", 0))
                     new_unit = local_eval_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
+                st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
                 st.rerun()
 
     # 6. HIỂN THỊ BẢNG (MAIN EDITOR)
     if not st.session_state.quote_df.empty:
-        # Tính toán lại trước khi render
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
         
         ordered_cols = [
@@ -1177,7 +1168,6 @@ with t3:
         for c in cols_rmb_fmt:
             if c in df_display.columns: df_display[c] = df_display[c].apply(local_fmt_rmb)
         
-        # --- ADD TOTAL ROW ---
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
                     "Buying price(VND)", "Total buying price(VND)",
@@ -1227,11 +1217,9 @@ with t3:
             use_container_width=True, height=600, key="main_editor", hide_index=True
         )
 
-        # --- [NEW] DÒNG TỔNG CỘNG RIÊNG BIỆT ---
         total_q_val = st.session_state.quote_df["Total price(VND)"].apply(local_parse_money).sum()
         st.markdown(f'<div class="total-view">💰 TỔNG CỘNG: {local_fmt_vnd(total_q_val)} VND</div>', unsafe_allow_html=True)
 
-        # --- LOGIC ĐỒNG BỘ ---
         df_new_data = edited_df[edited_df["No"] != "TOTAL"].reset_index(drop=True)
         if not df_new_data.empty and len(df_new_data) == len(st.session_state.quote_df):
             data_changed = False
@@ -1346,7 +1334,23 @@ with t3:
                     for k, v in params.items():
                         if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
                         else: clean_params[k] = v
-                    config_json = json.dumps(clean_params) 
+                    # [SAVE ALL COLUMNS] Serialize entire row data to JSON
+                    # This is the Key Fix: Save everything so Tab 4 can load everything
+                    full_data_list = []
+                    for r in st.session_state.quote_df.to_dict('records'):
+                        # Ensure numeric types are JSON serializable
+                        clean_row = {}
+                        for k_row, v_row in r.items():
+                            if isinstance(v_row, (pd.Timestamp, datetime)):
+                                clean_row[k_row] = str(v_row)
+                            else:
+                                clean_row[k_row] = v_row
+                        full_data_list.append(clean_row)
+                        
+                    config_json = json.dumps({
+                        "params": clean_params,
+                        "full_data": full_data_list # Store full table data here!
+                    })
                     
                     recs = []
                     for r in st.session_state.quote_df.to_dict('records'):
@@ -1355,14 +1359,7 @@ with t3:
                         val_total = local_parse_money(r["Total price(VND)"])
                         val_profit = local_parse_money(r["Profit(VND)"])
                         
-                        if np.isnan(val_qty) or np.isinf(val_qty): val_qty = 0.0
-                        if np.isnan(val_unit) or np.isinf(val_unit): val_unit = 0.0
-                        if np.isnan(val_total) or np.isinf(val_total): val_total = 0.0
-                        if np.isnan(val_profit) or np.isinf(val_profit): val_profit = 0.0
-
-                        # [NEW] Làm sạch dữ liệu trước khi lưu DB
                         val_qty_clean = clean_number_for_db(val_qty)
-                        # Đảm bảo Name và Specs luôn có giá trị chuỗi (tránh null)
                         val_name = str(r.get("Item name", ""))
                         val_specs = str(r.get("Specs", ""))
 
@@ -1370,20 +1367,20 @@ with t3:
                             "history_id": f"{cust_name}_{int(time.time())}", "date": datetime.now().strftime("%Y-%m-%d"),
                             "quote_no": quote_no, "customer": cust_name,
                             "item_code": r["Item code"], 
-                            "item_name": val_name, # Đã thêm Name
-                            "specs": val_specs,    # Đã thêm Specs
-                            "qty": val_qty_clean,  # Dùng số lượng sạch (int nếu tròn)
+                            "item_name": val_name, 
+                            "specs": val_specs,    
+                            "qty": val_qty_clean,
                             "unit_price": val_unit,
                             "total_price_vnd": val_total,
                             "profit_vnd": val_profit,
-                            "config_data": config_json 
+                            "config_data": config_json # Contains FULL DATA
                         })
                     
                     try:
                         try:
-                            # Cố gắng lưu vào DB. Nếu lỗi config_data (bảng cũ chưa có cột này) thì lưu fallback
                             supabase.table("crm_quotations_log").insert(recs).execute()
                         except Exception as e:
+                            # Fallback if config_data column issue (though you likely fixed DB)
                             if "config_data" in str(e) or "PGRST204" in str(e):
                                  recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
                                  supabase.table("crm_quotations_log").insert(recs_fallback).execute()
@@ -1392,15 +1389,13 @@ with t3:
                         st.error(f"Lỗi lưu DB: {e}"); st.stop()
 
                     try:
-                        # [MODIFIED] Lưu lịch sử dạng EXCEL (.xlsx) thay vì CSV
                         xlsx_buffer = io.BytesIO()
                         st.session_state.quote_df.to_excel(xlsx_buffer, index=False)
                         xlsx_buffer.seek(0)
                         
-                        xlsx_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.xlsx" # Đổi đuôi file
+                        xlsx_name = f"HIST_{quote_no}_{cust_name}_{int(time.time())}.xlsx"
                         curr_year = datetime.now().strftime("%Y"); curr_month = datetime.now().strftime("%b").upper()
                         path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
-                        
                         lnk, _ = upload_to_drive_structured(xlsx_buffer, path_list_hist, xlsx_name)
                         
                         df_cfg = pd.DataFrame([clean_params])
