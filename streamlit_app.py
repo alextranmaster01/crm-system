@@ -1094,96 +1094,136 @@ with t3:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val) 
 
-    # 5. MATCHING & FORMULA (UPDATED: 4-VARIABLE MATCHING)
+    # -------------------------------------------------------------------------
+    # 5. MATCHING & FORMULA (FIXED: 4-VARIABLE STRICT MATCHING)
+    # -------------------------------------------------------------------------
     cf1, cf2 = st.columns([1, 2])
     rfq = cf1.file_uploader("Upload RFQ (xlsx)", type=["xlsx"])
-    if rfq and cf2.button("🔍 Matching"):
+    
+    # Hàm chuẩn hóa để so sánh chính xác 4 biến
+    def normalize_match_str(val):
+        if pd.isna(val) or val is None: return ""
+        s = str(val).lower().strip()
+        # Bỏ hết ký tự đặc biệt, chỉ giữ chữ và số để so sánh (VD: "PZ-G" == "pzg")
+        s = re.sub(r'[^a-z0-9]', '', s) 
+        return s
+
+    if rfq and cf2.button("🔍 Matching (4 Biến)"):
         st.session_state.quote_df = pd.DataFrame()
         db = load_data("crm_purchases")
+        
         if not db.empty:
             db_recs = db.to_dict('records')
             df_rfq = pd.read_excel(rfq, dtype=str).fillna("")
             res = []
+            
+            # Map cột trong file Excel upload
             cols_found = {clean_key(c): c for c in df_rfq.columns}
             
             for i, r in df_rfq.iterrows():
+                # Hàm lấy dữ liệu từ Excel theo nhiều từ khóa
                 def get_val(kws):
                     for k in kws:
                         if cols_found.get(k): return safe_str(r[cols_found.get(k)])
                     return ""
                 
-                # Lấy dữ liệu từ Excel upload
-                code = get_val(["item code", "code", "part number"])
-                name = get_val(["item name", "name", "description"])
-                specs = get_val(["specs", "quy cách"])
-                nuoc = get_val(["n/u/o/c", "condition", "tình trạng", "loại", "quality"]) # [NEW] Biến thứ 4
-                qty = local_parse_money(get_val(["q'ty", "qty", "quantity"])) or 1.0
+                # 1. Lấy dữ liệu đầu vào từ Excel
+                code_ex = get_val(["item code", "code", "part number"])
+                name_ex = get_val(["item name", "name", "description"])
+                specs_ex = get_val(["specs", "quy cách", "specification"])
+                nuoc_ex = get_val(["n/u/o/c", "condition", "quality", "tình trạng", "loại"]) # Biến thứ 4
+                qty_ex = local_parse_money(get_val(["q'ty", "qty", "quantity"])) or 1.0
                 
-                # [MATCHING 4 BIẾN]
+                # Chuẩn hóa dữ liệu Excel để so sánh
+                norm_code = normalize_match_str(code_ex)
+                norm_name = normalize_match_str(name_ex)
+                norm_specs = normalize_match_str(specs_ex)
+                norm_nuoc = normalize_match_str(nuoc_ex)
+                
+                # 2. Thuật toán tìm kiếm trong Database (Matching)
                 match = None
-                norm_code = normalize_str(code)
-                norm_name = normalize_str(name)
-                norm_specs = normalize_str(specs)
-                norm_nuoc = normalize_str(nuoc)
                 
-                for x in db_recs:
-                    # Giả định DB crm_purchases có cột 'condition' hoặc tương tự. 
-                    # Nếu chưa có, ta tạm dùng logic cũ cho 3 biến và thêm điều kiện nếu có.
-                    # Ở đây tôi so sánh tương đối: Nếu Excel có N/U/O/C thì phải khớp, nếu không thì bỏ qua.
-                    db_code = normalize_str(x.get('item_code'))
-                    db_name = normalize_str(x.get('item_name'))
-                    db_specs = normalize_str(x.get('specs'))
-                    db_cond = normalize_str(x.get('condition', '')) # Cần đảm bảo DB có cột này
-                    
-                    if db_code == norm_code:
-                        # Logic Matching: Nếu Excel có thông tin thì bắt buộc DB phải khớp
-                        # Nếu Excel trống thì coi như khớp (nới lỏng)
-                        match_name = (not norm_name) or (norm_name in db_name or db_name in norm_name)
-                        match_specs = (not norm_specs) or (norm_specs == db_specs)
-                        match_cond = (not norm_nuoc) or (norm_nuoc == db_cond)
+                # Lọc sơ bộ bằng Code trước cho nhanh
+                candidates = [x for x in db_recs if normalize_match_str(x.get('item_code')) == norm_code]
+                
+                if candidates:
+                    # Nếu tìm thấy Code, tiếp tục check 3 biến còn lại
+                    for cand in candidates:
+                        db_name = normalize_match_str(cand.get('item_name'))
+                        db_specs = normalize_match_str(cand.get('specs'))
+                        # Cần đảm bảo trong DB crm_purchases có cột chứa thông tin N/U/O/C (VD: cột 'condition' hoặc 'quality')
+                        db_nuoc = normalize_match_str(cand.get('condition', cand.get('quality', '')))
                         
-                        # [STRICT MODE] Yêu cầu khớp cả 4 (nếu dữ liệu đầy đủ)
-                        if match_name and match_specs and match_cond:
-                            match = x
-                            break
+                        # Logic so sánh:
+                        # - Specs: Phải khớp chặt (hoặc DB rỗng thì bỏ qua check)
+                        # - N/U/O/C: Phải khớp chặt (quan trọng nhất về giá)
+                        # - Name: So sánh tương đối (chứa nhau là được)
+                        
+                        is_specs_ok = (db_specs == norm_specs) or (not norm_specs) # Nếu Excel ko ghi specs thì tạm chấp nhận
+                        is_nuoc_ok = (db_nuoc == norm_nuoc) 
+                        
+                        # Nếu Excel không ghi N/U/O/C thì ưu tiên lấy hàng New (nếu DB là New/China) hoặc khớp chính xác
+                        if not norm_nuoc: is_nuoc_ok = True 
+
+                        # Điều kiện Name (Nới lỏng xíu vì tên hay viết tắt)
+                        is_name_ok = (norm_name in db_name) or (db_name in norm_name) or (not norm_name)
+                        
+                        if is_specs_ok and is_nuoc_ok:
+                            match = cand
+                            break # Tìm thấy cái khớp nhất thì dừng
                 
+                # 3. Lấy giá và tính toán
+                buying_rmb = 0.0
+                exchange_rate = 0.0
+                buying_vnd = 0.0
+                
+                warning = "⚠️ No Data"
+                
+                if match:
+                    buying_rmb = to_float(match.get('buying_price_rmb', 0))
+                    exchange_rate = to_float(match.get('exchange_rate', 0))
+                    buying_vnd = to_float(match.get('buying_price_vnd', 0))
+                    
+                    # Tự tính lại Buying VND nếu có RMB và Rate (để đảm bảo chính xác)
+                    if buying_rmb > 0 and exchange_rate > 0:
+                        buying_vnd = buying_rmb * exchange_rate
+                    
+                    # Nếu khớp code nhưng sai specs/condition -> Match = None để an toàn
+                    warning = ""
+                else:
+                    # Nếu có code mà không khớp 4 biến -> Cảnh báo
+                    if candidates: warning = "⚠️ Lệch Specs/Condition"
+
                 item = {
-                    "Select": False, "No": i+1, "Cảnh báo": "" if match else "⚠️ No Data",
-                    "Item code": code, "Item name": name, "Specs": specs, "Q'ty": qty,
-                    "Buying price(RMB)": to_float(match['buying_price_rmb']) if match else 0,
-                    "Exchange rate": to_float(match['exchange_rate']) if match else 0,
-                    "Buying price(VND)": to_float(match['buying_price_vnd']) if match else 0,
-                    "AP price(VND)": 0, "Unit price(VND)": 0, "Total price(VND)": 0,
-                    "Leadtime": match['leadtime'] if match else "", "Supplier": match['supplier_name'] if match else ""
+                    "Select": False, 
+                    "No": i+1, 
+                    "Cảnh báo": warning,
+                    "Item code": code_ex, 
+                    "Item name": name_ex, 
+                    "Specs": specs_ex, 
+                    "Q'ty": qty_ex,
+                    
+                    "Buying price(RMB)": buying_rmb,
+                    "Exchange rate": exchange_rate,
+                    "Buying price(VND)": buying_vnd,
+                    
+                    "Total buying price(rmb)": buying_rmb * qty_ex,
+                    "Total buying price(VND)": buying_vnd * qty_ex,
+                    
+                    "AP price(VND)": 0, 
+                    "Unit price(VND)": 0, 
+                    "Total price(VND)": 0,
+                    
+                    "Leadtime": match['leadtime'] if match else "", 
+                    "Supplier": match['supplier_name'] if match else ""
                 }
                 res.append(item)
+            
             st.session_state.quote_df = pd.DataFrame(res)
+            # Tính toán lại toàn bộ bảng sau khi load
+            st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
+            st.success("✅ Đã Matching dữ liệu theo 4 biến (Code, Name, Specs, N/U/O/C)!")
             st.rerun()
-
-    c_form1, c_form2 = st.columns(2)
-    with c_form1:
-        ap_f = st.text_input("Formula AP (=BUY*1.1)", key="f_ap")
-        if st.button("Apply AP"):
-            if not st.session_state.quote_df.empty:
-                for idx, row in st.session_state.quote_df.iterrows():
-                    buy = local_parse_money(row.get("Buying price(VND)", 0))
-                    ap = local_parse_money(row.get("AP price(VND)", 0))
-                    old_unit = local_parse_money(row.get("Unit price(VND)", 0))
-                    markup = old_unit/ap if ap > 0 else 1.1
-                    new_ap = local_eval_formula(ap_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
-                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
-                st.rerun()
-    with c_form2:
-        unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
-        if st.button("Apply Unit"):
-            if not st.session_state.quote_df.empty:
-                for idx, row in st.session_state.quote_df.iterrows():
-                    buy = local_parse_money(row.get("Buying price(VND)", 0))
-                    ap = local_parse_money(row.get("AP price(VND)", 0))
-                    new_unit = local_eval_formula(unit_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
-                st.rerun()
 
     # 6. HIỂN THỊ BẢNG (MAIN EDITOR)
     if not st.session_state.quote_df.empty:
