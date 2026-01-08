@@ -779,10 +779,15 @@ with t2:
                     else: st.error("Sai mật khẩu!")
         else: st.info("Kho hàng trống.")
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE - MATCHING 4 BIẾN: CODE, NAME, SPECS, N/U/O/C) ---
+# --- TAB 3: BÁO GIÁ (FULL CODE - FORMULA, MATCHING 4 VARS, SAVE FULL COLUMNS) ---
 # =============================================================================
 import re
 import json
+import time
+from datetime import datetime
+import numpy as np
+import io
+from openpyxl import load_workbook, Workbook
 
 with t3:
     # --- A. CÁC HÀM HỖ TRỢ NỘI BỘ ---
@@ -813,14 +818,14 @@ with t3:
         except: return val
 
     # Hàm chuẩn hóa chuỗi để so sánh (Matching 4 biến)
-    def normalize_str(val):
+    def normalize_match_str(val):
         if pd.isna(val) or val is None: return ""
         s = str(val).lower().strip()
-        # Loại bỏ các ký tự đặc biệt, chỉ giữ lại chữ và số để so sánh tương đối chính xác
+        # Bỏ ký tự đặc biệt, chỉ giữ chữ số
         s = re.sub(r'[^a-z0-9]', '', s) 
         return s
 
-    # Hàm xử lý công thức toán học
+    # Hàm xử lý công thức toán học (Cho nút Apply Formula)
     def local_eval_formula(formula_str, val_buy, val_ap):
         if not formula_str: return 0.0
         s = str(formula_str).strip().upper()
@@ -922,8 +927,7 @@ with t3:
                     st.toast("✅ Đã xóa sạch 100% dữ liệu và Cache!", icon="🗑️")
                     time.sleep(1)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Lỗi xóa DB: {e}. Vui lòng tắt RLS trên Supabase.")
+                except Exception as e: st.error(f"Lỗi xóa DB: {e}")
             else: st.error("Sai mật khẩu!")
 
     # -------------------------------------------------------------------------
@@ -938,19 +942,16 @@ with t3:
             df_hist = load_data("crm_quotations_log")
             df_po = load_data("db_customer_orders")
             df_items = load_data("crm_purchases") 
-
             item_map = {}
             if not df_items.empty:
                 for r in df_items.to_dict('records'):
                     k = clean_key(r['item_code'])
                     item_map[k] = f"{safe_str(r['item_name'])} {safe_str(r['specs'])}"
-
             po_map = {}
             if not df_po.empty:
                 for r in df_po.to_dict('records'):
                     k = f"{clean_key(r['customer'])}_{clean_key(r['item_code'])}"
                     po_map[k] = r['po_number']
-
             results = []
             if search_kw and not df_hist.empty:
                 def check_row(row):
@@ -958,7 +959,6 @@ with t3:
                     if kw in str(row.get('customer','')).lower(): return True
                     if kw in str(row.get('quote_no','')).lower(): return True
                     if kw in str(row.get('item_code','')).lower(): return True
-                    if kw in str(row.get('date','')).lower(): return True
                     code = clean_key(row['item_code'])
                     info = item_map.get(code, "").lower()
                     if kw in info: return True
@@ -967,45 +967,31 @@ with t3:
                 found = df_hist[mask]
                 for _, r in found.iterrows():
                     key = f"{clean_key(r['customer'])}_{clean_key(r['item_code'])}"
-                    po_found = po_map.get(key, "")
-                    code_info = item_map.get(clean_key(r['item_code']), "")
                     results.append({
                         "Trạng thái": "✅ Đã báo giá", "Customer": r['customer'], "Date": r['date'],
-                        "Item Code": r['item_code'], "Info": code_info, 
-                        "Unit Price": local_fmt_vnd(r['unit_price']),
-                        "Quote No": r['quote_no'], "PO No": po_found if po_found else "---"
+                        "Item Code": r['item_code'], "Info": item_map.get(clean_key(r['item_code']), ""), 
+                        "Unit Price": local_fmt_vnd(r['unit_price']), "Quote No": r['quote_no'], "PO No": po_map.get(key, "---")
                     })
-            
             if up_src:
                 try:
                     df_check = pd.read_excel(up_src, dtype=str).fillna("")
                     cols_check = {clean_key(c): c for c in df_check.columns}
                     for i, r in df_check.iterrows():
-                        code = ""; name = ""; specs = ""
+                        code = ""; 
                         for k, col in cols_check.items():
                             if "code" in k: code = safe_str(r[col])
-                            elif "name" in k: name = safe_str(r[col])
-                            elif "specs" in k: specs = safe_str(r[col])
                         match = pd.DataFrame()
-                        if not df_hist.empty and code:
-                            match = df_hist[df_hist['item_code'].str.contains(code, case=False, na=False)]
-                        
+                        if not df_hist.empty and code: match = df_hist[df_hist['item_code'].str.contains(code, case=False, na=False)]
                         if not match.empty:
                             for _, m in match.iterrows():
                                 key = f"{clean_key(m['customer'])}_{clean_key(m['item_code'])}"
-                                po_found = po_map.get(key, "")
                                 results.append({
                                     "Trạng thái": "✅ Đã báo giá", "Customer": m['customer'], "Date": m['date'],
                                     "Item Code": m['item_code'], "Info": item_map.get(clean_key(m['item_code']), ""),
-                                    "Unit Price": local_fmt_vnd(m['unit_price']), "Quote No": m['quote_no'], "PO No": po_found
+                                    "Unit Price": local_fmt_vnd(m['unit_price']), "Quote No": m['quote_no'], "PO No": po_map.get(key, "---")
                                 })
-                        else:
-                            results.append({
-                                "Trạng thái": "❌ Chưa báo giá", "Item Code": code, "Customer": "---", 
-                                "Date": "---", "Unit Price": "---", "Quote No": "---", "PO No": "---"
-                            })
+                        else: results.append({"Trạng thái": "❌ Chưa báo giá", "Item Code": code, "Customer": "---", "Date": "---", "Unit Price": "---", "Quote No": "---", "PO No": "---"})
                 except Exception as e: st.error(f"Lỗi file: {e}")
-
             if results: st.dataframe(pd.DataFrame(results), use_container_width=True)
             else: st.info("Không tìm thấy kết quả.")
 
@@ -1022,35 +1008,19 @@ with t3:
                 if len(parts) >= 3:
                     q_no = parts[2].replace("Quote: ", "").strip()
                     cust = parts[1].strip()
-                    
                     hist_row = df_hist_idx[(df_hist_idx['quote_no'] == q_no) & (df_hist_idx['customer'] == cust)].iloc[0]
                     config_loaded = {}
-                    
                     if 'config_data' in hist_row and hist_row['config_data']:
                         try: config_loaded = json.loads(hist_row['config_data'])
                         except: pass
                     
-                    # Fallback tìm file config trên Drive nếu DB không có
-                    if not config_loaded:
-                          cfg_search_name = f"CONFIG_{q_no}_{cust}"
-                          fid_cfg, _, _ = search_file_in_drive_by_name(cfg_search_name)
-                          if fid_cfg:
-                              fh_cfg = download_from_drive(fid_cfg)
-                              if fh_cfg:
-                                  try: 
-                                      df_cfg = pd.read_excel(fh_cfg)
-                                      if not df_cfg.empty: config_loaded = df_cfg.iloc[0].to_dict()
-                                  except: pass
-                    
-                    # Nếu là config dạng FULL (có cả params và full_data) thì chỉ lấy params
+                    # Logic lấy params từ config json (hỗ trợ cả format cũ và mới)
                     clean_config_for_ui = {}
-                    if "params" in config_loaded:
-                        clean_config_for_ui = config_loaded["params"]
-                    else:
-                        clean_config_for_ui = config_loaded
+                    if "params" in config_loaded: clean_config_for_ui = config_loaded["params"]
+                    else: clean_config_for_ui = config_loaded
 
                     if clean_config_for_ui:
-                        st.info(f"📊 **CẤU HÌNH (ĐÃ LOAD):** End:{clean_config_for_ui.get('end')}% | Buy:{clean_config_for_ui.get('buy')}% | Tax:{clean_config_for_ui.get('tax')}% | VAT:{clean_config_for_ui.get('vat')}%")
+                        st.info(f"📊 **CẤU HÌNH (ĐÃ LOAD):** End:{clean_config_for_ui.get('end')}% | Buy:{clean_config_for_ui.get('buy')}%")
                         if sel_quote_hist != st.session_state.get('loaded_quote_id'):
                             for k in ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]:
                                 st.session_state[f"pct_{k}"] = str(clean_config_for_ui.get(k, 0))
@@ -1063,10 +1033,8 @@ with t3:
                     if fid and st.button(f"📥 Tải file chi tiết: {fname}"):
                         fh = download_from_drive(fid)
                         if fh:
-                             if fname.lower().endswith('.csv'):
-                                 st.dataframe(pd.read_csv(fh), use_container_width=True)
-                             else:
-                                 st.dataframe(pd.read_excel(fh), use_container_width=True)
+                             if fname.lower().endswith('.csv'): st.dataframe(pd.read_csv(fh), use_container_width=True)
+                             else: st.dataframe(pd.read_excel(fh), use_container_width=True)
         else: st.info("Chưa có lịch sử.")
 
     st.divider()
@@ -1094,136 +1062,102 @@ with t3:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val) 
 
-    # -------------------------------------------------------------------------
-    # 5. MATCHING & FORMULA (FIXED: 4-VARIABLE STRICT MATCHING)
-    # -------------------------------------------------------------------------
+    # 5. MATCHING & FORMULA (4 VARS + FORMULA BUTTONS)
     cf1, cf2 = st.columns([1, 2])
     rfq = cf1.file_uploader("Upload RFQ (xlsx)", type=["xlsx"])
     
-    # Hàm chuẩn hóa để so sánh chính xác 4 biến
-    def normalize_match_str(val):
-        if pd.isna(val) or val is None: return ""
-        s = str(val).lower().strip()
-        # Bỏ hết ký tự đặc biệt, chỉ giữ chữ và số để so sánh (VD: "PZ-G" == "pzg")
-        s = re.sub(r'[^a-z0-9]', '', s) 
-        return s
-
+    # Matching Button
     if rfq and cf2.button("🔍 Matching (4 Biến)"):
         st.session_state.quote_df = pd.DataFrame()
         db = load_data("crm_purchases")
-        
         if not db.empty:
             db_recs = db.to_dict('records')
             df_rfq = pd.read_excel(rfq, dtype=str).fillna("")
             res = []
-            
-            # Map cột trong file Excel upload
             cols_found = {clean_key(c): c for c in df_rfq.columns}
             
             for i, r in df_rfq.iterrows():
-                # Hàm lấy dữ liệu từ Excel theo nhiều từ khóa
                 def get_val(kws):
                     for k in kws:
                         if cols_found.get(k): return safe_str(r[cols_found.get(k)])
                     return ""
                 
-                # 1. Lấy dữ liệu đầu vào từ Excel
-                code_ex = get_val(["item code", "code", "part number"])
-                name_ex = get_val(["item name", "name", "description"])
-                specs_ex = get_val(["specs", "quy cách", "specification"])
-                nuoc_ex = get_val(["n/u/o/c", "condition", "quality", "tình trạng", "loại"]) # Biến thứ 4
-                qty_ex = local_parse_money(get_val(["q'ty", "qty", "quantity"])) or 1.0
+                code = get_val(["item code", "code", "part number"])
+                name = get_val(["item name", "name", "description"])
+                specs = get_val(["specs", "quy cách"])
+                nuoc = get_val(["n/u/o/c", "condition", "quality", "loại"])
+                qty = local_parse_money(get_val(["q'ty", "qty", "quantity"])) or 1.0
                 
-                # Chuẩn hóa dữ liệu Excel để so sánh
-                norm_code = normalize_match_str(code_ex)
-                norm_name = normalize_match_str(name_ex)
-                norm_specs = normalize_match_str(specs_ex)
-                norm_nuoc = normalize_match_str(nuoc_ex)
+                norm_code = normalize_match_str(code)
+                norm_name = normalize_match_str(name)
+                norm_specs = normalize_match_str(specs)
+                norm_nuoc = normalize_match_str(nuoc)
                 
-                # 2. Thuật toán tìm kiếm trong Database (Matching)
                 match = None
-                
-                # Lọc sơ bộ bằng Code trước cho nhanh
                 candidates = [x for x in db_recs if normalize_match_str(x.get('item_code')) == norm_code]
                 
+                warning = "⚠️ No Data"
                 if candidates:
-                    # Nếu tìm thấy Code, tiếp tục check 3 biến còn lại
                     for cand in candidates:
                         db_name = normalize_match_str(cand.get('item_name'))
                         db_specs = normalize_match_str(cand.get('specs'))
-                        # Cần đảm bảo trong DB crm_purchases có cột chứa thông tin N/U/O/C (VD: cột 'condition' hoặc 'quality')
                         db_nuoc = normalize_match_str(cand.get('condition', cand.get('quality', '')))
                         
-                        # Logic so sánh:
-                        # - Specs: Phải khớp chặt (hoặc DB rỗng thì bỏ qua check)
-                        # - N/U/O/C: Phải khớp chặt (quan trọng nhất về giá)
-                        # - Name: So sánh tương đối (chứa nhau là được)
-                        
-                        is_specs_ok = (db_specs == norm_specs) or (not norm_specs) # Nếu Excel ko ghi specs thì tạm chấp nhận
-                        is_nuoc_ok = (db_nuoc == norm_nuoc) 
-                        
-                        # Nếu Excel không ghi N/U/O/C thì ưu tiên lấy hàng New (nếu DB là New/China) hoặc khớp chính xác
-                        if not norm_nuoc: is_nuoc_ok = True 
-
-                        # Điều kiện Name (Nới lỏng xíu vì tên hay viết tắt)
+                        is_specs_ok = (db_specs == norm_specs) or (not norm_specs)
+                        is_nuoc_ok = (db_nuoc == norm_nuoc) or (not norm_nuoc) # Ưu tiên nếu Excel trống
                         is_name_ok = (norm_name in db_name) or (db_name in norm_name) or (not norm_name)
                         
                         if is_specs_ok and is_nuoc_ok:
                             match = cand
-                            break # Tìm thấy cái khớp nhất thì dừng
+                            warning = ""
+                            break
+                    if not match: warning = "⚠️ Lệch Specs/Cond"
                 
-                # 3. Lấy giá và tính toán
-                buying_rmb = 0.0
-                exchange_rate = 0.0
-                buying_vnd = 0.0
-                
-                warning = "⚠️ No Data"
-                
-                if match:
-                    buying_rmb = to_float(match.get('buying_price_rmb', 0))
-                    exchange_rate = to_float(match.get('exchange_rate', 0))
-                    buying_vnd = to_float(match.get('buying_price_vnd', 0))
-                    
-                    # Tự tính lại Buying VND nếu có RMB và Rate (để đảm bảo chính xác)
-                    if buying_rmb > 0 and exchange_rate > 0:
-                        buying_vnd = buying_rmb * exchange_rate
-                    
-                    # Nếu khớp code nhưng sai specs/condition -> Match = None để an toàn
-                    warning = ""
-                else:
-                    # Nếu có code mà không khớp 4 biến -> Cảnh báo
-                    if candidates: warning = "⚠️ Lệch Specs/Condition"
+                buying_rmb = to_float(match['buying_price_rmb']) if match else 0
+                exchange_rate = to_float(match['exchange_rate']) if match else 0
+                buying_vnd = to_float(match['buying_price_vnd']) if match else 0
+                if buying_rmb > 0 and exchange_rate > 0: buying_vnd = buying_rmb * exchange_rate
 
                 item = {
-                    "Select": False, 
-                    "No": i+1, 
-                    "Cảnh báo": warning,
-                    "Item code": code_ex, 
-                    "Item name": name_ex, 
-                    "Specs": specs_ex, 
-                    "Q'ty": qty_ex,
-                    
-                    "Buying price(RMB)": buying_rmb,
-                    "Exchange rate": exchange_rate,
-                    "Buying price(VND)": buying_vnd,
-                    
-                    "Total buying price(rmb)": buying_rmb * qty_ex,
-                    "Total buying price(VND)": buying_vnd * qty_ex,
-                    
-                    "AP price(VND)": 0, 
-                    "Unit price(VND)": 0, 
-                    "Total price(VND)": 0,
-                    
-                    "Leadtime": match['leadtime'] if match else "", 
-                    "Supplier": match['supplier_name'] if match else ""
+                    "Select": False, "No": i+1, "Cảnh báo": warning,
+                    "Item code": code, "Item name": name, "Specs": specs, "Q'ty": qty,
+                    "Buying price(RMB)": buying_rmb, "Exchange rate": exchange_rate, "Buying price(VND)": buying_vnd,
+                    "AP price(VND)": 0, "Unit price(VND)": 0, "Total price(VND)": 0,
+                    "Leadtime": match['leadtime'] if match else "", "Supplier": match['supplier_name'] if match else ""
                 }
                 res.append(item)
-            
             st.session_state.quote_df = pd.DataFrame(res)
-            # Tính toán lại toàn bộ bảng sau khi load
-            st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
-            st.success("✅ Đã Matching dữ liệu theo 4 biến (Code, Name, Specs, N/U/O/C)!")
             st.rerun()
+
+    # --- KHỐI FORMULA BUTTONS (QUAN TRỌNG: ĐÃ ĐƯA TRỞ LẠI) ---
+    c_form1, c_form2 = st.columns(2)
+    with c_form1:
+        ap_f = st.text_input("Formula AP (=BUY*1.1)", key="f_ap")
+        if st.button("Apply AP"):
+            if not st.session_state.quote_df.empty:
+                for idx, row in st.session_state.quote_df.iterrows():
+                    buy = local_parse_money(row.get("Buying price(VND)", 0))
+                    ap = local_parse_money(row.get("AP price(VND)", 0))
+                    old_unit = local_parse_money(row.get("Unit price(VND)", 0))
+                    markup = old_unit/ap if ap > 0 else 1.1
+                    
+                    new_ap = local_eval_formula(ap_f, buy, ap)
+                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                st.toast("✅ Đã áp dụng AP Formula!", icon="✨")
+                st.rerun()
+    with c_form2:
+        unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
+        if st.button("Apply Unit"):
+            if not st.session_state.quote_df.empty:
+                for idx, row in st.session_state.quote_df.iterrows():
+                    buy = local_parse_money(row.get("Buying price(VND)", 0))
+                    ap = local_parse_money(row.get("AP price(VND)", 0))
+                    new_unit = local_eval_formula(unit_f, buy, ap)
+                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
+                st.toast("✅ Đã áp dụng Unit Formula!", icon="✨")
+                st.rerun()
+    # -------------------------------------------------------------
 
     # 6. HIỂN THỊ BẢNG (MAIN EDITOR)
     if not st.session_state.quote_df.empty:
@@ -1252,6 +1186,7 @@ with t3:
         for c in cols_rmb_fmt:
             if c in df_display.columns: df_display[c] = df_display[c].apply(local_fmt_rmb)
         
+        # Total Row
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
                     "Buying price(VND)", "Total buying price(VND)",
@@ -1259,13 +1194,11 @@ with t3:
                     "Unit price(VND)", "Total price(VND)", "GAP",
                     "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
                     "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
-        
         for c in sum_cols:
             if c in st.session_state.quote_df.columns:
                 val = st.session_state.quote_df[c].apply(local_parse_money).sum()
                 if c in cols_rmb_fmt: total_row[c] = local_fmt_rmb(val)
                 else: total_row[c] = local_fmt_vnd(val)
-                
         t_profit = local_parse_money(total_row.get("Profit(VND)", "0"))
         t_price = local_parse_money(total_row.get("Total price(VND)", "0"))
         total_row["Profit(%)"] = f"{(t_profit / t_price * 100) if t_price > 0 else 0:.1f}%"
@@ -1273,13 +1206,7 @@ with t3:
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
         st.markdown("---")
-        c_tool1, c_tool2 = st.columns([1, 3])
-        with c_tool1:
-            if st.button("⚡ ÁP DỤNG GLOBAL CONFIG"):
-                if not st.session_state.quote_df.empty:
-                    st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
-                    st.toast("✅ Đã áp dụng!", icon="⚡"); st.rerun()
-
+        
         col_cfg = {
             "Select": st.column_config.CheckboxColumn("✅", width="small"),
             "Cảnh báo": st.column_config.TextColumn("Cảnh báo", disabled=True, width="small"),
@@ -1304,11 +1231,13 @@ with t3:
         total_q_val = st.session_state.quote_df["Total price(VND)"].apply(local_parse_money).sum()
         st.markdown(f'<div class="total-view">💰 TỔNG CỘNG: {local_fmt_vnd(total_q_val)} VND</div>', unsafe_allow_html=True)
 
+        # Sync Logic
         df_new_data = edited_df[edited_df["No"] != "TOTAL"].reset_index(drop=True)
         if not df_new_data.empty and len(df_new_data) == len(st.session_state.quote_df):
             data_changed = False
             for i, row_new in df_new_data.iterrows():
                 row_old = st.session_state.quote_df.iloc[i]
+                
                 if "AP price(VND)" in row_new:
                     new_ap = local_parse_money(row_new["AP price(VND)"])
                     old_ap = local_parse_money(row_old.get("AP price(VND)", 0))
@@ -1341,7 +1270,7 @@ with t3:
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
                 st.rerun()
 
-    # 7. TOOLBAR (REVIEW, SAVE, EXPORT)
+    # 7. TOOLBAR
     if not st.session_state.quote_df.empty:
         st.divider()
         c_rev, c_sv = st.columns([1, 1])
@@ -1417,10 +1346,11 @@ with t3:
                         if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
                         else: clean_params[k] = v
                     
-                    # [QUAN TRỌNG] Gói toàn bộ dữ liệu (full columns) vào JSON
-                    # Để Tab 4 có thể load lại đầy đủ EndUser, Transportation...
+                    # [SAVE ALL COLUMNS] Serialize entire row data to JSON
+                    # This is the Key Fix: Save everything so Tab 4 can load everything
                     full_data_list = []
                     for r in st.session_state.quote_df.to_dict('records'):
+                        # Ensure numeric types are JSON serializable
                         clean_row = {}
                         for k_row, v_row in r.items():
                             if isinstance(v_row, (pd.Timestamp, datetime)):
@@ -1431,7 +1361,7 @@ with t3:
                         
                     config_json = json.dumps({
                         "params": clean_params,
-                        "full_data": full_data_list # <--- KEY: Lưu cả bảng dữ liệu vào đây
+                        "full_data": full_data_list # Store full table data here!
                     })
                     
                     recs = []
@@ -1455,13 +1385,14 @@ with t3:
                             "unit_price": val_unit,
                             "total_price_vnd": val_total,
                             "profit_vnd": val_profit,
-                            "config_data": config_json 
+                            "config_data": config_json # Contains FULL DATA
                         })
                     
                     try:
                         try:
                             supabase.table("crm_quotations_log").insert(recs).execute()
                         except Exception as e:
+                            # Fallback if config_data column issue (though you likely fixed DB)
                             if "config_data" in str(e) or "PGRST204" in str(e):
                                  recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
                                  supabase.table("crm_quotations_log").insert(recs_fallback).execute()
