@@ -1062,12 +1062,12 @@ with t3:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val) 
 
-    # 5. MATCHING & FORMULA (4 VARS + FORMULA BUTTONS)
+# 5. MATCHING & FORMULA (4 VARS + FORMULA BUTTONS)
     cf1, cf2 = st.columns([1, 2])
     rfq = cf1.file_uploader("Upload RFQ (xlsx)", type=["xlsx"])
     
     # Matching Button
-    if rfq and cf2.button("🔍 Matching (4 Biến)"):
+    if rfq and cf2.button("🔍 Matching (3 Biến Tuyệt Đối)"):
         st.session_state.quote_df = pd.DataFrame()
         db = load_data("crm_purchases")
         if not db.empty:
@@ -1082,37 +1082,37 @@ with t3:
                         if cols_found.get(k): return safe_str(r[cols_found.get(k)])
                     return ""
                 
+                # Lấy dữ liệu từ Excel
                 code = get_val(["item code", "code", "part number"])
                 name = get_val(["item name", "name", "description"])
                 specs = get_val(["specs", "quy cách"])
-                nuoc = get_val(["n/u/o/c", "condition", "quality", "loại"])
                 qty = local_parse_money(get_val(["q'ty", "qty", "quantity"])) or 1.0
                 
+                # Chuẩn hóa input từ Excel để so sánh (giữ nguyên hàm normalize_match_str đã có)
                 norm_code = normalize_match_str(code)
                 norm_name = normalize_match_str(name)
                 norm_specs = normalize_match_str(specs)
-                norm_nuoc = normalize_match_str(nuoc)
                 
                 match = None
-                candidates = [x for x in db_recs if normalize_match_str(x.get('item_code')) == norm_code]
                 
-                warning = "⚠️ No Data"
-                if candidates:
-                    for cand in candidates:
-                        db_name = normalize_match_str(cand.get('item_name'))
-                        db_specs = normalize_match_str(cand.get('specs'))
-                        db_nuoc = normalize_match_str(cand.get('condition', cand.get('quality', '')))
-                        
-                        is_specs_ok = (db_specs == norm_specs) or (not norm_specs)
-                        is_nuoc_ok = (db_nuoc == norm_nuoc) or (not norm_nuoc) # Ưu tiên nếu Excel trống
-                        is_name_ok = (norm_name in db_name) or (db_name in norm_name) or (not norm_name)
-                        
-                        if is_specs_ok and is_nuoc_ok:
-                            match = cand
-                            warning = ""
-                            break
-                    if not match: warning = "⚠️ Lệch Specs/Cond"
+                # --- LOGIC MATCHING TUYỆT ĐỐI 3 BIẾN ---
+                # Duyệt qua database, chỉ lấy khi Code, Name và Specs khớp 100%
+                for cand in db_recs:
+                    db_code = normalize_match_str(cand.get('item_code'))
+                    db_name = normalize_match_str(cand.get('item_name'))
+                    db_specs = normalize_match_str(cand.get('specs'))
+                    
+                    # Kiểm tra điều kiện tuyệt đối (AND)
+                    if (db_code == norm_code) and (db_name == norm_name) and (db_specs == norm_specs):
+                        match = cand
+                        break # Tìm thấy trùng khớp 100% thì dừng ngay
                 
+                # Xử lý kết quả sau khi matching
+                warning = "⚠️ Không tìm thấy data" # Mặc định là không tìm thấy
+                if match:
+                    warning = "" # Nếu tìm thấy (match != None) thì xóa cảnh báo
+                
+                # Gán giá trị (nếu có match thì lấy giá trị, không thì là 0)
                 buying_rmb = to_float(match['buying_price_rmb']) if match else 0
                 exchange_rate = to_float(match['exchange_rate']) if match else 0
                 buying_vnd = to_float(match['buying_price_vnd']) if match else 0
