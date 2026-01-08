@@ -1388,7 +1388,6 @@ with t3:
                             "profit_vnd": val_profit,
                             "config_data": config_json 
                         })
-                        })
                     
                     try:
                         try:
