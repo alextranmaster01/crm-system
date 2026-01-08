@@ -1445,6 +1445,7 @@ with t4:
         if pd.isna(val) or val is None: return ""
         s = str(val)
         if s.lower() == "nan": return ""
+        # Xử lý lỗi số học 10.0 -> 10
         if s.endswith(".0"): 
              try:
                  if s[:-2].isdigit(): s = s[:-2]
@@ -1498,13 +1499,14 @@ with t4:
         po_data_file = st.file_uploader("1. File Dữ liệu (Excel/CSV)", type=["xlsx", "csv"], key="po_up_data_main")
         po_docs_files = st.file_uploader("2. File Đính kèm (PDF/Ảnh)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="po_up_docs_main")
 
-    # [NEW] COPY CẤU HÌNH CHI PHÍ TỪ TAB 3 SANG ĐỂ TÍNH TOÁN ĐƯỢC CÁC CỘT ẨN
+    # [NEW] COPY CẤU HÌNH CHI PHÍ TỪ TAB 3 ĐỂ TÍNH TOÁN CÁC CỘT ẨN
+    # Sử dụng key input khác để tránh conflict nhưng update vào cùng biến pct_...
     with st.expander("Cấu hình chi phí (%) - (Để tính End User, Trans, Mgmt...)", expanded=False):
         cols = st.columns(7)
         keys = ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]
         params = {}
         for i, k in enumerate(keys):
-            # Dùng chung key session_state với Tab 3 để đồng bộ
+            # Lấy giá trị hiện tại từ session (nếu Tab 3 đã set thì lấy, ko thì 0)
             default_val = st.session_state.get(f"pct_{k}", "0") 
             val = cols[i].text_input(k.upper(), value=default_val, key=f"input_po_{k}")
             st.session_state[f"pct_{k}"] = val
@@ -1515,6 +1517,7 @@ with t4:
         elif not cust_name: st.error("Chưa chọn khách hàng!")
         else:
             try:
+                # Đọc file với dtype=str để giữ nguyên định dạng text
                 if po_data_file.name.lower().endswith('.csv'):
                      df_up = pd.read_csv(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 else:
@@ -1551,7 +1554,7 @@ with t4:
                     specs_input_norm = normalize_data(specs_input_raw)
                     
                     final_unit_price = 0.0
-                    # [UPDATED] Sửa nội dung cảnh báo theo yêu cầu
+                    # [FIX 3] Mặc định là chưa báo giá
                     warning_msg = "⚠️ Chưa báo giá"
                     
                     excel_price = to_float(r.iloc[5]) if len(r) > 5 else 0.0
@@ -1564,6 +1567,7 @@ with t4:
                         found_match = False
                         
                         for h in hist_list:
+                            # So sánh specs đã chuẩn hóa hoặc chấp nhận specs rỗng
                             if h['specs_norm'] == specs_input_norm or h['specs_norm'] == "":
                                 final_unit_price = h['unit_price']
                                 warning_msg = "" 
@@ -1571,7 +1575,7 @@ with t4:
                         
                         if not found_match:
                             final_unit_price = 0.0
-                            # [UPDATED] Sửa nội dung cảnh báo
+                            # [FIX 3] Có mã trong lịch sử nhưng lệch Specs
                             warning_msg = "⚠️ Data không khớp" 
                     
                     match = item_map.get(clean_c)
@@ -1607,6 +1611,7 @@ with t4:
                 
                 if recs:
                     st.session_state.po_main_df = pd.DataFrame(recs)
+                    # Tính toán lần đầu để áp dụng Params
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params)
                     st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu!")
                 else: st.warning("Không đọc được dữ liệu nào từ file.")
@@ -1615,7 +1620,7 @@ with t4:
 
     # --- MAIN TABLE EDITOR ---
     if not st.session_state.po_main_df.empty:
-        # Tính toán lại với params hiện tại (để cập nhật End User, Trans...)
+        # Tính toán lại trước khi hiển thị để đảm bảo số liệu (End user, Trans...) được cập nhật theo Params
         st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params)
         
         st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp):**")
@@ -1632,7 +1637,7 @@ with t4:
         ]
         cols_display = [c for c in ordered_cols if c in st.session_state.po_main_df.columns]
         
-        # [UPDATED] COPY LOGIC HIỂN THỊ CỦA TAB 3: Tạo DF riêng để Format String
+        # [FIX 2] COPY LOGIC HIỂN THỊ CỦA TAB 3: Tạo DF riêng để Format String
         df_display = st.session_state.po_main_df[cols_display].copy()
 
         # Format các cột tiền tệ VND (Thêm dấu phẩy)
@@ -1670,7 +1675,7 @@ with t4:
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
-        # Config hiển thị (Dùng TextColumn cho số tiền để hiện đúng format "1,000")
+        # [FIX 2] Config hiển thị (Dùng TextColumn cho số tiền để hiện đúng format "1,000")
         col_cfg = {
             "Cảnh báo": st.column_config.TextColumn(disabled=True),
             "No": st.column_config.TextColumn(disabled=True),
