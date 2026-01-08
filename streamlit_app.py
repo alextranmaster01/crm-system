@@ -1424,7 +1424,7 @@ with t3:
                 else: st.error("Chọn khách!")
             st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (NEW LOGIC) ---
+# --- TAB 4: QUẢN LÝ PO (LOGIC AN TOÀN: ƯU TIÊN SPECS -> CẢNH BÁO NẾU LỆCH) ---
 # =============================================================================
 with t4:
     # -------------------------------------------------------------------------
@@ -1449,18 +1449,16 @@ with t4:
     # -------------------------------------------------------------------------
     st.subheader("📋 PO KHÁCH HÀNG")
     
-    # --- [NEW] NÚT TẠO MỚI / RESET JOB ---
-    # Chức năng: Xóa dữ liệu cũ trong bảng và reset các ô input để làm đơn mới
+    # --- NÚT TẠO MỚI / RESET JOB ---
     if st.button("🆕 TẠO MỚI / RESET (Làm đơn khác)", key="btn_reset_po_tab4", type="primary"):
         st.session_state.po_main_df = pd.DataFrame()
-        # Xóa các key của widget để reset form input (Số PO, Khách, File)
         keys_to_reset = ["po_no_main", "cust_name_po", "po_up_data_main", "po_up_docs_main"]
         for k in keys_to_reset:
             if k in st.session_state:
                 del st.session_state[k]
         st.rerun()
-    # -------------------------------------
-    
+    # -------------------------------
+
     # Khởi tạo Session State cho Dataframe chính
     if 'po_main_df' not in st.session_state: st.session_state.po_main_df = pd.DataFrame()
 
@@ -1472,11 +1470,10 @@ with t4:
     cust_list = cust_db["short_name"].tolist() if not cust_db.empty else []
     cust_name = c_in2.selectbox("Chọn Khách Hàng", [""] + cust_list, key="cust_name_po")
     
-    # --- SỬA LỖI: Tách Uploader để upload ĐỒNG THỜI cả data và tài liệu ---
     with c_in3:
         # 1. File chứa dữ liệu để tính toán (Excel/CSV)
         po_data_file = st.file_uploader("1. File Dữ liệu (Excel/CSV)", type=["xlsx", "csv"], key="po_up_data_main")
-        # 2. File tài liệu đính kèm (PDF/Ảnh) - Upload riêng để không bị mất
+        # 2. File tài liệu đính kèm (PDF/Ảnh)
         po_docs_files = st.file_uploader("2. File Đính kèm (PDF/Ảnh)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="po_up_docs_main")
 
     # Nút Load Dữ Liệu
@@ -1491,70 +1488,90 @@ with t4:
                 else:
                      df_up = pd.read_excel(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 
-                # Load Master Data để lấy giá gốc
+                # Load Master Data
                 db_items = load_data("crm_purchases")
                 item_map = {clean_key(r['item_code']): r for r in db_items.to_dict('records')}
                 
-                # [NEW REQUIREMENT 1] Load Quotation Log để check lịch sử 3 biến
+                # [LOGIC MỚI - TIERED MATCHING] Load Lịch sử để check giá
+                # Cấu trúc map: Code -> List các lần báo giá [{specs, price, date}, ...]
                 db_log = load_data("crm_quotations_log")
-                history_set = set()
+                history_map = {} 
+                
                 if not db_log.empty:
-                    # Lọc theo khách hàng hiện tại
-                    df_log_cust = db_log[db_log['customer'] == cust_name]
+                    # Lọc khách hàng, sort theo ngày tăng dần (để lấy giá mới nhất ở cuối list)
+                    df_log_cust = db_log[db_log['customer'] == cust_name].sort_values(by='date', ascending=True)
                     for r in df_log_cust.to_dict('records'):
-                        # Tạo khóa so sánh: (Code chuẩn hóa, Name thường, Specs thường)
                         k_code = clean_key(r.get('item_code', ''))
-                        k_name = safe_str(r.get('item_name', '')).strip().lower()
-                        # Giả định specs có thể không có trong log cũ, nếu có thì check, không thì bỏ qua
-                        k_specs = safe_str(r.get('specs', '')).strip().lower() # Cần đảm bảo cột này có trong log nếu muốn check
-                        history_set.add((k_code, k_name, k_specs))
+                        if k_code:
+                            if k_code not in history_map: history_map[k_code] = []
+                            history_map[k_code].append({
+                                'specs_norm': safe_str(r.get('specs', '')).strip().lower(), # Specs chuẩn hóa để so sánh
+                                'unit_price': to_float(r.get('unit_price', 0)),
+                                'original_specs': r.get('specs', '')
+                            })
 
                 recs = []
-                # Giả định Excel PO có cột theo thứ tự hoặc logic tìm kiếm tương đối
-                # Ta sẽ loop và map dữ liệu
                 for i, r in df_up.iterrows():
                     # Map Excel Columns
                     code = safe_str(r.iloc[1]) 
                     if not code: continue 
                     
                     qty = to_float(r.iloc[4])
-                    specs = safe_str(r.iloc[3])
+                    specs_input = safe_str(r.iloc[3])
                     name = safe_str(r.iloc[2])
-
-                    # [CHECK HISTORY] Kiểm tra 3 biến
-                    curr_key = (clean_key(code), name.strip().lower(), specs.strip().lower())
                     
-                    # Logic: Nếu tìm thấy trong set -> Đã báo giá. Nếu không -> Cảnh báo
-                    # Lưu ý: Nếu lịch sử chưa lưu specs, điều kiện này có thể quá chặt. 
-                    # Nhưng theo yêu cầu là "cả 3 biến", nên ta làm chính xác.
-                    warning_msg = ""
-                    if curr_key not in history_set:
-                        warning_msg = "⚠️ Chưa báo giá"
+                    # Logic tìm kiếm giá (Tiered Logic)
+                    clean_c = clean_key(code)
+                    clean_s_input = specs_input.strip().lower()
+                    
+                    final_unit_price = 0.0
+                    warning_msg = "⚠️ Chưa báo giá"
+                    
+                    # Ưu tiên 1: Có trong file Excel upload
+                    excel_price = to_float(r.iloc[5]) if len(r) > 5 else 0.0
+                    
+                    if excel_price > 0:
+                        final_unit_price = excel_price
+                        warning_msg = "" # Có giá trong file thì ok
+                    elif clean_c in history_map:
+                        # Tìm trong lịch sử
+                        hist_list = history_map[clean_c]
+                        found_exact_specs = False
+                        
+                        # Loop tìm Specs khớp
+                        for h in hist_list:
+                            if h['specs_norm'] == clean_s_input:
+                                final_unit_price = h['unit_price']
+                                warning_msg = "" # Specs khớp -> OK
+                                found_exact_specs = True
+                                # Tiếp tục loop để lấy giá mới nhất nếu có nhiều dòng trùng specs
+                        
+                        # Nếu không khớp Specs -> Lấy giá của mục mới nhất (theo code) + CẢNH BÁO
+                        if not found_exact_specs:
+                            latest_rec = hist_list[-1]
+                            final_unit_price = latest_rec['unit_price']
+                            warning_msg = "⚠️ Khác Specs (Check giá)"
                     
                     # Lookup Info từ Master Data
-                    match = item_map.get(clean_key(code))
+                    match = item_map.get(clean_c)
                     
-                    # Init Defaults
                     buy_rmb = 0.0; rate = 0.0; buy_vnd = 0.0; supplier = ""; leadtime = "0"
-
                     if match:
                         buy_rmb = to_float(match.get('buying_price_rmb', 0))
                         rate = to_float(match.get('exchange_rate', 0))
                         buy_vnd = to_float(match.get('buying_price_vnd', 0))
                         supplier = match.get('supplier_name', '')
                         leadtime = match.get('leadtime', '0')
-                        if not specs: specs = match.get('specs', '')
+                        if not specs_input: specs_input = match.get('specs', '')
                         if not name: name = match.get('item_name', '')
-                    
-                    unit_price_raw = to_float(r.iloc[5]) if len(r) > 5 else 0.0
                     
                     # Tạo dòng dữ liệu
                     item = {
                         "No": safe_str(r.iloc[0]) if safe_str(r.iloc[0]) else (i+1), 
-                        "Cảnh báo": warning_msg, # Cột cảnh báo mới
+                        "Cảnh báo": warning_msg, 
                         "Item code": code, 
                         "Item name": name, 
-                        "Specs": specs, 
+                        "Specs": specs_input, 
                         "Q'ty": qty,
                         
                         "Buying price(RMB)": buy_rmb,
@@ -1566,8 +1583,8 @@ with t4:
                         "AP price(VND)": 0.0, 
                         "AP total price(VND)": 0.0, 
                         
-                        "Unit price(VND)": unit_price_raw,
-                        "Total price(VND)": unit_price_raw * qty,
+                        "Unit price(VND)": final_unit_price, 
+                        "Total price(VND)": final_unit_price * qty,
                         
                         "GAP": 0.0, 
                         
@@ -1584,15 +1601,14 @@ with t4:
                     # Tính toán lại lần đầu 
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
-                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu!")
+                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Đã check Code & Specs)")
                 else: st.warning("Không đọc được dữ liệu nào từ file.")
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
 
     # --- MAIN TABLE EDITOR (UPDATED LOGIC FROM TAB 3) ---
     if not st.session_state.po_main_df.empty:
-        # 1. Tính toán trước khi hiển thị để đảm bảo số liệu chuẩn
-        # Lấy params từ session state nếu có (để đồng bộ cấu hình), nếu không dùng mặc định 0
+        # 1. Tính toán trước khi hiển thị
         params = {
             "end": to_float(st.session_state.get("pct_end", 0)),
             "buy": to_float(st.session_state.get("pct_buy", 0)),
@@ -1606,7 +1622,7 @@ with t4:
         
         st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp):**")
         
-        # 2. [cite_start]Chuẩn bị DataFrame hiển thị (Thêm dòng TOTAL) [cite: 68-71]
+        # 2. Chuẩn bị DataFrame hiển thị
         ordered_cols = [
             "No", "Cảnh báo", "Item code", "Item name", "Specs", "Q'ty", 
             "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate",
@@ -1640,15 +1656,14 @@ with t4:
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
-        # 3. Config hiển thị (NumberColumn để sửa được)
+        # 3. Config hiển thị
         col_cfg = {
             "Cảnh báo": st.column_config.TextColumn(disabled=True),
             "No": st.column_config.TextColumn(disabled=True),
             "Buying price(RMB)": st.column_config.NumberColumn(format="%.2f"),
             "Total buying price(RMB)": st.column_config.NumberColumn(format="%.2f"),
-            "Profit(%)": st.column_config.TextColumn(disabled=True), # Text để hiện dấu %
+            "Profit(%)": st.column_config.TextColumn(disabled=True),
         }
-        # Các cột tiền tệ VND format số nguyên
         for c in ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
                   "Unit price(VND)", "Total price(VND)", "GAP", "Profit(VND)", "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]:
              if c in df_display.columns: col_cfg[c] = st.column_config.NumberColumn(format="%d")
@@ -1659,8 +1674,7 @@ with t4:
             use_container_width=True, height=500, key="editor_po_main", hide_index=True
         )
         
-        # 4. [cite_start]LOGIC ĐỒNG BỘ DỮ LIỆU (Stable Engine từ Tab 3) [cite: 76-84]
-        # Lọc bỏ dòng TOTAL để so sánh
+        # 4. LOGIC ĐỒNG BỘ DỮ LIỆU
         df_new_data = edited_po[edited_po["No"] != "TOTAL"].reset_index(drop=True)
         
         if not df_new_data.empty and len(df_new_data) == len(st.session_state.po_main_df):
@@ -1675,11 +1689,11 @@ with t4:
                     if abs(new_ap - old_ap) > 1.0:
                         st.session_state.po_main_df.at[i, "AP price(VND)"] = new_ap
                         old_unit = to_float(row_old.get("Unit price(VND)", 0))
-                        markup = 1.1 # Default markup
+                        markup = 1.1 
                         if old_ap > 0: markup = old_unit / old_ap
                         st.session_state.po_main_df.at[i, "Unit price(VND)"] = new_ap * markup
                         data_changed = True
-                        continue # Skip other checks for this row to avoid conflict
+                        continue
 
                 # Check Other Columns Change
                 check_cols = ["Q'ty", "Buying price(VND)", "Unit price(VND)", "Buying price(RMB)", 
@@ -1688,7 +1702,7 @@ with t4:
                     if col in row_new:
                         new_val = to_float(row_new[col])
                         old_val = to_float(row_old.get(col, 0))
-                        if abs(new_val - old_val) > 1.0: # Delta > 1 dong
+                        if abs(new_val - old_val) > 1.0:
                             st.session_state.po_main_df.at[i, col] = new_val
                             data_changed = True
                 
@@ -1713,12 +1727,10 @@ with t4:
                         "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate", 
                         "Buying price(VND)", "Total buying price(VND)", "Supplier"]
             
-            # Đảm bảo có cột Supplier trong main df (ẩn ở view trên nhưng cần ở đây)
             df_ncc_view = st.session_state.po_main_df.copy()
             if "Supplier" not in df_ncc_view.columns: df_ncc_view["Supplier"] = ""
             df_ncc_view = df_ncc_view[cols_ncc]
             
-            # Total Row Logic
             total_row_ncc = {"No": "TOTAL", "Item code": "", "Item name": "", "Specs": "", "Supplier": ""}
             sum_cols_ncc = ["Q'ty", "Buying price(RMB)", "Total buying price(RMB)", "Buying price(VND)", "Total buying price(VND)"]
             
@@ -1727,14 +1739,12 @@ with t4:
                 
             # Formatting & Display
             df_ncc_fmt = df_ncc_view.copy()
-            # Format rows
             for c in ["Buying price(RMB)", "Total buying price(RMB)"]:
                 df_ncc_fmt[c] = df_ncc_fmt[c].apply(fmt_float_2)
             for c in ["Buying price(VND)", "Total buying price(VND)"]:
                 df_ncc_fmt[c] = df_ncc_fmt[c].apply(fmt_num)
             df_ncc_fmt["Q'ty"] = df_ncc_fmt["Q'ty"].apply(fmt_num)
 
-            # Format Total Row
             total_row_fmt = total_row_ncc.copy()
             total_row_fmt["Buying price(RMB)"] = fmt_float_2(total_row_ncc["Buying price(RMB)"])
             total_row_fmt["Total buying price(RMB)"] = fmt_float_2(total_row_ncc["Total buying price(RMB)"])
@@ -1742,7 +1752,6 @@ with t4:
             total_row_fmt["Total buying price(VND)"] = fmt_num(total_row_ncc["Total buying price(VND)"])
             total_row_fmt["Q'ty"] = fmt_num(total_row_ncc["Q'ty"])
             
-            # Append Total
             df_ncc_fmt = pd.concat([df_ncc_fmt, pd.DataFrame([total_row_fmt])], ignore_index=True)
             
             st.dataframe(df_ncc_fmt, use_container_width=True, hide_index=True)
@@ -1758,27 +1767,17 @@ with t4:
                     for supp, group in grouped:
                         supp_name = clean_key(supp).upper() if supp else "UNKNOWN"
                         
-                        # Generate Excel PO NCC
                         wb = Workbook(); ws = wb.active; ws.title = "PO NCC"
-                        ws.append(cols_ncc) # Header
+                        ws.append(cols_ncc) 
                         for r in group[cols_ncc].to_dict('records'):
                             ws.append(list(r.values()))
-                        
-                        # Footer Total
                         ws.append(["TOTAL", "", "", "", group["Q'ty"].sum(), "", group["Total buying price(RMB)"].sum(), "", "", group["Total buying price(VND)"].sum(), ""])
 
                         out = io.BytesIO(); wb.save(out); out.seek(0)
-                        
-                        # File Name: PO-HS...-SUPPLIER
                         fname = f"{po_no_input}-{supp_name}.xlsx"
-                        
-                        # Path: PO_NCC/{Year}/{Supplier}/{Month}/
                         path_list = ["PO_NCC", curr_year, supp_name, curr_month]
-                        
                         lnk, _ = upload_to_drive_structured(out, path_list, fname)
                         
-                        # Tracking Insert
-                        # Calculate ETA based on first item leadtime
                         lt_val = group.iloc[0]["Leadtime"] if "Leadtime" in group.columns else 0
                         eta = calc_eta(datetime.now(), lt_val)
                         
@@ -1797,20 +1796,17 @@ with t4:
 
         # 2. REVIEW PO KHÁCH HÀNG & LƯU
         with st.expander("👤 Review PO khách hàng và lưu PO", expanded=False):
-            # Columns Customer View
             cols_kh = ["No", "Item code", "Item name", "Specs", "Q'ty", 
                        "Unit price(VND)", "Total price(VND)", "Leadtime"]
             
             df_kh_view = st.session_state.po_main_df[cols_kh].copy()
-            df_kh_view["Customer"] = cust_name # Add Customer column
+            df_kh_view["Customer"] = cust_name
             
-            # Total Row Logic
             total_row_kh = {"No": "TOTAL", "Item code": "", "Item name": "", "Specs": "", "Customer": "", "Leadtime": ""}
             sum_cols_kh = ["Q'ty", "Unit price(VND)", "Total price(VND)"]
             for c in sum_cols_kh:
                 total_row_kh[c] = df_kh_view[c].apply(to_float).sum()
                 
-            # Formatting
             df_kh_fmt = df_kh_view.copy()
             for c in ["Unit price(VND)", "Total price(VND)"]:
                 df_kh_fmt[c] = df_kh_fmt[c].apply(fmt_num)
@@ -1821,7 +1817,6 @@ with t4:
             total_row_kh_fmt["Total price(VND)"] = fmt_num(total_row_kh["Total price(VND)"])
             total_row_kh_fmt["Q'ty"] = fmt_num(total_row_kh["Q'ty"])
             
-            # Append Total
             df_kh_fmt = pd.concat([df_kh_fmt, pd.DataFrame([total_row_kh_fmt])], ignore_index=True)
             
             st.dataframe(df_kh_fmt, use_container_width=True, hide_index=True)
@@ -1829,12 +1824,11 @@ with t4:
             if st.button("💾 Lưu PO Khách Hàng"):
                 if not po_no_input: st.error("Thiếu số PO!")
                 else:
-                    # 1. Insert DB (Doanh thu -> db_customer_orders)
                     db_recs = []
                     eta_final = ""
                     for r in st.session_state.po_main_df.to_dict('records'):
                         eta_item = calc_eta(datetime.now(), r.get("Leadtime", 0))
-                        eta_final = eta_item # Take last or first
+                        eta_final = eta_item
                         db_recs.append({
                             "po_number": po_no_input, "customer": cust_name, "order_date": datetime.now().strftime("%d/%m/%Y"),
                             "item_code": r["Item code"], "item_name": r["Item name"], "specs": r["Specs"],
@@ -1843,25 +1837,20 @@ with t4:
                         })
                     supabase.table("db_customer_orders").insert(db_recs).execute()
                     
-                    # 2. Upload Drive
-                    # Path: PO_KHACH_HANG/{Year}/{Customer}/{Month}/
                     curr_year = datetime.now().strftime("%Y")
                     curr_month = datetime.now().strftime("%m")
                     path_list = ["PO_KHACH_HANG", curr_year, cust_name, curr_month]
                     
-                    # Create Excel File PO Customer
                     wb = Workbook(); ws = wb.active; ws.title = "PO CUSTOMER"
                     ws.append(cols_kh + ["Customer"])
                     for r in df_kh_view.to_dict('records'):
                         ws.append(list(r.values()))
-                    # Total Row Excel
                     ws.append(["TOTAL", "", "", "", df_kh_view["Q'ty"].sum(), df_kh_view["Unit price(VND)"].sum(), df_kh_view["Total price(VND)"].sum(), "", ""])
                     
                     out = io.BytesIO(); wb.save(out); out.seek(0)
                     fname = f"{po_no_input}.xlsx"
                     lnk, _ = upload_to_drive_structured(out, path_list, fname)
                     
-                    # 3. Tracking (crm_tracking -> Waiting, KH)
                     track_rec = {
                         "po_no": po_no_input, "partner": cust_name, "status": "Waiting",
                         "order_type": "KH", "last_update": datetime.now().strftime("%d/%m/%Y"),
@@ -1874,7 +1863,6 @@ with t4:
 
         # 3. REVIEW CHI PHÍ & LƯU
         with st.expander("💰 Review chi phí và lưu chi phí", expanded=False):
-            # Columns Cost View
             cols_cost = ["No", "Item code", "Item name", "Specs", "Q'ty", 
                          "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate",
                          "Buying price(VND)", "Total buying price(VND)", 
@@ -1883,7 +1871,6 @@ with t4:
             
             df_cost_view = st.session_state.po_main_df[cols_cost].copy()
             
-            # Total Row Logic
             total_row_cost = {"No": "TOTAL", "Item code": "", "Item name": "", "Specs": "", "Profit(%)": ""}
             sum_cols_cost = ["Q'ty", "Buying price(VND)", "Total buying price(VND)", "GAP", 
                              "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
@@ -1892,11 +1879,9 @@ with t4:
             for c in sum_cols_cost:
                 total_row_cost[c] = df_cost_view[c].apply(to_float).sum()
                 
-            # Formatting
             df_cost_fmt = df_cost_view.copy()
             for c in sum_cols_cost:
                 df_cost_fmt[c] = df_cost_fmt[c].apply(fmt_num)
-            # RMB columns format
             df_cost_fmt["Buying price(RMB)"] = df_cost_fmt["Buying price(RMB)"].apply(fmt_float_2)
             df_cost_fmt["Total buying price(RMB)"] = df_cost_fmt["Total buying price(RMB)"].apply(fmt_float_2)
 
@@ -1904,7 +1889,6 @@ with t4:
             for c in sum_cols_cost:
                 total_row_cost_fmt[c] = fmt_num(total_row_cost[c])
             
-            # Append Total
             df_cost_fmt = pd.concat([df_cost_fmt, pd.DataFrame([total_row_cost_fmt])], ignore_index=True)
             
             st.dataframe(df_cost_fmt, use_container_width=True, hide_index=True)
@@ -1912,8 +1896,6 @@ with t4:
             if st.button("💾 Lưu Chi Phí (Link Dashboard)"):
                 if not po_no_input: st.error("Thiếu số PO!")
                 else:
-                    # 1. Upload Drive
-                    # Path: CHI PHI/{Year}/{Customer}/{Month}/
                     curr_year = datetime.now().strftime("%Y")
                     curr_month = datetime.now().strftime("%m")
                     path_list = ["CHI PHI", curr_year, cust_name, curr_month]
@@ -1923,12 +1905,11 @@ with t4:
                     for r in df_cost_view.to_dict('records'):
                         ws.append(list(r.values()))
                     
-                    # Total Row Excel
                     vals = ["TOTAL", "", "", ""]
                     vals.append(df_cost_view["Q'ty"].apply(to_float).sum())
-                    vals.append("") # Buy RMB
-                    vals.append("") # Total Buy RMB
-                    vals.append("") # Rate
+                    vals.append("") 
+                    vals.append("") 
+                    vals.append("") 
                     vals.append(df_cost_view["Buying price(VND)"].apply(to_float).sum())
                     vals.append(df_cost_view["Total buying price(VND)"].apply(to_float).sum())
                     vals.append(df_cost_view["GAP"].apply(to_float).sum())
@@ -1938,33 +1919,28 @@ with t4:
                     vals.append(df_cost_view["VAT"].apply(to_float).sum())
                     vals.append(df_cost_view["Transportation"].apply(to_float).sum())
                     vals.append(df_cost_view["Management fee(%)"].apply(to_float).sum())
-                    vals.append("") # Profit %
+                    vals.append("") 
                     ws.append(vals)
                     
                     out = io.BytesIO(); wb.save(out); out.seek(0)
                     fname = f"{po_no_input}.xlsx"
                     lnk, _ = upload_to_drive_structured(out, path_list, fname)
                     
-                    # 2. Insert to DB for Dashboard Cost Calculation (crm_shared_history)
-                    # Logic Dashboard: Cost = Revenue - Profit. 
-                    # Do đó, cần lưu Profit vào crm_shared_history để dashboard tính toán đúng.
                     recs_hist = []
                     for r in st.session_state.po_main_df.to_dict('records'):
                          recs_hist.append({
                             "history_id": f"PO_{po_no_input}_{int(time.time())}_{r['Item code']}", 
                             "date": datetime.now().strftime("%Y-%m-%d"),
-                            "quote_no": po_no_input, # Dùng PO No thay Quote No
+                            "quote_no": po_no_input, 
                             "customer": cust_name,
                             "item_code": r["Item code"], 
                             "qty": to_float(r["Q'ty"]),
                             "unit_price": to_float(r["Unit price(VND)"]),
                             "total_price_vnd": to_float(r["Total price(VND)"]),
                             "profit_vnd": to_float(r["Profit(VND)"]),
-                            "config_data": "{}" # Placeholder
+                            "config_data": "{}" 
                         })
                     try:
-                        # Lưu ý: Cần fallback nếu bảng crm_shared_history có ràng buộc unique
-                        # Ở đây insert mới
                         supabase.table("crm_shared_history").insert(recs_hist).execute()
                         st.success("✅ Đã lưu Chi phí & Lợi nhuận (Dashboard đã được cập nhật)!")
                         st.markdown(f"📂 [Link File Chi Phí]({lnk})")
