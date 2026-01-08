@@ -904,7 +904,7 @@ with t3:
         up_src = c_src2.file_uploader("Hoặc Import Excel kiểm tra", type=["xlsx"], key="src_up")
         
         if st.button("Kiểm tra trạng thái"):
-            df_hist = load_data("crm_shared_history")
+            df_hist = load_data("crm_quotations_log")
             df_po = load_data("db_customer_orders")
             df_items = load_data("crm_purchases") 
 
@@ -985,7 +985,7 @@ with t3:
     # 3. XEM CHI TIẾT (Full Function from File)
     # -------------------------------------------------------------------------
     with st.expander("📂 XEM CHI TIẾT FILE LỊCH SỬ", expanded=False):
-        df_hist_idx = load_data("crm_shared_history", order_by="date")
+        df_hist_idx = load_data("crm_quotations_log", order_by="date")
         if not df_hist_idx.empty:
             df_hist_idx['display'] = df_hist_idx.apply(lambda x: f"{x['date']} | {x['customer']} | Quote: {x['quote_no']}", axis=1)
             sel_quote_hist = st.selectbox("Chọn báo giá cũ:", [""] + list(df_hist_idx['display'].unique()))
@@ -1356,7 +1356,7 @@ with t3:
                     
                     try:
                         try:
-                            supabase.table("crm_shared_history").insert(recs).execute()
+                            supabase.table("crm_quotations_log").insert(recs).execute()
                         except Exception as e:
                             if "config_data" in str(e) or "PGRST204" in str(e):
                                  recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
