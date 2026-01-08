@@ -1424,9 +1424,44 @@ with t3:
                 else: st.error("Chọn khách!")
             st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (LOGIC AN TOÀN: ƯU TIÊN SPECS -> CẢNH BÁO NẾU LỆCH) ---
+# --- TAB 4: QUẢN LÝ PO (STRICT MODE - CLEAN DATA COMPARISON) ---
 # =============================================================================
+import re # Thư viện xử lý chuỗi mạnh (Regular Expression)
+
 with t4:
+    # --- HÀM LÀM SẠCH DỮ LIỆU ĐỂ SO SÁNH CHÍNH XÁC ---
+    def clean_strict_specs(val):
+        """
+        Hàm này làm sạch dữ liệu để so sánh nội dung thực sự.
+        Nó KHÔNG làm thay đổi nội dung ý nghĩa (VD: 10m vẫn là 10m),
+        nhưng loại bỏ các ký tự gây nhiễu (dấu cách thừa, xuống dòng, số thập phân thừa).
+        """
+        if pd.isna(val) or val is None: return ""
+        
+        # 1. Chuyển thành chuỗi và chữ thường
+        s = str(val).lower()
+        
+        # 2. Thay thế các ký tự xuống dòng, tab thành khoảng trắng
+        s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        
+        # 3. Loại bỏ khoảng trắng thừa ở 2 đầu và khoảng trắng kép ở giữa
+        # VD: "  ABC   DEF  " -> "abc def"
+        s = re.sub(' +', ' ', s).strip()
+        
+        # 4. Xử lý số học (Quan trọng nhất với Excel): 10.0 -> 10
+        # Nếu chuỗi kết thúc bằng .0 và trước đó là số -> cắt bỏ
+        if s.endswith(".0"): 
+             try:
+                 # Thử xem phần trước .0 có phải số không
+                 if s[:-2].isdigit(): s = s[:-2]
+             except: pass
+             
+        # 5. Loại bỏ hoàn toàn khoảng trắng để so sánh "cứng" (Tùy chọn, nhưng an toàn với mã kỹ thuật)
+        # VD: "PZ - G" so với "PZ-G" -> coi là một
+        s_nospace = s.replace(" ", "").replace("-", "").replace("_", "")
+        
+        return s_nospace
+
     # -------------------------------------------------------------------------
     # 1. TRA CỨU ĐƠN HÀNG (BLACKBOX - GIỮ NGUYÊN)
     # -------------------------------------------------------------------------
@@ -1492,20 +1527,19 @@ with t4:
                 db_items = load_data("crm_purchases")
                 item_map = {clean_key(r['item_code']): r for r in db_items.to_dict('records')}
                 
-                # [LOGIC MỚI - TIERED MATCHING] Load Lịch sử để check giá
-                # Cấu trúc map: Code -> List các lần báo giá [{specs, price, date}, ...]
+                # [STRICT MODE] Load Lịch sử báo giá
                 db_log = load_data("crm_quotations_log")
                 history_map = {} 
                 
                 if not db_log.empty:
-                    # Lọc khách hàng, sort theo ngày tăng dần (để lấy giá mới nhất ở cuối list)
                     df_log_cust = db_log[db_log['customer'] == cust_name].sort_values(by='date', ascending=True)
                     for r in df_log_cust.to_dict('records'):
                         k_code = clean_key(r.get('item_code', ''))
                         if k_code:
                             if k_code not in history_map: history_map[k_code] = []
+                            # LƯU Ý: Làm sạch specs trong DB trước khi lưu vào map
                             history_map[k_code].append({
-                                'specs_norm': safe_str(r.get('specs', '')).strip().lower(), # Specs chuẩn hóa để so sánh
+                                'specs_clean': clean_strict_specs(r.get('specs', '')),
                                 'unit_price': to_float(r.get('unit_price', 0)),
                                 'original_specs': r.get('specs', '')
                             })
@@ -1520,37 +1554,37 @@ with t4:
                     specs_input = safe_str(r.iloc[3])
                     name = safe_str(r.iloc[2])
                     
-                    # Logic tìm kiếm giá (Tiered Logic)
+                    # Logic So Sánh Nghiêm Ngặt (Strict Comparison)
                     clean_c = clean_key(code)
-                    clean_s_input = specs_input.strip().lower()
+                    clean_s_input = clean_strict_specs(specs_input) # Làm sạch input từ Excel
                     
                     final_unit_price = 0.0
                     warning_msg = "⚠️ Chưa báo giá"
                     
-                    # Ưu tiên 1: Có trong file Excel upload
+                    # Ưu tiên 1: Giá trong file Excel upload
                     excel_price = to_float(r.iloc[5]) if len(r) > 5 else 0.0
                     
                     if excel_price > 0:
                         final_unit_price = excel_price
-                        warning_msg = "" # Có giá trong file thì ok
+                        warning_msg = "" 
                     elif clean_c in history_map:
-                        # Tìm trong lịch sử
                         hist_list = history_map[clean_c]
-                        found_exact_specs = False
+                        found_match = False
                         
-                        # Loop tìm Specs khớp
+                        # Loop tìm Specs khớp CHÍNH XÁC (sau khi đã làm sạch)
                         for h in hist_list:
-                            if h['specs_norm'] == clean_s_input:
+                            # So sánh chuỗi đã làm sạch
+                            if h['specs_clean'] == clean_s_input:
                                 final_unit_price = h['unit_price']
-                                warning_msg = "" # Specs khớp -> OK
-                                found_exact_specs = True
-                                # Tiếp tục loop để lấy giá mới nhất nếu có nhiều dòng trùng specs
+                                warning_msg = "" 
+                                found_match = True
+                                # Loop tiếp để lấy giá mới nhất
                         
-                        # Nếu không khớp Specs -> Lấy giá của mục mới nhất (theo code) + CẢNH BÁO
-                        if not found_exact_specs:
-                            latest_rec = hist_list[-1]
-                            final_unit_price = latest_rec['unit_price']
-                            warning_msg = "⚠️ Khác Specs (Check giá)"
+                        # Nếu KHÔNG khớp Specs
+                        if not found_match:
+                            # KHÔNG TỰ ĐỘNG LẤY GIÁ -> Bắt buộc phải check lại
+                            final_unit_price = 0.0
+                            warning_msg = "⚠️ Sai Specs" 
                     
                     # Lookup Info từ Master Data
                     match = item_map.get(clean_c)
@@ -1601,7 +1635,7 @@ with t4:
                     # Tính toán lại lần đầu 
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
-                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Đã check Code & Specs)")
+                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Chế độ kiểm tra Specs chặt chẽ)")
                 else: st.warning("Không đọc được dữ liệu nào từ file.")
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
