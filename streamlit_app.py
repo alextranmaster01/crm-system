@@ -888,7 +888,8 @@ with t3:
         if c_adm2.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
             if adm_pass_q == "admin": 
                 try:
-                    supabase.table("crm_shared_history").delete().neq("id", 0).execute()
+                    # UPDATED: Đã đổi sang bảng crm_quotations_log
+                    supabase.table("crm_quotations_log").delete().neq("id", 0).execute()
                     st.toast("✅ Đã xóa toàn bộ lịch sử!", icon="🗑️")
                     time.sleep(1)
                     st.rerun()
@@ -904,6 +905,7 @@ with t3:
         up_src = c_src2.file_uploader("Hoặc Import Excel kiểm tra", type=["xlsx"], key="src_up")
         
         if st.button("Kiểm tra trạng thái"):
+            # UPDATED: Đã đổi sang bảng crm_quotations_log
             df_hist = load_data("crm_quotations_log")
             df_po = load_data("db_customer_orders")
             df_items = load_data("crm_purchases") 
@@ -985,6 +987,7 @@ with t3:
     # 3. XEM CHI TIẾT (Full Function from File)
     # -------------------------------------------------------------------------
     with st.expander("📂 XEM CHI TIẾT FILE LỊCH SỬ", expanded=False):
+        # UPDATED: Đã đổi sang bảng crm_quotations_log
         df_hist_idx = load_data("crm_quotations_log", order_by="date")
         if not df_hist_idx.empty:
             df_hist_idx['display'] = df_hist_idx.apply(lambda x: f"{x['date']} | {x['customer']} | Quote: {x['quote_no']}", axis=1)
@@ -1356,11 +1359,13 @@ with t3:
                     
                     try:
                         try:
+                            # UPDATED: Đã đổi sang bảng crm_quotations_log
                             supabase.table("crm_quotations_log").insert(recs).execute()
                         except Exception as e:
                             if "config_data" in str(e) or "PGRST204" in str(e):
                                  recs_fallback = [{k: v for k, v in r.items() if k != 'config_data'} for r in recs]
-                                 supabase.table("crm_shared_history").insert(recs_fallback).execute()
+                                 # UPDATED: Đã đổi sang bảng crm_quotations_log
+                                 supabase.table("crm_quotations_log").insert(recs_fallback).execute()
                             else: raise e
                     except Exception as e:
                         st.error(f"Lỗi lưu DB: {e}"); st.stop()
