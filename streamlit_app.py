@@ -1382,11 +1382,12 @@ with t3:
                         recs.append({
                             "history_id": f"{cust_name}_{int(time.time())}", "date": datetime.now().strftime("%Y-%m-%d"),
                             "quote_no": quote_no, "customer": cust_name,
-                            "item_code": r["Item code"], "qty": val_qty,
+                            "item_code": r["Item code"], "qty": val_qty,  # <--- ĐANG THIẾU NAME VÀ SPECS
                             "unit_price": val_unit,
                             "total_price_vnd": val_total,
                             "profit_vnd": val_profit,
                             "config_data": config_json 
+                        })
                         })
                     
                     try:
