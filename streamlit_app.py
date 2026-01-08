@@ -920,35 +920,38 @@ with t3:
 
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
-    # -------------------------------------------------------------------------
-    # 1. ADMIN SECTION (ĐÃ FIX HIỂN THỊ LỖI CHI TIẾT)
+   # -------------------------------------------------------------------------
+    # 1. ADMIN SECTION (FIX: XÓA SẠCH GỐC RỄ & XÓA CACHE)
     # -------------------------------------------------------------------------
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
-        c_adm1.warning("⚠️ Chức năng này sẽ xóa dữ liệu trong Database. Hãy cẩn thận!")
+        c_adm1.warning("⚠️ Chức năng này sẽ xóa vĩnh viễn toàn bộ lịch sử báo giá và dữ liệu Dashboard.")
         adm_pass_q = c_adm2.text_input("Mật khẩu Admin", type="password", key="pass_reset_quote_tab3")
         
         if c_adm2.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
             if adm_pass_q == "admin": 
                 try:
-                    # 1. Xóa bảng shared_history trước (nếu có liên kết khóa ngoại)
+                    # BƯỚC 1: Xóa dữ liệu Dashboard/Cost (crm_shared_history)
                     try:
                         supabase.table("crm_shared_history").delete().neq("id", 0).execute()
-                    except: pass # Bỏ qua nếu bảng này trống hoặc không lỗi
+                    except: pass 
                     
-                    # 2. Xóa bảng quotations_log
+                    # BƯỚC 2: Xóa dữ liệu Log Báo giá (crm_quotations_log)
                     supabase.table("crm_quotations_log").delete().neq("id", 0).execute()
                     
-                    st.toast("✅ Đã xóa toàn bộ lịch sử!", icon="🗑️")
+                    # BƯỚC 3: XÓA CACHE (Quan trọng nhất để không hiện lại data cũ)
+                    st.cache_data.clear()
+                    if 'quote_df' in st.session_state: del st.session_state['quote_df']
+                    if 'po_main_df' in st.session_state: del st.session_state['po_main_df']
+                    
+                    st.toast("✅ Đã xóa sạch Database và Cache!", icon="🗑️")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
-                    # HIỂN THỊ LỖI CHI TIẾT ĐỂ DEBUG
-                    st.error(f"Không thể xóa DB. Lỗi chi tiết:\n{e}")
-                    st.info("💡 Gợi ý: Hãy kiểm tra xem RLS (Row Level Security) trên Supabase có đang bật không? Nếu có, hãy tắt nó đi (Disable RLS).")
+                    st.error(f"Không thể xóa. Lỗi chi tiết: {e}")
+                    st.info("👉 Hãy vào Supabase > Table Editor > Tắt RLS (Disable RLS) cho cả 2 bảng: 'crm_quotations_log' và 'crm_shared_history'.")
             else: 
                 st.error("Sai mật khẩu!")
-
     # -------------------------------------------------------------------------
     # 2. TRA CỨU & TRẠNG THÁI
     # -------------------------------------------------------------------------
