@@ -1449,6 +1449,18 @@ with t4:
     # -------------------------------------------------------------------------
     st.subheader("📋 PO KHÁCH HÀNG")
     
+    # --- [NEW] NÚT TẠO MỚI / RESET JOB ---
+    # Chức năng: Xóa dữ liệu cũ trong bảng và reset các ô input để làm đơn mới
+    if st.button("🆕 TẠO MỚI / RESET (Làm đơn khác)", key="btn_reset_po_tab4", type="primary"):
+        st.session_state.po_main_df = pd.DataFrame()
+        # Xóa các key của widget để reset form input (Số PO, Khách, File)
+        keys_to_reset = ["po_no_main", "cust_name_po", "po_up_data_main", "po_up_docs_main"]
+        for k in keys_to_reset:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.rerun()
+    # -------------------------------------
+    
     # Khởi tạo Session State cho Dataframe chính
     if 'po_main_df' not in st.session_state: st.session_state.po_main_df = pd.DataFrame()
 
@@ -1594,7 +1606,7 @@ with t4:
         
         st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp):**")
         
-        # [cite_start]2. Chuẩn bị DataFrame hiển thị (Thêm dòng TOTAL) [cite: 68-71]
+        # 2. [cite_start]Chuẩn bị DataFrame hiển thị (Thêm dòng TOTAL) [cite: 68-71]
         ordered_cols = [
             "No", "Cảnh báo", "Item code", "Item name", "Specs", "Q'ty", 
             "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate",
@@ -1647,7 +1659,7 @@ with t4:
             use_container_width=True, height=500, key="editor_po_main", hide_index=True
         )
         
-        # [cite_start]4. LOGIC ĐỒNG BỘ DỮ LIỆU (Stable Engine từ Tab 3) [cite: 76-84]
+        # 4. [cite_start]LOGIC ĐỒNG BỘ DỮ LIỆU (Stable Engine từ Tab 3) [cite: 76-84]
         # Lọc bỏ dòng TOTAL để so sánh
         df_new_data = edited_po[edited_po["No"] != "TOTAL"].reset_index(drop=True)
         
