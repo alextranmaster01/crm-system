@@ -799,6 +799,27 @@ with t3:
             return "{:,.2f}".format(float(val))
         except: return str(val)
 
+    # [NEW] Hàm xử lý công thức toán học nội bộ (Excel-like) - Đảm bảo ổn định
+    def local_eval_formula(formula_str, val_buy, val_ap):
+        try:
+            # 1. Làm sạch chuỗi công thức
+            f = str(formula_str).strip().upper()
+            if f.startswith("="): f = f[1:] # Bỏ dấu = nếu có
+            
+            # 2. Thay thế biến số
+            f = f.replace("BUY", str(val_buy))
+            f = f.replace("AP", str(val_ap))
+            
+            # 3. Tính toán an toàn
+            # Chỉ cho phép các ký tự toán học cơ bản để tránh lỗi security
+            allowed_chars = "0123456789.+-*/() "
+            if not all(c in allowed_chars for c in f):
+                return 0.0
+            
+            return float(eval(f))
+        except:
+            return 0.0
+
     # --- B. HÀM TÍNH TOÁN LOGIC (CORE) ---
     def recalculate_quote_logic(df, params):
         if df.empty: return df
@@ -871,7 +892,7 @@ with t3:
                 df.at[idx, "Payback(%)"] = val_payback
                 df.at[idx, "Profit(VND)"] = val_profit
                 df.at[idx, "Profit(%)"] = f"{pct_profit:.2f}%"
-                df.at[idx, "Profit_Pct_Raw"] = pct_profit # Giữ để tính toán, sẽ ẩn khi hiển thị
+                df.at[idx, "Profit_Pct_Raw"] = pct_profit 
 
             except Exception: continue     
         return df
@@ -888,7 +909,6 @@ with t3:
         if c_adm2.button("🔴 XÓA HẾT LỊCH SỬ", key="btn_clear_hist_tab3"):
             if adm_pass_q == "admin": 
                 try:
-                    # UPDATED: Đã đổi sang bảng crm_quotations_log
                     supabase.table("crm_quotations_log").delete().neq("id", 0).execute()
                     st.toast("✅ Đã xóa toàn bộ lịch sử!", icon="🗑️")
                     time.sleep(1)
@@ -897,7 +917,7 @@ with t3:
             else: st.error("Sai mật khẩu!")
 
     # -------------------------------------------------------------------------
-    # 2. TRA CỨU & TRẠNG THÁI (Full Function from File)
+    # 2. TRA CỨU & TRẠNG THÁI
     # -------------------------------------------------------------------------
     with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
         c_src1, c_src2 = st.columns(2)
@@ -905,7 +925,6 @@ with t3:
         up_src = c_src2.file_uploader("Hoặc Import Excel kiểm tra", type=["xlsx"], key="src_up")
         
         if st.button("Kiểm tra trạng thái"):
-            # UPDATED: Đã đổi sang bảng crm_quotations_log
             df_hist = load_data("crm_quotations_log")
             df_po = load_data("db_customer_orders")
             df_items = load_data("crm_purchases") 
@@ -923,7 +942,6 @@ with t3:
                     po_map[k] = r['po_number']
 
             results = []
-            # Logic check search string
             if search_kw and not df_hist.empty:
                 def check_row(row):
                     kw = search_kw.lower()
@@ -949,7 +967,6 @@ with t3:
                         "Quote No": r['quote_no'], "PO No": po_found if po_found else "---"
                     })
             
-            # Logic check Excel import
             if up_src:
                 try:
                     df_check = pd.read_excel(up_src, dtype=str).fillna("")
@@ -984,10 +1001,9 @@ with t3:
             else: st.info("Không tìm thấy kết quả.")
 
     # -------------------------------------------------------------------------
-    # 3. XEM CHI TIẾT (Full Function from File)
+    # 3. XEM CHI TIẾT
     # -------------------------------------------------------------------------
     with st.expander("📂 XEM CHI TIẾT FILE LỊCH SỬ", expanded=False):
-        # UPDATED: Đã đổi sang bảng crm_quotations_log
         df_hist_idx = load_data("crm_quotations_log", order_by="date")
         if not df_hist_idx.empty:
             df_hist_idx['display'] = df_hist_idx.apply(lambda x: f"{x['date']} | {x['customer']} | Quote: {x['quote_no']}", axis=1)
@@ -1101,13 +1117,19 @@ with t3:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
+                    # Sử dụng hàm nội bộ local_eval_formula thay cho parse_formula cũ
+                    new_ap = local_eval_formula(ap_f, buy, ap)
+                    
+                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                    
+                    # Tự động cập nhật Unit Price theo markup hiện tại để đồng bộ
                     old_unit = local_parse_money(row.get("Unit price(VND)", 0))
                     markup = old_unit/ap if ap > 0 else 1.1
-                    
-                    new_ap = parse_formula(ap_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
-                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                    if new_ap > 0:
+                         st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                st.toast("✅ Đã áp dụng công thức AP!", icon="✨")
                 st.rerun()
+                
     with c_form2:
         unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
         if st.button("Apply Unit"):
@@ -1115,8 +1137,10 @@ with t3:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
-                    new_unit = parse_formula(unit_f, buy, ap)
+                    # Sử dụng hàm nội bộ local_eval_formula
+                    new_unit = local_eval_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
+                st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
                 st.rerun()
 
     # 6. HIỂN THỊ BẢNG (MAIN EDITOR)
@@ -1178,17 +1202,10 @@ with t3:
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
-        # Config Button
+        # Config Button (REMOVED as requested)
         st.markdown("---")
-        c_tool1, c_tool2 = st.columns([1, 3])
-        with c_tool1:
-            if st.button("⚡ ÁP DỤNG GLOBAL CONFIG"):
-                if not st.session_state.quote_df.empty:
-                    st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
-                    st.toast("✅ Đã áp dụng!", icon="⚡"); st.rerun()
 
         # RENDER DATA EDITOR (Small Width for All Columns)
-        # Sử dụng width="small" cho tất cả cột số liệu để ép vừa màn hình
         col_cfg = {
             "Select": st.column_config.CheckboxColumn("✅", width="small"),
             "Cảnh báo": st.column_config.TextColumn("Cảnh báo", disabled=True, width="small"),
@@ -1201,7 +1218,6 @@ with t3:
             "Item name": st.column_config.TextColumn("Item name", width="medium"),
             "Specs": st.column_config.TextColumn("Specs", width="medium")
         }
-        # Add Money Columns config
         for c in cols_vnd_fmt + cols_rmb_fmt:
             col_cfg[c] = st.column_config.TextColumn(c, width="small")
 
