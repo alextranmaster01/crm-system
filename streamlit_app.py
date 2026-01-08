@@ -1460,34 +1460,31 @@ with t4:
     cust_list = cust_db["short_name"].tolist() if not cust_db.empty else []
     cust_name = c_in2.selectbox("Chọn Khách Hàng", [""] + cust_list, key="cust_name_po")
     
-    # --- SỬA ĐỔI: Cho phép upload Excel, CSV, Ảnh, PDF ---
-    po_file = c_in3.file_uploader("Upload File PO (Excel, CSV, PDF, Ảnh)", type=["xlsx", "csv", "png", "jpg", "jpeg", "pdf"], key="po_up_main")
+    # --- SỬA LỖI: Tách Uploader để upload ĐỒNG THỜI cả data và tài liệu ---
+    with c_in3:
+        # 1. File chứa dữ liệu để tính toán (Excel/CSV)
+        po_data_file = st.file_uploader("1. File Dữ liệu (Excel/CSV)", type=["xlsx", "csv"], key="po_up_data_main")
+        # 2. File tài liệu đính kèm (PDF/Ảnh) - Upload riêng để không bị mất
+        po_docs_files = st.file_uploader("2. File Đính kèm (PDF/Ảnh)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="po_up_docs_main")
 
     # Nút Load Dữ Liệu
     if st.button("🔄 Tải dữ liệu & Tính toán"):
-        if not po_file: st.error("Chưa upload file PO!")
+        if not po_data_file: st.error("Chưa upload file dữ liệu (Excel/CSV)!")
         elif not cust_name: st.error("Chưa chọn khách hàng!")
         else:
             try:
-                # --- SỬA ĐỔI: Xử lý đọc file dựa trên định dạng ---
-                file_ext = po_file.name.split('.')[-1].lower()
-                df_up = pd.DataFrame() # Khởi tạo rỗng
-
-                if file_ext == 'xlsx':
-                    df_up = pd.read_excel(po_file, header=None, skiprows=1, dtype=str).fillna("")
-                elif file_ext == 'csv':
-                    df_up = pd.read_csv(po_file, header=None, skiprows=1, dtype=str).fillna("")
+                # Load Data (Hỗ trợ cả Excel và CSV)
+                if po_data_file.name.lower().endswith('.csv'):
+                     df_up = pd.read_csv(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 else:
-                    # Với PDF và Ảnh, không tự động parse dữ liệu vào bảng được, thông báo cho user
-                    st.warning(f"File định dạng .{file_ext} đã được ghi nhận. Hệ thống chưa hỗ trợ tự động bóc tách dữ liệu từ file này. Vui lòng nhập liệu thủ công bên dưới.")
-                    df_up = pd.DataFrame() 
+                     df_up = pd.read_excel(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 
                 # Load Master Data để lấy giá gốc
                 db_items = load_data("crm_purchases")
                 item_map = {clean_key(r['item_code']): r for r in db_items.to_dict('records')}
                 
                 recs = []
-                # Giả định Excel/CSV PO có cột theo thứ tự hoặc logic tìm kiếm tương đối
+                # Giả định Excel PO có cột theo thứ tự hoặc logic tìm kiếm tương đối
                 # Ta sẽ loop và map dữ liệu
                 for i, r in df_up.iterrows():
                     # Map Excel Columns (Cần khớp với file thực tế, ở đây lấy logic tương đối an toàn)
@@ -1556,12 +1553,7 @@ with t4:
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
                     st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu!")
-                else: 
-                    # Nếu là file ảnh/pdf hoặc file excel rỗng thì sẽ vào đây
-                    if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
-                        st.info("Đã upload file. Hãy nhập thông tin sản phẩm thủ công vào bảng bên dưới (chức năng thêm dòng nếu có hoặc dùng form khác).")
-                    else:
-                        st.warning("Không đọc được dữ liệu nào từ file.")
+                else: st.warning("Không đọc được dữ liệu nào từ file.")
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
 
@@ -1818,10 +1810,7 @@ with t4:
             total_row_cost_fmt = total_row_cost.copy()
             for c in sum_cols_cost:
                 total_row_cost_fmt[c] = fmt_num(total_row_cost[c])
-            # Handle RMB fields in Total row explicitly if needed, but they are not in sum_cols_cost list for Total display per request?
-            # Request says: "total của các cột: q’ty, Buying price(VND),Total buying price(VND),GAP,End user(%),Buyer(%),Import tax(%),VAT, Transportation,Management fee(%)"
-            # So RMB totals are NOT requested here.
-                
+            
             # Append Total
             df_cost_fmt = pd.concat([df_cost_fmt, pd.DataFrame([total_row_cost_fmt])], ignore_index=True)
             
