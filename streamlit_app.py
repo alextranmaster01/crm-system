@@ -1424,7 +1424,7 @@ with t3:
                 else: st.error("Chọn khách!")
             st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (STRICT MODE - CLEAN DATA COMPARISON) ---
+# --- TAB 4: QUẢN LÝ PO (STRICT MODE - CLEAN DATA COMPARISON - FULL) ---
 # =============================================================================
 import re # Thư viện xử lý chuỗi mạnh (Regular Expression)
 
@@ -1518,6 +1518,7 @@ with t4:
         else:
             try:
                 # Load Data (Hỗ trợ cả Excel và CSV)
+                # QUAN TRỌNG: dtype=str để ép kiểu text, tránh lỗi 10.0 != 10
                 if po_data_file.name.lower().endswith('.csv'):
                      df_up = pd.read_csv(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 else:
@@ -1670,7 +1671,7 @@ with t4:
         cols_display = [c for c in ordered_cols if c in st.session_state.po_main_df.columns]
         df_display = st.session_state.po_main_df[cols_display].copy()
 
-        # Tạo dòng Total
+        # Tạo dòng Total (Fix lỗi tổng bằng cách ép kiểu float)
         total_row = {"No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": ""}
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(RMB)", 
                     "Buying price(VND)", "Total buying price(VND)",
@@ -1681,7 +1682,7 @@ with t4:
         
         for c in sum_cols:
             if c in df_display.columns:
-                total_row[c] = df_display[c].apply(to_float).sum()
+                total_row[c] = pd.to_numeric(df_display[c], errors='coerce').fillna(0).sum()
         
         # Tính % Profit tổng
         t_profit = total_row.get("Profit(VND)", 0)
