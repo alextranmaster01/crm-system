@@ -1483,24 +1483,47 @@ with t4:
                 db_items = load_data("crm_purchases")
                 item_map = {clean_key(r['item_code']): r for r in db_items.to_dict('records')}
                 
+                # [NEW REQUIREMENT 1] Load Quotation Log để check lịch sử 3 biến
+                db_log = load_data("crm_quotations_log")
+                history_set = set()
+                if not db_log.empty:
+                    # Lọc theo khách hàng hiện tại
+                    df_log_cust = db_log[db_log['customer'] == cust_name]
+                    for r in df_log_cust.to_dict('records'):
+                        # Tạo khóa so sánh: (Code chuẩn hóa, Name thường, Specs thường)
+                        k_code = clean_key(r.get('item_code', ''))
+                        k_name = safe_str(r.get('item_name', '')).strip().lower()
+                        # Giả định specs có thể không có trong log cũ, nếu có thì check, không thì bỏ qua
+                        k_specs = safe_str(r.get('specs', '')).strip().lower() # Cần đảm bảo cột này có trong log nếu muốn check
+                        history_set.add((k_code, k_name, k_specs))
+
                 recs = []
                 # Giả định Excel PO có cột theo thứ tự hoặc logic tìm kiếm tương đối
                 # Ta sẽ loop và map dữ liệu
                 for i, r in df_up.iterrows():
-                    # Map Excel Columns (Cần khớp với file thực tế, ở đây lấy logic tương đối an toàn)
-                    # Giả sử col 1 là Code, col 4 là Qty, Col 5 là Unit Price (nếu có)
+                    # Map Excel Columns
                     code = safe_str(r.iloc[1]) 
-                    if not code: continue # Bỏ qua dòng ko có code
+                    if not code: continue 
                     
                     qty = to_float(r.iloc[4])
+                    specs = safe_str(r.iloc[3])
+                    name = safe_str(r.iloc[2])
+
+                    # [CHECK HISTORY] Kiểm tra 3 biến
+                    curr_key = (clean_key(code), name.strip().lower(), specs.strip().lower())
+                    
+                    # Logic: Nếu tìm thấy trong set -> Đã báo giá. Nếu không -> Cảnh báo
+                    # Lưu ý: Nếu lịch sử chưa lưu specs, điều kiện này có thể quá chặt. 
+                    # Nhưng theo yêu cầu là "cả 3 biến", nên ta làm chính xác.
+                    warning_msg = ""
+                    if curr_key not in history_set:
+                        warning_msg = "⚠️ Chưa báo giá"
                     
                     # Lookup Info từ Master Data
                     match = item_map.get(clean_key(code))
                     
                     # Init Defaults
                     buy_rmb = 0.0; rate = 0.0; buy_vnd = 0.0; supplier = ""; leadtime = "0"
-                    specs = safe_str(r.iloc[3])
-                    name = safe_str(r.iloc[2])
 
                     if match:
                         buy_rmb = to_float(match.get('buying_price_rmb', 0))
@@ -1511,12 +1534,12 @@ with t4:
                         if not specs: specs = match.get('specs', '')
                         if not name: name = match.get('item_name', '')
                     
-                    # Unit Price from Excel PO (Giá khách đặt)
                     unit_price_raw = to_float(r.iloc[5]) if len(r) > 5 else 0.0
                     
-                    # Tạo dòng dữ liệu đầy đủ các cột yêu cầu
+                    # Tạo dòng dữ liệu
                     item = {
                         "No": safe_str(r.iloc[0]) if safe_str(r.iloc[0]) else (i+1), 
+                        "Cảnh báo": warning_msg, # Cột cảnh báo mới
                         "Item code": code, 
                         "Item name": name, 
                         "Specs": specs, 
@@ -1528,28 +1551,25 @@ with t4:
                         "Buying price(VND)": buy_vnd,
                         "Total buying price(VND)": buy_vnd * qty,
                         
-                        "AP price(VND)": 0.0, # Mặc định 0
-                        "AP total price(VND)": 0.0, # Mặc định 0
+                        "AP price(VND)": 0.0, 
+                        "AP total price(VND)": 0.0, 
                         
                         "Unit price(VND)": unit_price_raw,
                         "Total price(VND)": unit_price_raw * qty,
                         
-                        "GAP": 0.0, # Sẽ tính lại
+                        "GAP": 0.0, 
                         
-                        # Default Configs (User can edit later in table)
                         "End user(%)": 0.0, "Buyer(%)": 0.0, "Import tax(%)": 0.0,
                         "VAT": 0.0, "Transportation": 0.0, "Management fee(%)": 0.0, "Payback(%)": 0.0,
                         
                         "Profit(VND)": 0.0, "Profit(%)": "0%",
-                        
-                        "Supplier": supplier, "Leadtime": leadtime # Các cột ẩn hoặc phụ trợ
+                        "Supplier": supplier, "Leadtime": leadtime 
                     }
                     recs.append(item)
                 
                 if recs:
                     st.session_state.po_main_df = pd.DataFrame(recs)
-                    # Tính toán lại lần đầu (Tính GAP, Profit...)
-                    # Sử dụng hàm có sẵn recalculate_quote_logic (Blackbox)
+                    # Tính toán lại lần đầu 
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
                     st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu!")
@@ -1557,17 +1577,26 @@ with t4:
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
 
-    # --- MAIN TABLE EDITOR ---
+    # --- MAIN TABLE EDITOR (UPDATED LOGIC FROM TAB 3) ---
     if not st.session_state.po_main_df.empty:
-        # Tính toán Real-time để đảm bảo số liệu đúng trước khi hiển thị
-        params_dummy = {}
-        st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
+        # 1. Tính toán trước khi hiển thị để đảm bảo số liệu chuẩn
+        # Lấy params từ session state nếu có (để đồng bộ cấu hình), nếu không dùng mặc định 0
+        params = {
+            "end": to_float(st.session_state.get("pct_end", 0)),
+            "buy": to_float(st.session_state.get("pct_buy", 0)),
+            "tax": to_float(st.session_state.get("pct_tax", 0)),
+            "vat": to_float(st.session_state.get("pct_vat", 0)),
+            "pay": to_float(st.session_state.get("pct_pay", 0)),
+            "mgmt": to_float(st.session_state.get("pct_mgmt", 0)),
+            "trans": to_float(st.session_state.get("input_trans", 0))
+        }
+        st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params)
         
-        st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp Chi phí/Thuế tại đây):**")
+        st.write("📝 **Chi tiết Đơn Hàng (Chỉnh sửa trực tiếp):**")
         
-        # Sắp xếp cột theo yêu cầu
-        cols_order_req = [
-            "No", "Item code", "Item name", "Specs", "Q'ty", 
+        # [cite_start]2. Chuẩn bị DataFrame hiển thị (Thêm dòng TOTAL) [cite: 68-71]
+        ordered_cols = [
+            "No", "Cảnh báo", "Item code", "Item name", "Specs", "Q'ty", 
             "Buying price(RMB)", "Total buying price(RMB)", "Exchange rate",
             "Buying price(VND)", "Total buying price(VND)", 
             "AP price(VND)", "AP total price(VND)", 
@@ -1576,38 +1605,90 @@ with t4:
             "Transportation", "Management fee(%)", "Payback(%)", 
             "Profit(VND)", "Profit(%)"
         ]
-        # Lọc những cột có trong DF
-        cols_display = [c for c in cols_order_req if c in st.session_state.po_main_df.columns]
+        cols_display = [c for c in ordered_cols if c in st.session_state.po_main_df.columns]
+        df_display = st.session_state.po_main_df[cols_display].copy()
+
+        # Tạo dòng Total
+        total_row = {"No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": ""}
+        sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(RMB)", 
+                    "Buying price(VND)", "Total buying price(VND)",
+                    "AP price(VND)", "AP total price(VND)", 
+                    "Unit price(VND)", "Total price(VND)", "GAP",
+                    "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
+                    "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"]
         
+        for c in sum_cols:
+            if c in df_display.columns:
+                total_row[c] = df_display[c].apply(to_float).sum()
+        
+        # Tính % Profit tổng
+        t_profit = total_row.get("Profit(VND)", 0)
+        t_price = total_row.get("Total price(VND)", 0)
+        total_row["Profit(%)"] = f"{(t_profit / t_price * 100) if t_price > 0 else 0:.1f}%"
+        
+        df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
+
+        # 3. Config hiển thị (NumberColumn để sửa được)
+        col_cfg = {
+            "Cảnh báo": st.column_config.TextColumn(disabled=True),
+            "No": st.column_config.TextColumn(disabled=True),
+            "Buying price(RMB)": st.column_config.NumberColumn(format="%.2f"),
+            "Total buying price(RMB)": st.column_config.NumberColumn(format="%.2f"),
+            "Profit(%)": st.column_config.TextColumn(disabled=True), # Text để hiện dấu %
+        }
+        # Các cột tiền tệ VND format số nguyên
+        for c in ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
+                  "Unit price(VND)", "Total price(VND)", "GAP", "Profit(VND)", "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]:
+             if c in df_display.columns: col_cfg[c] = st.column_config.NumberColumn(format="%d")
+
         edited_po = st.data_editor(
-            st.session_state.po_main_df[cols_display],
-            column_config={
-                "Buying price(RMB)": st.column_config.NumberColumn(format="%.2f"),
-                "Total buying price(RMB)": st.column_config.NumberColumn(format="%.2f"),
-                "Buying price(VND)": st.column_config.NumberColumn(format="%d"),
-                "Total buying price(VND)": st.column_config.NumberColumn(format="%d"),
-                "Unit price(VND)": st.column_config.NumberColumn(format="%d"),
-                "Total price(VND)": st.column_config.NumberColumn(format="%d"),
-                "GAP": st.column_config.NumberColumn(format="%d"),
-                "End user(%)": st.column_config.NumberColumn(format="%d"),
-                "Buyer(%)": st.column_config.NumberColumn(format="%d"),
-                "Import tax(%)": st.column_config.NumberColumn(format="%d"),
-                "VAT": st.column_config.NumberColumn(format="%d"),
-                "Transportation": st.column_config.NumberColumn(format="%d"),
-                "Management fee(%)": st.column_config.NumberColumn(format="%d"),
-                "Payback(%)": st.column_config.NumberColumn(format="%d"),
-                "Profit(VND)": st.column_config.NumberColumn(format="%d"),
-            },
-            use_container_width=True, height=400, key="editor_po_main", hide_index=True
+            df_display,
+            column_config=col_cfg,
+            use_container_width=True, height=500, key="editor_po_main", hide_index=True
         )
         
-        # Sync changes back to session_state (Update các cột đã sửa)
-        # Vì data_editor chỉ trả về subset cột, cần merge lại vào main df
-        if not edited_po.equals(st.session_state.po_main_df[cols_display]):
-            for idx, row in edited_po.iterrows():
-                for c in cols_display:
-                    st.session_state.po_main_df.at[idx, c] = row[c]
-            st.rerun()
+        # [cite_start]4. LOGIC ĐỒNG BỘ DỮ LIỆU (Stable Engine từ Tab 3) [cite: 76-84]
+        # Lọc bỏ dòng TOTAL để so sánh
+        df_new_data = edited_po[edited_po["No"] != "TOTAL"].reset_index(drop=True)
+        
+        if not df_new_data.empty and len(df_new_data) == len(st.session_state.po_main_df):
+            data_changed = False
+            for i, row_new in df_new_data.iterrows():
+                row_old = st.session_state.po_main_df.iloc[i]
+                
+                # Check AP Change -> Recalc Unit Price
+                if "AP price(VND)" in row_new:
+                    new_ap = to_float(row_new["AP price(VND)"])
+                    old_ap = to_float(row_old.get("AP price(VND)", 0))
+                    if abs(new_ap - old_ap) > 1.0:
+                        st.session_state.po_main_df.at[i, "AP price(VND)"] = new_ap
+                        old_unit = to_float(row_old.get("Unit price(VND)", 0))
+                        markup = 1.1 # Default markup
+                        if old_ap > 0: markup = old_unit / old_ap
+                        st.session_state.po_main_df.at[i, "Unit price(VND)"] = new_ap * markup
+                        data_changed = True
+                        continue # Skip other checks for this row to avoid conflict
+
+                # Check Other Columns Change
+                check_cols = ["Q'ty", "Buying price(VND)", "Unit price(VND)", "Buying price(RMB)", 
+                              "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
+                for col in check_cols:
+                    if col in row_new:
+                        new_val = to_float(row_new[col])
+                        old_val = to_float(row_old.get(col, 0))
+                        if abs(new_val - old_val) > 1.0: # Delta > 1 dong
+                            st.session_state.po_main_df.at[i, col] = new_val
+                            data_changed = True
+                
+                # Check Text (Name/Specs)
+                for col in ["Item name", "Specs"]:
+                    if col in row_new and str(row_new[col]) != str(row_old.get(col, "")):
+                        st.session_state.po_main_df.at[i, col] = str(row_new[col])
+                        data_changed = True
+
+            if data_changed:
+                st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params)
+                st.rerun()
 
         st.divider()
         
