@@ -1531,7 +1531,8 @@ with t4:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val)
 
-    if st.button("🔄 Tải dữ liệu & Tính toán"):
+    # NÚT: TẢI DỮ LIỆU & TÍNH TOÁN (TAB 4)
+    if st.button("Tải dữ liệu & Tính toán", key="btn_load_po_t4"):
         if uploaded_po is not None:
             try:
                 # 1. Đọc file Excel PO
@@ -1671,7 +1672,6 @@ with t4:
 
             except Exception as e:
                 st.error(f"Lỗi xử lý: {e}")
-
     # --- MAIN TABLE EDITOR ---
     if not st.session_state.po_main_df.empty:
         # Tính toán lại trước khi hiển thị để đảm bảo số liệu (End user, Trans...) được cập nhật theo Params
