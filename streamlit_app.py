@@ -1424,43 +1424,46 @@ with t3:
                 else: st.error("Chọn khách!")
             st.markdown('</div>', unsafe_allow_html=True)
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (STRICT MODE - CLEAN DATA COMPARISON - FULL) ---
+# --- TAB 4: QUẢN LÝ PO (STRICT MODE - ADVANCED CLEANING - FULL) ---
 # =============================================================================
 import re # Thư viện xử lý chuỗi mạnh (Regular Expression)
 
 with t4:
-    # --- HÀM LÀM SẠCH DỮ LIỆU ĐỂ SO SÁNH CHÍNH XÁC ---
-    def clean_strict_specs(val):
+    # --- HÀM LÀM SẠCH DỮ LIỆU CỰC MẠNH (ADVANCED NORMALIZATION) ---
+    def normalize_data(val):
         """
-        Hàm này làm sạch dữ liệu để so sánh nội dung thực sự.
-        Nó KHÔNG làm thay đổi nội dung ý nghĩa (VD: 10m vẫn là 10m),
-        nhưng loại bỏ các ký tự gây nhiễu (dấu cách thừa, xuống dòng, số thập phân thừa).
+        Hàm này làm sạch dữ liệu triệt để để so sánh nội dung.
+        Giải quyết vấn đề: Ký tự ẩn, dấu cách lạ, lỗi float .0, khoảng trắng thừa.
+        Vẫn đảm bảo tính nghiêm ngặt về nội dung (Không nới lỏng).
         """
         if pd.isna(val) or val is None: return ""
         
-        # 1. Chuyển thành chuỗi và chữ thường
-        s = str(val).lower()
+        # 1. Chuyển thành chuỗi
+        s = str(val)
         
-        # 2. Thay thế các ký tự xuống dòng, tab thành khoảng trắng
-        s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        # 2. Xử lý trường hợp "nan"
+        if s.lower() == "nan": return ""
         
-        # 3. Loại bỏ khoảng trắng thừa ở 2 đầu và khoảng trắng kép ở giữa
-        # VD: "  ABC   DEF  " -> "abc def"
-        s = re.sub(' +', ' ', s).strip()
-        
-        # 4. Xử lý số học (Quan trọng nhất với Excel): 10.0 -> 10
-        # Nếu chuỗi kết thúc bằng .0 và trước đó là số -> cắt bỏ
+        # 3. Xử lý số học (Quan trọng): 10.0 -> 10
         if s.endswith(".0"): 
              try:
-                 # Thử xem phần trước .0 có phải số không
                  if s[:-2].isdigit(): s = s[:-2]
              except: pass
-             
-        # 5. Loại bỏ hoàn toàn khoảng trắng để so sánh "cứng" (Tùy chọn, nhưng an toàn với mã kỹ thuật)
-        # VD: "PZ - G" so với "PZ-G" -> coi là một
-        s_nospace = s.replace(" ", "").replace("-", "").replace("_", "")
         
-        return s_nospace
+        # 4. Chuyển về chữ thường để so sánh
+        s = s.lower()
+        
+        # 5. Thay thế các ký tự trắng đặc biệt (Non-breaking space \xa0) thành dấu cách thường
+        s = s.replace(u'\xa0', ' ')
+        
+        # 6. Thay thế xuống dòng, tab thành dấu cách
+        s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        
+        # 7. Gộp nhiều dấu cách liên tiếp thành 1 dấu cách duy nhất (VD: "A   B" -> "A B")
+        s = re.sub(r'\s+', ' ', s)
+        
+        # 8. Cắt khoảng trắng 2 đầu
+        return s.strip()
 
     # -------------------------------------------------------------------------
     # 1. TRA CỨU ĐƠN HÀNG (BLACKBOX - GIỮ NGUYÊN)
@@ -1518,7 +1521,7 @@ with t4:
         else:
             try:
                 # Load Data (Hỗ trợ cả Excel và CSV)
-                # QUAN TRỌNG: dtype=str để ép kiểu text, tránh lỗi 10.0 != 10
+                # QUAN TRỌNG: dtype=str để ép kiểu text, tránh lỗi 10.0 != 10 ngay từ đầu
                 if po_data_file.name.lower().endswith('.csv'):
                      df_up = pd.read_csv(po_data_file, header=None, skiprows=1, dtype=str).fillna("")
                 else:
@@ -1538,9 +1541,9 @@ with t4:
                         k_code = clean_key(r.get('item_code', ''))
                         if k_code:
                             if k_code not in history_map: history_map[k_code] = []
-                            # LƯU Ý: Làm sạch specs trong DB trước khi lưu vào map
+                            # LƯU Ý: Chuẩn hóa specs trong DB trước khi lưu vào map để so sánh
                             history_map[k_code].append({
-                                'specs_clean': clean_strict_specs(r.get('specs', '')),
+                                'specs_norm': normalize_data(r.get('specs', '')),
                                 'unit_price': to_float(r.get('unit_price', 0)),
                                 'original_specs': r.get('specs', '')
                             })
@@ -1552,17 +1555,17 @@ with t4:
                     if not code: continue 
                     
                     qty = to_float(r.iloc[4])
-                    specs_input = safe_str(r.iloc[3])
+                    specs_input_raw = safe_str(r.iloc[3]) # Specs gốc để hiển thị
                     name = safe_str(r.iloc[2])
                     
                     # Logic So Sánh Nghiêm Ngặt (Strict Comparison)
                     clean_c = clean_key(code)
-                    clean_s_input = clean_strict_specs(specs_input) # Làm sạch input từ Excel
+                    specs_input_norm = normalize_data(specs_input_raw) # Specs chuẩn hóa để so sánh
                     
                     final_unit_price = 0.0
                     warning_msg = "⚠️ Chưa báo giá"
                     
-                    # Ưu tiên 1: Giá trong file Excel upload
+                    # Ưu tiên 1: Giá trong file Excel upload (nếu có sẵn)
                     excel_price = to_float(r.iloc[5]) if len(r) > 5 else 0.0
                     
                     if excel_price > 0:
@@ -1572,22 +1575,23 @@ with t4:
                         hist_list = history_map[clean_c]
                         found_match = False
                         
-                        # Loop tìm Specs khớp CHÍNH XÁC (sau khi đã làm sạch)
+                        # Loop tìm Specs khớp CHÍNH XÁC (sau khi đã làm sạch rác)
                         for h in hist_list:
-                            # So sánh chuỗi đã làm sạch
-                            if h['specs_clean'] == clean_s_input:
+                            # So sánh 2 chuỗi đã được làm sạch
+                            if h['specs_norm'] == specs_input_norm:
                                 final_unit_price = h['unit_price']
                                 warning_msg = "" 
                                 found_match = True
-                                # Loop tiếp để lấy giá mới nhất
+                                # Loop tiếp để lấy giá mới nhất (do đã sort date)
                         
                         # Nếu KHÔNG khớp Specs
                         if not found_match:
                             # KHÔNG TỰ ĐỘNG LẤY GIÁ -> Bắt buộc phải check lại
                             final_unit_price = 0.0
+                            # Debug: Có thể hiện specs tìm thấy gần nhất để đối chiếu (optional)
                             warning_msg = "⚠️ Sai Specs" 
                     
-                    # Lookup Info từ Master Data
+                    # Lookup Info từ Master Data (Lấy giá mua)
                     match = item_map.get(clean_c)
                     
                     buy_rmb = 0.0; rate = 0.0; buy_vnd = 0.0; supplier = ""; leadtime = "0"
@@ -1597,7 +1601,8 @@ with t4:
                         buy_vnd = to_float(match.get('buying_price_vnd', 0))
                         supplier = match.get('supplier_name', '')
                         leadtime = match.get('leadtime', '0')
-                        if not specs_input: specs_input = match.get('specs', '')
+                        # Nếu file excel thiếu specs/name thì lấy từ master
+                        if not specs_input_raw: specs_input_raw = match.get('specs', '')
                         if not name: name = match.get('item_name', '')
                     
                     # Tạo dòng dữ liệu
@@ -1606,7 +1611,7 @@ with t4:
                         "Cảnh báo": warning_msg, 
                         "Item code": code, 
                         "Item name": name, 
-                        "Specs": specs_input, 
+                        "Specs": specs_input_raw, # Hiển thị specs gốc
                         "Q'ty": qty,
                         
                         "Buying price(RMB)": buy_rmb,
@@ -1636,7 +1641,7 @@ with t4:
                     # Tính toán lại lần đầu 
                     params_dummy = {} 
                     st.session_state.po_main_df = recalculate_quote_logic(st.session_state.po_main_df, params_dummy)
-                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Chế độ kiểm tra Specs chặt chẽ)")
+                    st.success(f"✅ Đã tải {len(recs)} dòng dữ liệu! (Chế độ Strict Mode + Clean Data)")
                 else: st.warning("Không đọc được dữ liệu nào từ file.")
 
             except Exception as e: st.error(f"Lỗi đọc file: {e}")
@@ -1671,7 +1676,7 @@ with t4:
         cols_display = [c for c in ordered_cols if c in st.session_state.po_main_df.columns]
         df_display = st.session_state.po_main_df[cols_display].copy()
 
-        # Tạo dòng Total (Fix lỗi tổng bằng cách ép kiểu float)
+        # Tạo dòng Total (SỬA LỖI TỔNG SAI: Ép kiểu numeric trước khi sum)
         total_row = {"No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": ""}
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(RMB)", 
                     "Buying price(VND)", "Total buying price(VND)",
@@ -1682,6 +1687,7 @@ with t4:
         
         for c in sum_cols:
             if c in df_display.columns:
+                # Dùng pd.to_numeric với errors='coerce' để biến chuỗi thành số, tránh lỗi cộng chuỗi
                 total_row[c] = pd.to_numeric(df_display[c], errors='coerce').fillna(0).sum()
         
         # Tính % Profit tổng
