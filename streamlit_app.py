@@ -1768,13 +1768,9 @@ with t4:
             if c in df_show.columns:
                 val_sum = df_show[c].apply(local_parse_money).sum()
                 if "RMB" in c or "rmb" in c: 
-                    total_row[c] = local_fmt_rmb(val_sum)
-                elif c == "Q'ty": 
-                    # QUAN TRỌNG: Giữ nguyên số float cho Q'ty ở Total để cột này là dạng số -> Sửa được
-                    total_row[c] = val_sum 
+                    total_row[c] = float(val_sum) # Giữ float
                 else: 
-                    # Các cột tiền khác ở Total có thể format string để hiển thị đẹp
-                    total_row[c] = local_fmt_vnd(val_sum)
+                    total_row[c] = float(val_sum) # Giữ float cho toàn bộ cột số
         
         t_prof = local_parse_money(total_row.get("Profit(VND)", 0))
         t_rev = local_parse_money(total_row.get("Total price(VND)", 0))
@@ -1790,10 +1786,12 @@ with t4:
             "Cảnh báo": st.column_config.TextColumn("Cảnh báo", width="medium", disabled=True),
             "Supplier": st.column_config.TextColumn("Supplier", width="medium"),
             "Leadtime": st.column_config.TextColumn("Leadtime", width="small"),
-            "Total buying price(rmb)": st.column_config.TextColumn("Total buying price(rmb)", width="small", disabled=True),
+            "Total buying price(rmb)": st.column_config.NumberColumn("Total buying price(rmb)", width="small", format="%.2f", disabled=True),
+            "Buying price(RMB)": st.column_config.NumberColumn("Buying price(RMB)", width="small", format="%.2f"),
             
             # Q'TY: Sửa được, Format đẹp (1,000)
             "Q'ty": st.column_config.NumberColumn("Q'ty", width="small", step=None, format="%,.0f"),
+            "Profit(%)": st.column_config.TextColumn("Profit(%)", disabled=True),
         }
 
         # CÁC CỘT TIỀN TỆ: Sửa được (Editable) + Format đẹp (1,000,000)
