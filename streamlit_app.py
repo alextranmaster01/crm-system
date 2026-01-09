@@ -814,15 +814,26 @@ import numpy as np
 import io
 from openpyxl import load_workbook, Workbook
 
+import re
+import json
+import time
+from datetime import datetime
+import pandas as pd
+import numpy as np
+import io
+from openpyxl import load_workbook, Workbook
+
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE - CHUẨN HÓA SAVE & LOAD) ---
+# --- TAB 3: BÁO GIÁ (GIỮ NGUYÊN NHƯ CŨ - CHỈ CHỈNH LẠI FORMAT CHUẨN) ---
 # =============================================================================
 with t3:
     # --- A. CÁC HÀM HỖ TRỢ NỘI BỘ ---
     def local_parse_money(val):
         try:
             if pd.isna(val) or str(val).strip() == "": return 0.0
-            return float(str(val).replace(",", "").strip())
+            # Xử lý an toàn cho cả dấu phẩy và chấm
+            s = str(val).replace(",", "").replace("%", "").strip()
+            return float(s)
         except: return 0.0
 
     def local_fmt_vnd(val):
@@ -865,7 +876,7 @@ with t3:
             return float(eval(s))
         except: return 0.0
 
-    # --- B. HÀM TÍNH TOÁN LOGIC TAB 3 (TẠO BÁO GIÁ) ---
+    # --- B. HÀM TÍNH TOÁN LOGIC TAB 3 ---
     def recalculate_quote_logic(df, params):
         if df.empty: return df
         p_end = params.get('end', 0) / 100.0
@@ -879,17 +890,13 @@ with t3:
         for idx, row in df.iterrows():
             try:
                 qty = local_parse_money(row.get("Q'ty", 0))
-                
-                # Giá RMB
                 buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
                 ex_rate = local_parse_money(row.get("Exchange rate", 0))
                 
-                # Tính lại giá mua VND từ RMB nếu có
                 buy_vnd_unit = local_parse_money(row.get("Buying price(VND)", 0))
                 if buy_rmb > 0 and ex_rate > 0:
                     buy_vnd_unit = round(buy_rmb * ex_rate, 0)
 
-                # Các tổng giá
                 total_buy_vnd = round(buy_vnd_unit * qty, 0)
                 total_buy_rmb = round(buy_rmb * qty, 2)
                 
@@ -901,7 +908,6 @@ with t3:
                 
                 gap = total_price - ap_total
 
-                # Tính toán giá trị tiền (Money) từ % cấu hình
                 val_imp_tax = round(total_buy_vnd * p_tax, 0)
                 val_end = round(ap_total * p_end, 0) 
                 val_buyer = round(total_price * p_buy, 0)
@@ -909,26 +915,19 @@ with t3:
                 val_mgmt = round(total_price * p_mgmt, 0)
                 val_trans = round(v_trans, 0)
                 
-                # Logic Payback Tab 3
-                if gap > 0:
-                    val_payback = round(gap * p_pay, 0)
-                else:
-                    val_payback = 0.0
+                val_payback = round(gap * p_pay, 0) if gap > 0 else 0.0
 
-                # Tổng chi phí trừ lùi
                 sum_deductions = (total_buy_vnd + gap + val_end + val_buyer + val_imp_tax + val_vat + val_trans + val_mgmt)
                 val_profit = round(total_price - sum_deductions + val_payback, 0)
                 
                 pct_profit = 0.0
                 if total_price != 0: pct_profit = (val_profit / total_price) * 100
 
-                # Cảnh báo lợi nhuận thấp
                 current_warning = str(row.get("Cảnh báo", "")).replace("⚠️ (<10%)", "").replace("|", "").strip()
                 if pct_profit < 10.0:
                     if current_warning: current_warning += " | "
                     current_warning += "⚠️ (<10%)"
                 
-                # Cập nhật lại DataFrame
                 df.at[idx, "Cảnh báo"] = current_warning
                 df.at[idx, "Buying price(VND)"] = buy_vnd_unit
                 df.at[idx, "Total buying price(rmb)"] = total_buy_rmb
@@ -952,7 +951,7 @@ with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
     # -------------------------------------------------------------------------
-    # 1. ADMIN & TRA CỨU
+    # UI TAB 3
     # -------------------------------------------------------------------------
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
@@ -1035,9 +1034,6 @@ with t3:
             if results: st.dataframe(pd.DataFrame(results), use_container_width=True)
             else: st.info("Không tìm thấy kết quả.")
 
-    # -------------------------------------------------------------------------
-    # 2. XEM CHI TIẾT FILE
-    # -------------------------------------------------------------------------
     with st.expander("📂 XEM CHI TIẾT FILE LỊCH SỬ", expanded=False):
         df_hist_idx = load_data("crm_quotations_log", order_by="date")
         if not df_hist_idx.empty:
@@ -1188,7 +1184,7 @@ with t3:
                 st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
                 st.rerun()
 
-    # 5. HIỂN THỊ BẢNG (MAIN EDITOR)
+    # 5. HIỂN THỊ BẢNG TAB 3
     if not st.session_state.quote_df.empty:
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
         
@@ -1205,7 +1201,7 @@ with t3:
         display_cols = [c for c in ordered_cols if c in st.session_state.quote_df.columns]
         df_display = st.session_state.quote_df[display_cols].copy()
         
-        # --- TOTAL ROW LOGIC ---
+        # --- TOTAL ROW ---
         total_row = {"Select": False, "No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
         sum_cols = ["Q'ty", "Buying price(RMB)", "Total buying price(rmb)", 
                     "Buying price(VND)", "Total buying price(VND)",
@@ -1225,7 +1221,6 @@ with t3:
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
-        # SỬA LỖI: Dùng df.apply(..., axis=1) thay vì df[c].apply(...) để tránh lỗi TypeError
         cols_vnd_fmt = ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
                         "Unit price(VND)", "Total price(VND)", "GAP", "Profit(VND)", 
                         "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
@@ -1260,11 +1255,9 @@ with t3:
             use_container_width=True, height=600, key="main_editor", hide_index=True
         )
 
-        # --- [NEW] TAB 3: TỔNG CỘNG MONEY BOX ---
         total_q_val_main = st.session_state.quote_df["Total price(VND)"].apply(local_parse_money).sum()
         st.markdown(f'<div style="text-align: right; font-size: 20px; font-weight: bold; margin-top: 10px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; color: #31333F;">💰 TỔNG CỘNG: {local_fmt_vnd(total_q_val_main)} VND</div>', unsafe_allow_html=True)
-        # ----------------------------------------
-
+        
         # Sync Logic
         df_new_data = edited_df[edited_df["No"] != "TOTAL"].reset_index(drop=True)
         if not df_new_data.empty and len(df_new_data) == len(st.session_state.quote_df):
@@ -1304,7 +1297,7 @@ with t3:
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
                 st.rerun()
 
-    # 6. TOOLBAR
+    # 6. TOOLBAR & SAVING
     if not st.session_state.quote_df.empty:
         st.divider()
         c_rev, c_sv = st.columns([1, 1])
@@ -1371,18 +1364,17 @@ with t3:
                     except Exception as e: st.error(f"Lỗi xuất Excel: {e}")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # [PHẦN LƯU LỊCH SỬ - ĐÃ FIX SAVE ĐÚNG CỘT]
             with c_sv:
                 st.markdown('<div class="dark-btn">', unsafe_allow_html=True)
                 if st.button("💾 LƯU LỊCH SỬ (QUAN TRỌNG)"):
                     if cust_name:
-                        # 1. Chuẩn bị params config (TỶ LỆ %)
+                        # 1. Params
                         clean_params = {}
                         for k, v in params.items():
                             if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): clean_params[k] = 0.0
                             else: clean_params[k] = v
                         
-                        # 2. Chuẩn bị data full cho JSON
+                        # 2. Config JSON
                         full_data_list = []
                         for r in st.session_state.quote_df.to_dict('records'):
                             clean_row = {}
@@ -1393,7 +1385,7 @@ with t3:
                         
                         config_json = json.dumps({"params": clean_params, "full_data": full_data_list})
                         
-                        # 3. MAP DATA VÀO TỪNG CỘT SQL
+                        # 3. Insert SQL
                         recs = []
                         history_id_gen = f"{cust_name}_{int(time.time())}"
                         now_str = datetime.now().strftime("%Y-%m-%d")
@@ -1438,13 +1430,9 @@ with t3:
                             })
                         
                         try:
-                            # Insert vào DB
                             supabase.table("crm_quotations_log").insert(recs).execute()
                             
-                            # --- LƯU FILE EXCEL LỊCH SỬ (ĐÚNG THỨ TỰ CỘT YÊU CẦU) ---
                             df_save = st.session_state.quote_df.copy()
-                            
-                            # Danh sách cột yêu cầu bắt buộc
                             required_cols_order = [
                                 "Item code", "Item name", "Specs", "Q'ty", 
                                 "Buying price(RMB)", "Total buying price(rmb)", "Exchange rate", 
@@ -1456,12 +1444,8 @@ with t3:
                                 "Transportation", "Management fee(%)", "Payback(%)", 
                                 "Profit(VND)", "Profit(%)", "Supplier", "Leadtime"
                             ]
-                            
-                            # Đảm bảo các cột thiếu sẽ được thêm vào (tránh lỗi KeyError)
                             for c in required_cols_order:
                                 if c not in df_save.columns: df_save[c] = ""
-                                
-                            # Reorder DataFrame
                             df_save = df_save[required_cols_order]
 
                             xlsx_buffer = io.BytesIO()
@@ -1473,7 +1457,6 @@ with t3:
                             path_list_hist = ["QUOTATION_HISTORY", cust_name, curr_year, curr_month]
                             lnk, _ = upload_to_drive_structured(xlsx_buffer, path_list_hist, xlsx_name)
                             
-                            # Lưu thêm file Config riêng (Backup)
                             df_cfg = pd.DataFrame([clean_params])
                             cfg_buffer = io.BytesIO()
                             df_cfg.to_excel(cfg_buffer, index=False)
@@ -1489,14 +1472,15 @@ with t3:
                 st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (SMART AUTO-FILL & COSTING - VALIDATION MODE) ---
+# --- TAB 4: QUẢN LÝ PO (FIX LỖI CẤU HÌNH & DATA LOẠN) ---
 # =============================================================================
 with t4:
-    # --- 1. CÁC HÀM HỖ TRỢ TÍNH TOÁN & FORMAT ---
+    # --- 1. CÁC HÀM HỖ TRỢ ---
     def local_parse_money(val):
         try:
             if pd.isna(val) or str(val).strip() == "": return 0.0
-            return float(str(val).replace(",", "").replace("%", "").strip())
+            s = str(val).replace(",", "").replace("%", "").strip()
+            return float(s)
         except: return 0.0
 
     def local_fmt_vnd(val):
@@ -1519,15 +1503,9 @@ with t4:
         s = re.sub(r'[^a-z0-9]', '', s) 
         return s
     
-    # ------------------------------------------------------------------
-    # [QUAN TRỌNG] HÀM LẤY CONFIG AN TOÀN - TRÁNH LỖI MẤT CẤU HÌNH
-    # ------------------------------------------------------------------
     def get_config_val(record, db_key, json_key, default=0.0):
-        # 1. Thử lấy từ cột DB trực tiếp
         val = to_float(record.get(db_key, 0))
         if val != 0: return val
-        
-        # 2. Nếu = 0, thử đào trong JSON config_data
         try:
             if record.get('config_data'):
                 cfg = json.loads(record['config_data'])
@@ -1536,29 +1514,24 @@ with t4:
         except: pass
         return default
 
-    # --- 2. HÀM TÍNH TOÁN LOGIC (TAB 4 - VALIDATION ONLY) ---
+    # --- 2. LOGIC TÍNH TOÁN TAB 4 (CHỈ CHECK KHỚP, KO TỰ ĐỘNG NHÂN) ---
     def recalculate_po_logic(df, params):
         if df.empty: return df
         
-        # Các ngưỡng config hiện tại (để so sánh validation)
+        # Config threshold
         p_end = params.get('end', 0) / 100.0
         p_buy = params.get('buy', 0) / 100.0
-        p_tax = params.get('tax', 0) / 100.0
-        p_vat = params.get('vat', 0) / 100.0
         p_mgmt = params.get('mgmt', 0) / 100.0
         p_pay = params.get('pay', 0) / 100.0
-        v_trans_cfg = float(params.get('trans', 0))
 
         for idx, row in df.iterrows():
             try:
-                # --- A. LẤY DỮ LIỆU CƠ BẢN ---
+                # --- A. LẤY DATA CƠ BẢN ---
                 qty = local_parse_money(row.get("Q'ty", 0))
                 
-                # Giá RMB & Tỷ giá
                 buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
                 ex_rate = local_parse_money(row.get("Exchange rate", 0))
                 
-                # Giá mua VND
                 buy_vnd_unit = local_parse_money(row.get("Buying price(VND)", 0))
                 if buy_rmb > 0 and ex_rate > 0 and buy_vnd_unit == 0:
                     buy_vnd_unit = round(buy_rmb * ex_rate, 0)
@@ -1566,7 +1539,6 @@ with t4:
                 total_buy_vnd = round(buy_vnd_unit * qty, 0)
                 total_buy_rmb = round(buy_rmb * qty, 2)
 
-                # Giá AP & Unit Price
                 ap_vnd_unit = local_parse_money(row.get("AP price(VND)", 0))
                 ap_total = round(ap_vnd_unit * qty, 0)
 
@@ -1575,8 +1547,7 @@ with t4:
                 
                 gap = total_sell - ap_total
 
-                # --- B. LẤY GIÁ TRỊ CHI PHÍ HIỆN TẠI TỪ BẢNG (LOADED VALUE) ---
-                # Ở Tab 4, chúng ta tôn trọng số tiền đã load từ lịch sử
+                # --- B. LẤY GIÁ TRỊ CHI PHÍ (SỐ TIỀN) TỪ BẢNG ---
                 val_imp_tax = local_parse_money(row.get("Import tax(%)", 0))
                 val_end = local_parse_money(row.get("End user(%)", 0))
                 val_buyer = local_parse_money(row.get("Buyer(%)", 0))
@@ -1585,50 +1556,47 @@ with t4:
                 val_trans = local_parse_money(row.get("Transportation", 0))
                 val_payback = local_parse_money(row.get("Payback(%)", 0))
 
-                # --- C. VALIDATION (SO SÁNH VỚI CẤU HÌNH CONFIG HIỆN TẠI) ---
+                # --- C. VALIDATION ---
                 warning_list = []
-                current_warn = str(row.get("Cảnh báo", "")).split("|")[0].strip() # Giữ cảnh báo cũ (New Item/No Data)
+                current_warn = str(row.get("Cảnh báo", "")).split("|")[0].strip()
                 if current_warn and "⚠️" not in current_warn: current_warn = ""
 
-                # 1. Check End User (theo config = AP Total * %)
+                # Check End (Warning Only)
                 cfg_end = round(ap_total * p_end, 0)
                 if abs(val_end - cfg_end) > 1000: warning_list.append("End%")
 
-                # 2. Check Buyer (theo config = Total Sell * %)
+                # Check Buyer (Warning Only)
                 cfg_buyer = round(total_sell * p_buy, 0)
                 if abs(val_buyer - cfg_buyer) > 1000: warning_list.append("Buyer%")
                 
-                # 3. Check Mgmt (theo config = Total Sell * %)
+                # Check Mgmt (Warning Only)
                 cfg_mgmt = round(total_sell * p_mgmt, 0)
                 if abs(val_mgmt - cfg_mgmt) > 1000: warning_list.append("Mgmt%")
 
-                # 4. Check Payback (theo config = GAP * %)
-                # Logic Fix: Nếu GAP <= 0 thì Payback phải = 0
+                # Check Payback (Logic + Warning)
                 if gap <= 0:
                     cfg_payback = 0
                     if val_payback > 0:
-                        val_payback = 0 # Tự động sửa lại cho đúng logic
+                        val_payback = 0 
                         warning_list.append("Err:Payback")
                 else:
                     cfg_payback = round(gap * p_pay, 0)
                     if abs(val_payback - cfg_payback) > 1000: 
                          warning_list.append("Payback%")
 
-                # Tổng hợp cảnh báo
                 final_warning = current_warn
                 if warning_list:
                     if final_warning: final_warning += " | "
                     final_warning += "⚠️ Khác config: " + ", ".join(warning_list)
 
-                # --- D. TÍNH LỢI NHUẬN (DỰA TRÊN SỐ LIỆU ĐÃ LOAD - LOADED VALUES) ---
-                # Đảm bảo tính toán trên con số thực tế đang hiển thị trên bảng
+                # --- D. TÍNH LỢI NHUẬN (DỰA TRÊN SỐ TIỀN ĐANG CÓ) ---
                 sum_deductions = (total_buy_vnd + val_end + val_buyer + val_imp_tax + val_vat + val_trans + val_mgmt)
                 val_profit = round(total_sell - sum_deductions + val_payback, 0)
                 
                 pct_profit = 0.0
                 if total_sell != 0: pct_profit = (val_profit / total_sell) * 100
 
-                # --- E. UPDATE LẠI DATAFRAME ---
+                # --- E. UPDATE ---
                 df.at[idx, "Cảnh báo"] = final_warning
                 df.at[idx, "Buying price(VND)"] = buy_vnd_unit
                 df.at[idx, "Total buying price(rmb)"] = total_buy_rmb
@@ -1636,7 +1604,7 @@ with t4:
                 df.at[idx, "AP total price(VND)"] = ap_total
                 df.at[idx, "Total price(VND)"] = total_sell
                 df.at[idx, "GAP"] = gap
-                df.at[idx, "Payback(%)"] = val_payback # Update lại nếu bị sửa do GAP<=0
+                df.at[idx, "Payback(%)"] = val_payback
                 df.at[idx, "Profit(VND)"] = val_profit
                 df.at[idx, "Profit(%)"] = f"{pct_profit:.2f}%"
                 
@@ -1644,26 +1612,23 @@ with t4:
         return df
 
     # -------------------------------------------------------------------------
-    # 3. GIAO DIỆN CHÍNH (UI)
+    # 3. UI
     # -------------------------------------------------------------------------
     st.markdown("### 🔎 QUẢN LÝ ĐƠN HÀNG (PO) & TỰ ĐỘNG TÍNH GIÁ")
     
-    # Khu vực tìm kiếm nhanh
     with st.expander("Tra cứu lịch sử PO nhanh", expanded=False):
         search_po = st.text_input("Nhập số PO, Mã hàng...", key="search_po_tab")
         if search_po:
-            df_hist_check = load_data("crm_quotations_log") # Load log chi tiết
+            df_hist_check = load_data("crm_quotations_log")
             if not df_hist_check.empty:
                 mask = df_hist_check.astype(str).apply(lambda x: x.str.contains(search_po, case=False, na=False)).any(axis=1)
                 st.dataframe(df_hist_check[mask].head(10), use_container_width=True)
 
     st.divider()
 
-    # --- KHU VỰC INPUT & CẤU HÌNH ---
+    # --- INPUTS ---
     col_main_1, col_main_2 = st.columns([3, 1])
-    
-    with col_main_1:
-        st.subheader("📋 TẠO ĐƠN HÀNG MỚI (PO)")
+    with col_main_1: st.subheader("📋 TẠO ĐƠN HÀNG MỚI (PO)")
     with col_main_2:
         if st.button("🔄 Reset / Tạo Mới", key="btn_reset_po_tab4", type="primary"):
             st.session_state.po_main_df = pd.DataFrame()
@@ -1676,21 +1641,18 @@ with t4:
 
     c_in1, c_in2, c_in3 = st.columns([1, 1, 1])
     po_no_input = c_in1.text_input("1. Số PO Khách Hàng", key="po_no_main")
-    
     cust_db = load_data("crm_customers")
     cust_list = cust_db["short_name"].tolist() if not cust_db.empty else []
     cust_name = c_in2.selectbox("2. Chọn Khách Hàng", [""] + cust_list, key="cust_name_po")
-    
-    with c_in3:
-        uploaded_po = st.file_uploader("3. Upload File PO (Excel)", type=["xlsx", "csv"], key="po_up_data_main")
+    with c_in3: uploaded_po = st.file_uploader("3. Upload File PO (Excel)", type=["xlsx", "csv"], key="po_up_data_main")
 
-    # --- CẤU HÌNH CHI PHÍ MẶC ĐỊNH (FIXED LOAD) ---
+    # --- [FIX 1] CẤU HÌNH CHI PHÍ: PRE-LOAD SESSION STATE ---
     with st.expander("⚙️ Cấu hình chi phí mặc định (Nếu chưa có lịch sử)", expanded=False):
         cols = st.columns(7)
         keys_cfg = ["end", "buy", "tax", "vat", "pay", "mgmt", "trans"]
         params = {}
         
-        # FIX: Khởi tạo giá trị mặc định cho session_state nếu chưa có
+        # FIX: Khởi tạo ngay nếu chưa có
         for k in keys_cfg:
             if f"pct_{k}" not in st.session_state: st.session_state[f"pct_{k}"] = "0"
 
@@ -1700,24 +1662,40 @@ with t4:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val)
 
-    # -------------------------------------------------------------------------
-    # 4. XỬ LÝ "AUTO-FILL" TỪ DATABASE (SMART LOGIC - FIXED)
-    # -------------------------------------------------------------------------
+    # --- [FIX 2] NÚT TẢI PO: LOAD CONFIG VÀO UI NGAY LẬP TỨC ---
     if st.button("🚀 Tải PO & Tự động áp giá", key="btn_load_po_t4"):
         if uploaded_po is not None and cust_name:
             try:
-                # A. Đọc File PO
-                df_po = pd.read_excel(uploaded_po, dtype=str).fillna("")
-                
-                # B. Load Lịch sử báo giá
+                # 1. Load History trước để lấy Config
                 df_hist = load_data("crm_quotations_log")
                 hist_recs = []
+                first_config_found = False
+                
                 if not df_hist.empty:
                     df_hist_filtered = df_hist[df_hist['customer'].astype(str).str.lower() == str(cust_name).lower()]
                     df_hist_filtered = df_hist_filtered.sort_values(by="created_at", ascending=False)
                     hist_recs = df_hist_filtered.to_dict('records')
+                    
+                    # [CRITICAL FIX] Tìm config của item đầu tiên và update vào UI ngay
+                    for h in hist_recs:
+                        if h.get('config_data'):
+                            try:
+                                cfg = json.loads(h['config_data'])
+                                p = cfg.get('params', {})
+                                if p:
+                                    for k in keys_cfg:
+                                        # Update vào Session State để ô input tự điền
+                                        st.session_state[f"pct_{k}"] = str(p.get(k, 0))
+                                    first_config_found = True
+                                    break
+                            except: pass
+                
+                # Nếu tìm thấy config mới, cần RERUN để UI cập nhật ô input trước
+                # Tuy nhiên, để tránh rerun mất file upload, ta xử lý data luôn rồi mới rerun (hoặc chấp nhận data đã load)
+                # Ở đây ta sẽ load data luôn, và UI sẽ cập nhật ở lần render kế.
 
-                # C. Matching & Filling Logic
+                # 2. Xử lý File PO
+                df_po = pd.read_excel(uploaded_po, dtype=str).fillna("")
                 res_po = []
                 cols_map = {clean_key(c): c for c in df_po.columns}
                 
@@ -1727,14 +1705,12 @@ with t4:
                     return ""
 
                 for i, r in df_po.iterrows():
-                    # 1. Lấy thông tin từ file Excel
                     p_code = get_val_po(r, ["item code", "code", "part number", "mã hàng"])
                     p_name = get_val_po(r, ["item name", "name", "description", "tên hàng"])
                     p_specs = get_val_po(r, ["specs", "quy cách", "spec"])
                     p_qty_str = get_val_po(r, ["q'ty", "qty", "quantity", "số lượng"])
                     p_qty = local_parse_money(p_qty_str) if p_qty_str else 0
                     
-                    # 2. MATCHING
                     norm_code = normalize_match_str(p_code)
                     norm_name = normalize_match_str(p_name)
                     match_hist = None
@@ -1753,11 +1729,9 @@ with t4:
                             if has_buy_price: 
                                 match_hist = h
                                 break
-                    
-                    if not match_hist and potential_matches:
-                        match_hist = potential_matches[0][0]
+                    if not match_hist and potential_matches: match_hist = potential_matches[0][0]
 
-                    # 3. LẤY DỮ LIỆU TỪ LỊCH SỬ (LOAD 100% VALUE TỪ CONFIG CŨ)
+                    # 3. LẤY DỮ LIỆU MONEY
                     warning = ""
                     buy_rmb = 0; ex_rate = 0; buy_vnd = 0; 
                     ap_vnd = 0; unit_price = 0
@@ -1766,7 +1740,6 @@ with t4:
                     val_mgmt_m = 0; val_trans_m = 0; val_pay_m = 0
 
                     if match_hist:
-                        # --- CÓ LỊCH SỬ: AUTO-FILL TỪ DB ---
                         buy_rmb = to_float(match_hist.get('buying_price_rmb', 0))
                         ex_rate = to_float(match_hist.get('exchange_rate', 0))
                         if ex_rate == 0: ex_rate = 3500 
@@ -1777,13 +1750,11 @@ with t4:
                         unit_price = to_float(match_hist.get('unit_price', 0))
                         ap_vnd = to_float(match_hist.get('ap_price_vnd', 0))
                         
-                        # Tính toán các giá trị cơ sở HIỆN TẠI để nhân %
                         curr_total_buy_vnd = buy_vnd * p_qty
                         curr_ap_total = ap_vnd * p_qty
                         curr_total_sell = unit_price * p_qty
                         curr_gap = curr_total_sell - curr_ap_total
 
-                        # Lấy tỷ lệ % từ lịch sử (Config cũ)
                         h_tax_pct = get_config_val(match_hist, 'import_tax_pct', 'tax', 0)
                         h_vat_pct = get_config_val(match_hist, 'vat_pct', 'vat', 8)
                         h_end_pct = get_config_val(match_hist, 'end_user_pct', 'end', 0)
@@ -1791,33 +1762,25 @@ with t4:
                         h_mgmt_pct = get_config_val(match_hist, 'management_fee_pct', 'mgmt', 0)
                         h_pay_pct = get_config_val(match_hist, 'payback_pct', 'pay', 0)
 
-                        # TÍNH RA SỐ TIỀN (MONEY) DỰA TRÊN % LỊCH SỬ VÀ GIÁ TRỊ CƠ SỞ HIỆN TẠI
-                        # Quy tắc: End = AP * %; Buyer/Mgmt/VAT = Sell * %; Tax = Buy * %
                         val_tax_m = round(curr_total_buy_vnd * (h_tax_pct / 100), 0)
                         val_vat_m = round(curr_total_sell * (h_vat_pct / 100), 0)
                         val_end_m = round(curr_ap_total * (h_end_pct / 100), 0)
                         val_buyer_m = round(curr_total_sell * (h_buyer_pct / 100), 0)
                         val_mgmt_m = round(curr_total_sell * (h_mgmt_pct / 100), 0)
                         
-                        # Payback chỉ tính nếu GAP > 0
-                        if curr_gap > 0:
-                            val_pay_m = round(curr_gap * (h_pay_pct / 100), 0)
-                        else:
-                            val_pay_m = 0
+                        if curr_gap > 0: val_pay_m = round(curr_gap * (h_pay_pct / 100), 0)
+                        else: val_pay_m = 0
 
-                        # Vận chuyển (Scale theo số lượng cũ -> mới hoặc lấy config hiện tại)
                         old_qty = to_float(match_hist.get('qty', 1))
                         old_trans = to_float(match_hist.get('transportation', 0))
                         if old_qty > 0 and old_trans > 0:
                             val_trans_m = (old_trans / old_qty) * p_qty
                         else:
                             val_trans_m = float(params.get('trans', 0))
-                            
                     else:
                         warning = "⚠️ New Item"
                         val_trans_m = float(params.get('trans', 0))
 
-                    # 4. Tính toán tổng hợp sơ bộ
                     total_buy_vnd = buy_vnd * p_qty
                     ap_total = ap_vnd * p_qty
                     total_sell = unit_price * p_qty
@@ -1829,39 +1792,16 @@ with t4:
                     pct_profit = 0.0
                     if total_sell > 0: pct_profit = (profit_val / total_sell) * 100
 
-                    # 5. Đóng gói dữ liệu (ĐÚNG CỘT YÊU CẦU)
                     row_data = {
-                        "No": i+1,
-                        "Cảnh báo": warning,
-                        "Item code": p_code,
-                        "Item name": p_name,
-                        "Specs": p_specs,
-                        "Q'ty": p_qty,
-                        
-                        "Buying price(RMB)": buy_rmb,
-                        "Total buying price(rmb)": round(buy_rmb * p_qty, 2),
-                        "Exchange rate": ex_rate,
-                        "Buying price(VND)": buy_vnd,
-                        "Total buying price(VND)": total_buy_vnd,
-                        
-                        "AP price(VND)": ap_vnd,
-                        "AP total price(VND)": ap_total,
-                        "Unit price(VND)": unit_price,
-                        "Total price(VND)": total_sell,
-                        
-                        "GAP": gap,
-                        
-                        "End user(%)": val_end_m,
-                        "Buyer(%)": val_buyer_m,
-                        "Import tax(%)": val_tax_m,
-                        "VAT": val_vat_m,
-                        "Transportation": val_trans_m,
-                        "Management fee(%)": val_mgmt_m,
-                        "Payback(%)": val_pay_m,
-                        
-                        "Profit(VND)": profit_val,
-                        "Profit(%)": f"{pct_profit:.2f}%",
-                        
+                        "No": i+1, "Cảnh báo": warning, "Item code": p_code, "Item name": p_name,
+                        "Specs": p_specs, "Q'ty": p_qty,
+                        "Buying price(RMB)": buy_rmb, "Total buying price(rmb)": round(buy_rmb * p_qty, 2), "Exchange rate": ex_rate,
+                        "Buying price(VND)": buy_vnd, "Total buying price(VND)": total_buy_vnd,
+                        "AP price(VND)": ap_vnd, "AP total price(VND)": ap_total,
+                        "Unit price(VND)": unit_price, "Total price(VND)": total_sell, "GAP": gap,
+                        "End user(%)": val_end_m, "Buyer(%)": val_buyer_m, "Import tax(%)": val_tax_m,
+                        "VAT": val_vat_m, "Transportation": val_trans_m, "Management fee(%)": val_mgmt_m, "Payback(%)": val_pay_m,
+                        "Profit(VND)": profit_val, "Profit(%)": f"{pct_profit:.2f}%",
                         "Supplier": match_hist.get('supplier_name', "") if match_hist else "",
                         "Leadtime": match_hist.get('leadtime', "") if match_hist else ""
                     }
@@ -1869,19 +1809,17 @@ with t4:
 
                 st.session_state.po_main_df = pd.DataFrame(res_po)
                 st.toast(f"✅ Đã tải dữ liệu PO cho: {cust_name}!", icon="🎉") 
-                st.rerun()
+                st.rerun() # Rerun để cập nhật ô input và bảng
 
             except Exception as e:
                 st.error(f"Lỗi xử lý file PO: {e}")
         else:
             st.warning("⚠️ Vui lòng chọn Khách hàng và Upload file PO!")
 
-    # HIỂN THỊ MAIN EDITOR CHO TAB 4 (ĐÃ ADD TOTAL ROW & CỘT MỚI)
+    # HIỂN THỊ MAIN EDITOR
     if not st.session_state.po_main_df.empty:
-        # Gọi hàm tính toán logic (Validation mode)
         st.session_state.po_main_df = recalculate_po_logic(st.session_state.po_main_df, params)
         
-        # Sắp xếp cột theo yêu cầu
         req_cols_display = [
             "No", "Cảnh báo", "Item code", "Item name", "Specs", "Q'ty",
             "Buying price(RMB)", "Total buying price(rmb)", "Exchange rate",
@@ -1893,23 +1831,15 @@ with t4:
             "Profit(VND)", "Profit(%)", "Supplier", "Leadtime"
         ]
         
-        # Đảm bảo đủ cột
         for c in req_cols_display:
             if c not in st.session_state.po_main_df.columns: st.session_state.po_main_df[c] = ""
             
         df_po_display = st.session_state.po_main_df[req_cols_display].copy()
         
-        # --- TẠO DÒNG TOTAL CHO TAB 4 ---
         total_row_po = {"No": "TOTAL", "Cảnh báo": "", "Item code": "", "Item name": "", "Specs": "", "Q'ty": 0}
-        
-        # Các cột cần tính tổng (Đã bổ sung Buying RMB, Buying VND, AP Unit, Unit Price theo yêu cầu)
         sum_cols_po = [
-            "Q'ty", 
-            "Buying price(RMB)", "Total buying price(rmb)", 
-            "Buying price(VND)", "Total buying price(VND)", 
-            "AP price(VND)", "AP total price(VND)", 
-            "Unit price(VND)", "Total price(VND)", 
-            "GAP",
+            "Q'ty", "Buying price(RMB)", "Total buying price(rmb)", "Buying price(VND)", "Total buying price(VND)", 
+            "AP price(VND)", "AP total price(VND)", "Unit price(VND)", "Total price(VND)", "GAP",
             "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
             "Transportation", "Management fee(%)", "Payback(%)", "Profit(VND)"
         ]
@@ -1917,19 +1847,15 @@ with t4:
         for c in sum_cols_po:
             if c in df_po_display.columns:
                 val = df_po_display[c].apply(local_parse_money).sum()
-                if "rmb" in c.lower() or "RMB" in c:
-                     total_row_po[c] = local_fmt_rmb(val)
-                else:
-                     total_row_po[c] = local_fmt_vnd(val) # Format luôn tại đây để hiển thị
+                if "rmb" in c.lower() or "RMB" in c: total_row_po[c] = local_fmt_rmb(val)
+                else: total_row_po[c] = local_fmt_vnd(val)
         
-        # Tính lại Profit % cho dòng Total
         t_profit = local_parse_money(total_row_po.get("Profit(VND)", "0"))
         t_price = local_parse_money(total_row_po.get("Total price(VND)", "0"))
         total_row_po["Profit(%)"] = f"{(t_profit / t_price * 100) if t_price > 0 else 0:.1f}%"
         
         df_po_display = pd.concat([df_po_display, pd.DataFrame([total_row_po])], ignore_index=True)
 
-        # Format tiền cho các dòng dữ liệu (trừ dòng TOTAL đã format ở trên)
         cols_vnd_po = ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
                        "Unit price(VND)", "Total price(VND)", "GAP", "Profit(VND)", 
                        "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
@@ -1960,12 +1886,9 @@ with t4:
              use_container_width=True, height=600, key="po_editor", hide_index=True
         )
 
-        # --- [NEW] TAB 4: TỔNG CỘNG MONEY BOX ---
         total_q_val_po = st.session_state.po_main_df["Total price(VND)"].apply(local_parse_money).sum()
         st.markdown(f'<div style="text-align: right; font-size: 20px; font-weight: bold; margin-top: 10px; padding: 10px; background-color: #f0f2f6; border-radius: 5px; color: #31333F;">💰 TỔNG CỘNG: {local_fmt_vnd(total_q_val_po)} VND</div>', unsafe_allow_html=True)
-        # ----------------------------------------
 
-        # Sync Logic (Cập nhật ngược lại session_state khi edit)
         df_new_po = edited_po[edited_po["No"] != "TOTAL"].reset_index(drop=True)
         if not df_new_po.empty and len(df_new_po) == len(st.session_state.po_main_df):
             data_changed_po = False
