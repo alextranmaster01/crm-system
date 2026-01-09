@@ -1130,32 +1130,38 @@ with t3:
             st.rerun()
 
     # --- KHỐI FORMULA BUTTONS (QUAN TRỌNG: ĐÃ ĐƯA TRỞ LẠI) ---
-    c_form1, c_form2 = st.columns(2)
+     c_form1, c_form2 = st.columns(2)
     with c_form1:
-        ap_f = st.text_input("Formula AP (=BUY*1.1)", key="f_ap")
+        ap_f = st.text_input("Formula AP (vd: BUY*1.1)", key="f_ap")
         if st.button("Apply AP"):
             if not st.session_state.quote_df.empty:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
+                    # Sử dụng hàm nội bộ local_eval_formula mới
+                    new_ap = local_eval_formula(ap_f, buy, ap)
+                    
+                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
+                    
+                    # Tự động cập nhật Unit Price theo markup hiện tại
                     old_unit = local_parse_money(row.get("Unit price(VND)", 0))
                     markup = old_unit/ap if ap > 0 else 1.1
-                    
-                    new_ap = local_eval_formula(ap_f, buy, ap)
-                    st.session_state.quote_df.at[idx, "AP price(VND)"] = new_ap
-                    st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
-                st.toast("✅ Đã áp dụng AP Formula!", icon="✨")
+                    if new_ap > 0:
+                          st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_ap * markup
+                st.toast("✅ Đã áp dụng công thức AP!", icon="✨")
                 st.rerun()
+                
     with c_form2:
-        unit_f = st.text_input("Formula Unit (=AP*1.2)", key="f_unit")
+        unit_f = st.text_input("Formula Unit (vd: AP*1.2)", key="f_unit")
         if st.button("Apply Unit"):
             if not st.session_state.quote_df.empty:
                 for idx, row in st.session_state.quote_df.iterrows():
                     buy = local_parse_money(row.get("Buying price(VND)", 0))
                     ap = local_parse_money(row.get("AP price(VND)", 0))
+                    # Sử dụng hàm nội bộ local_eval_formula mới
                     new_unit = local_eval_formula(unit_f, buy, ap)
                     st.session_state.quote_df.at[idx, "Unit price(VND)"] = new_unit
-                st.toast("✅ Đã áp dụng Unit Formula!", icon="✨")
+                st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
                 st.rerun()
     # -------------------------------------------------------------
 
