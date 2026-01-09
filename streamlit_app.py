@@ -787,8 +787,17 @@ import numpy as np
 import io
 from openpyxl import load_workbook, Workbook
 
+import re
+import json
+import time
+from datetime import datetime
+import pandas as pd
+import numpy as np
+import io
+from openpyxl import load_workbook, Workbook
+
 # =============================================================================
-# --- TAB 3: BÁO GIÁ (FULL CODE - ĐẦY ĐỦ CHỨC NĂNG CŨ + MỚI) ---
+# --- TAB 3: BÁO GIÁ (FULL CODE - ĐÃ SỬA LỖI FORMAT & TOTAL) ---
 # =============================================================================
 with t3:
     # --- A. CÁC HÀM HỖ TRỢ NỘI BỘ ---
@@ -838,7 +847,7 @@ with t3:
             return float(eval(s))
         except: return 0.0
 
-    # --- B. HÀM TÍNH TOÁN LOGIC (CORE - ĐÃ FIX) ---
+    # --- B. HÀM TÍNH TOÁN LOGIC (CORE) ---
     def recalculate_quote_logic(df, params):
         if df.empty: return df
         p_end = params.get('end', 0) / 100.0
@@ -853,7 +862,7 @@ with t3:
             try:
                 qty = local_parse_money(row.get("Q'ty", 0))
                 
-                # Giá RMB & Tỷ giá
+                # Giá RMB
                 buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
                 ex_rate = local_parse_money(row.get("Exchange rate", 0))
                 
@@ -920,7 +929,7 @@ with t3:
     if 'quote_df' not in st.session_state: st.session_state.quote_df = pd.DataFrame()
     
     # -------------------------------------------------------------------------
-    # 1. ADMIN SECTION (ĐÃ KHÔI PHỤC FULL)
+    # 1. ADMIN & TRA CỨU
     # -------------------------------------------------------------------------
     with st.expander("🛠️ ADMIN: QUẢN LÝ LỊCH SỬ BÁO GIÁ"):
         c_adm1, c_adm2 = st.columns([3, 1])
@@ -940,9 +949,6 @@ with t3:
                 except Exception as e: st.error(f"Lỗi xóa DB: {e}")
             else: st.error("Sai mật khẩu!")
 
-    # -------------------------------------------------------------------------
-    # 2. TRA CỨU & TRẠNG THÁI (ĐÃ KHÔI PHỤC FULL)
-    # -------------------------------------------------------------------------
     with st.expander("🔎 TRA CỨU & TRẠNG THÁI BÁO GIÁ", expanded=False):
         c_src1, c_src2 = st.columns(2)
         search_kw = c_src1.text_input("Nhập từ khóa", help="Tìm kiếm trong lịch sử")
@@ -1006,7 +1012,7 @@ with t3:
             else: st.info("Không tìm thấy kết quả.")
 
     # -------------------------------------------------------------------------
-    # 3. XEM CHI TIẾT FILE (ĐÃ KHÔI PHỤC FULL + LOAD CONFIG)
+    # 2. XEM CHI TIẾT FILE
     # -------------------------------------------------------------------------
     with st.expander("📂 XEM CHI TIẾT FILE LỊCH SỬ", expanded=False):
         df_hist_idx = load_data("crm_quotations_log", order_by="date")
@@ -1020,7 +1026,6 @@ with t3:
                     cust = parts[1].strip()
                     hist_row = df_hist_idx[(df_hist_idx['quote_no'] == q_no) & (df_hist_idx['customer'] == cust)].iloc[0]
                     
-                    # LOAD CONFIG TỪ JSON (Quan trọng)
                     config_loaded = {}
                     if 'config_data' in hist_row and hist_row['config_data']:
                         try: config_loaded = json.loads(hist_row['config_data'])
@@ -1051,7 +1056,7 @@ with t3:
     st.divider()
     st.subheader("TÍNH TOÁN & LÀM BÁO GIÁ")
     
-    # 4. INPUTS CHÍNH
+    # 3. INPUTS CHÍNH
     c1, c2, c3 = st.columns([2, 2, 1])
     cust_db = load_data("crm_customers")
     cust_name = c1.selectbox("Chọn Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [])
@@ -1072,7 +1077,7 @@ with t3:
             st.session_state[f"pct_{k}"] = val
             params[k] = local_parse_money(val) 
 
-    # 5. MATCHING & FORMULA
+    # 4. MATCHING & FORMULA
     cf1, cf2 = st.columns([1, 2])
     rfq = cf1.file_uploader("Upload RFQ (xlsx)", type=["xlsx"])
     
@@ -1158,7 +1163,7 @@ with t3:
                 st.toast("✅ Đã áp dụng công thức Unit Price!", icon="✨")
                 st.rerun()
 
-    # 6. HIỂN THỊ BẢNG (MAIN EDITOR)
+    # 5. HIỂN THỊ BẢNG (MAIN EDITOR)
     if not st.session_state.quote_df.empty:
         st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
         
@@ -1195,15 +1200,18 @@ with t3:
         
         df_display = pd.concat([df_display, pd.DataFrame([total_row])], ignore_index=True)
 
+        # SỬA LỖI: Dùng df.apply(..., axis=1) thay vì df[c].apply(...) để tránh lỗi TypeError
         cols_vnd_fmt = ["Buying price(VND)", "Total buying price(VND)", "AP price(VND)", "AP total price(VND)", 
                         "Unit price(VND)", "Total price(VND)", "GAP", "Profit(VND)", 
                         "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Management fee(%)", "Payback(%)"]
         for c in cols_vnd_fmt:
-            if c in df_display.columns: df_display[c] = df_display.apply(lambda x: local_fmt_vnd(x[c]) if x["No"] != "TOTAL" else x[c], axis=1)
+            if c in df_display.columns: 
+                df_display[c] = df_display.apply(lambda x: local_fmt_vnd(x[c]) if x["No"] != "TOTAL" else x[c], axis=1)
             
         cols_rmb_fmt = ["Buying price(RMB)", "Total buying price(rmb)", "Exchange rate"]
         for c in cols_rmb_fmt:
-            if c in df_display.columns: df_display[c] = df_display[c].apply(lambda x: local_fmt_rmb(x[c]) if x["No"] != "TOTAL" else x[c], axis=1)
+            if c in df_display.columns: 
+                df_display[c] = df_display.apply(lambda x: local_fmt_rmb(x[c]) if x["No"] != "TOTAL" else x[c], axis=1)
         
         st.markdown("---")
         col_cfg = {
@@ -1271,7 +1279,7 @@ with t3:
                 st.session_state.quote_df = recalculate_quote_logic(st.session_state.quote_df, params)
                 st.rerun()
 
-    # 7. TOOLBAR
+    # 6. TOOLBAR
     if not st.session_state.quote_df.empty:
         st.divider()
         c_rev, c_sv = st.columns([1, 1])
@@ -1819,11 +1827,14 @@ with t4:
         for c in cols_vnd_po:
              if c in df_po_display.columns: 
                  # Chỉ format những dòng không phải TOTAL (vì TOTAL đã format ở trên)
+                 # SỬA LỖI: Dùng apply trên DataFrame để truy cập được cột 'No'
                  df_po_display[c] = df_po_display.apply(lambda x: local_fmt_vnd(x[c]) if x["No"] != "TOTAL" else x[c], axis=1)
 
         cols_rmb_po = ["Buying price(RMB)"]
         for c in cols_rmb_po:
-             if c in df_po_display.columns: df_po_display[c] = df_po_display[c].apply(local_fmt_rmb)
+             if c in df_po_display.columns: 
+                 # SỬA LỖI: Dùng apply trên DataFrame
+                 df_po_display[c] = df_po_display.apply(lambda x: local_fmt_rmb(x[c]) if x["No"] != "TOTAL" else x[c], axis=1)
 
         col_cfg_po = {
              "No": st.column_config.TextColumn("No", width="small"),
