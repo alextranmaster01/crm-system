@@ -1472,14 +1472,13 @@ with t3:
                 st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (UI UPDATE: RIGHT TOOLBAR, COL ORDER, FIX QTY) ---
+# --- TAB 4: QUẢN LÝ PO (FIX: LOAD SUPPLIER/LEADTIME TỪ JSON LỊCH SỬ) ---
 # =============================================================================
 with t4:
     # --- 1. CÁC HÀM HỖ TRỢ ---
     def local_parse_money(val):
         try:
             if pd.isna(val) or str(val).strip() == "": return 0.0
-            # Nếu giá trị đã là số thì trả về luôn, không cần replace
             if isinstance(val, (int, float)): return float(val)
             s = str(val).replace(",", "").replace("%", "").strip()
             return float(s)
@@ -1505,6 +1504,7 @@ with t4:
         s = re.sub(r'[^a-z0-9]', '', s) 
         return s
     
+    # Hàm lấy % Config từ lịch sử
     def get_history_config(record):
         try:
             if record.get('config_data'):
@@ -1512,6 +1512,33 @@ with t4:
                 return cfg.get('params', {}) 
         except: pass
         return {}
+
+    # --- [NEW] HÀM ĐÀO SÂU TÌM SUPPLIER/LEADTIME TRONG JSON ---
+    def get_deep_history_info(record, target_code):
+        # Mục tiêu: Tìm Supplier và Leadtime trong 'full_data' của JSON config
+        supp, lead = "", ""
+        try:
+            # 1. Thử lấy từ cột DB nếu có (phòng hờ)
+            if record.get('supplier_name'): supp = str(record.get('supplier_name'))
+            if record.get('leadtime'): lead = str(record.get('leadtime'))
+            
+            # 2. Nếu chưa có, đào vào JSON config_data
+            if (not supp or not lead) and record.get('config_data'):
+                cfg = json.loads(record['config_data'])
+                # Dữ liệu chi tiết từng line nằm trong 'full_data'
+                full_data = cfg.get('full_data', [])
+                
+                if full_data:
+                    norm_target = normalize_match_str(target_code)
+                    for item in full_data:
+                        # So khớp Item Code để lấy đúng info của dòng đó
+                        # Cột trong JSON thường là tên gốc: "Item code", "Supplier", "Leadtime"
+                        if normalize_match_str(item.get('Item code', '')) == norm_target:
+                            if not supp: supp = str(item.get('Supplier', ''))
+                            if not lead: lead = str(item.get('Leadtime', ''))
+                            break
+        except: pass
+        return supp, lead
 
     # --- 2. LOGIC TÍNH TOÁN (CHUẨN TAB 3) ---
     def recalculate_po_logic_tab3_style(df):
@@ -1543,7 +1570,7 @@ with t4:
                 
                 gap = total_price - ap_total
 
-                # Chi phí (Lấy giá trị hiện tại để tính ngược Profit)
+                # Chi phí
                 val_imp_tax = local_parse_money(row.get("Import tax(%)", 0))
                 val_end = local_parse_money(row.get("End user(%)", 0))
                 val_buyer = local_parse_money(row.get("Buyer(%)", 0))
@@ -1576,12 +1603,10 @@ with t4:
         return df
 
     # --- 3. GIAO DIỆN CHÍNH ---
-    # Header & Toolbar
     c_title, c_tools = st.columns([3, 2])
     with c_title:
         st.markdown("### 🔎 QUẢN LÝ PO")
     with c_tools:
-        # Tạo toolbar bên phải (Reset & Delete)
         st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
         c_t1, c_t2 = st.columns([1, 1])
         with c_t1:
@@ -1600,12 +1625,11 @@ with t4:
 
     if 'po_main_df' not in st.session_state: st.session_state.po_main_df = pd.DataFrame()
 
-    # Input Area
     c_in1, c_in2, c_in3 = st.columns([1, 1, 2])
     c_in1.text_input("Số PO", key="po_no_input")
     cust_db = load_data("crm_customers")
     cust_name = c_in2.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [])
-    uploaded_po = c_in3.file_uploader("Upload PO (Excel/CSV/Img)", type=["xlsx", "xls", "csv", "pdf", "png", "jpg"])
+    uploaded_po = c_in3.file_uploader("Upload PO", type=["xlsx", "xls", "csv", "pdf", "png", "jpg"])
 
     # --- ACTION: TẢI PO ---
     if st.button("🚀 Tải PO & Load Lịch Sử", key="btn_load_po_action"):
@@ -1662,13 +1686,8 @@ with t4:
 
                         if match_hist:
                             warning = ""
-                            try:
-                                cfg_data = json.loads(match_hist.get('config_data', '{}'))
-                                supplier = cfg_data.get('supplier', match_hist.get('supplier_name', ''))
-                                leadtime = cfg_data.get('leadtime', match_hist.get('leadtime', ''))
-                            except: 
-                                supplier = match_hist.get('supplier_name', '')
-                                leadtime = match_hist.get('leadtime', '')
+                            # [FIX] Dùng hàm đào sâu JSON để lấy Supplier/Leadtime
+                            supplier, leadtime = get_deep_history_info(match_hist, match_hist.get('item_code', ''))
 
                             buy_rmb = to_float(match_hist.get('buying_price_rmb', 0))
                             ex_rate = to_float(match_hist.get('exchange_rate', 0))
@@ -1710,7 +1729,6 @@ with t4:
                         row_data = {
                             "✅": False, "No": i+1, "Cảnh báo": warning,
                             "Item code": p_code, "Item name": p_name, "SPECS": p_specs,
-                            "Supplier": supplier, "Leadtime": leadtime,
                             "Q'ty": p_qty,
                             "Buying price(RMB)": buy_rmb, "Exchange rate": ex_rate,
                             "Buying price(VND)": buy_vnd,
@@ -1720,6 +1738,7 @@ with t4:
                             "Import tax(%)": m_tax, "End user(%)": m_end, "Buyer(%)": m_buy,
                             "VAT": m_vat, "Management fee(%)": m_mgmt, "Transportation": m_trans,
                             "Payback(%)": m_pay, "Profit(VND)": 0, "Profit(%)": "",
+                            "Supplier": supplier, "Leadtime": leadtime, # Để xuống cuối
                             "_hidden_cfg": json.dumps(hidden_cfg) 
                         }
                         res_po.append(row_data)
@@ -1738,7 +1757,7 @@ with t4:
                      "Buying price(VND)", "Total buying price(VND)",
                      "AP price(VND)", "AP total price(VND)", "Unit price(VND)", "Total price(VND)", "GAP",
                      "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", "Transportation", "Payback(%)",
-                     "Profit(VND)", "Profit(%)", "Supplier", "Leadtime"] # <--- Moved here
+                     "Profit(VND)", "Profit(%)", "Supplier", "Leadtime"]
         
         for c in cols_show: 
             if c not in st.session_state.po_main_df.columns: st.session_state.po_main_df[c] = ""
@@ -1781,7 +1800,6 @@ with t4:
             "Supplier": st.column_config.TextColumn("Supplier", width="medium"),
             "Leadtime": st.column_config.TextColumn("Leadtime", width="small"),
             "Total buying price(rmb)": st.column_config.TextColumn("Total buying price(rmb)", width="small", disabled=True),
-            # FIX Q'TY: Bỏ format "%d" để không ép kiểu integer, cho phép nhập số tự do và sửa dễ dàng
             "Q'ty": st.column_config.NumberColumn("Q'ty", width="small", step=1),
         }
         for c in cols_vnd: col_cfg[c] = st.column_config.TextColumn(c, width="small")
@@ -1799,7 +1817,7 @@ with t4:
             for i, row_n in df_new.iterrows():
                 row_o = st.session_state.po_main_df.iloc[i]
                 
-                # A. FIX Q'TY: Ensure we compare floats
+                # A. FIX Q'TY
                 new_qty = local_parse_money(row_n["Q'ty"])
                 old_qty = local_parse_money(row_o["Q'ty"])
                 
