@@ -2418,7 +2418,8 @@ with t5:
 
 # --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025) ---
 with t6:
-    tc, ts, tt = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE"])
+    # CẬP NHẬT: Thêm tab "IMPORT DATA"
+    tc, ts, tt, ti = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE", "IMPORT DATA"])
     
     # --- CUSTOMERS (ALGORITHM: DELETE ALL -> INSERT CHUNKS, NORMALIZED COLUMNS) ---
     with tc:
@@ -2438,7 +2439,6 @@ with t6:
                 
                 # 2. Normalize Columns (Logic V6025 Safe Import)
                 # Chuyển tên cột về dạng lowercase và thay khoảng trắng bằng gạch dưới để khớp với DB
-                # Ví dụ: "Short Name" -> "short_name", "Address 1" -> "address_1"
                 df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
                 
                 data = df.to_dict('records')
@@ -2513,5 +2513,61 @@ with t6:
             lnk, fid = upload_to_drive_simple(up_t, "CRM_TEMPLATES", f"TMP_{t_name}.xlsx")
             if fid: 
                 supabase.table("crm_templates").insert([{"template_name": t_name, "file_id": fid, "last_updated": datetime.now().strftime("%d/%m/%Y")}]).execute()
-                st.success("OK"); st.rerun()
+                st.success("OK");
+                st.rerun()
         st.dataframe(load_data("crm_templates"))
+
+    # --- IMPORT DATA (NEW TAB) ---
+    with ti:
+        st.markdown("### 4. DỮ LIỆU IMPORT (MASTER)")
+        # Load data to display
+        try:
+            df_i = load_data("crm_import_data", order_by="id")
+            st.dataframe(df_i, use_container_width=True, hide_index=True)
+        except:
+            st.info("Chưa có dữ liệu.")
+
+        st.write("---")
+        st.write("📥 **Import Dữ Liệu IMPORT DATA (Ghi đè toàn bộ)**")
+        st.caption("Yêu cầu file có 10 cột theo đúng thứ tự: No, Name Forwarder, Name Supplier, Name Customer, Qty, UoM, Price, Tax, HSCode, Info")
+        up_i = st.file_uploader("Upload Excel IMPORT DATA", type=["xlsx"], key="up_import_data_master")
+
+        if up_i and st.button("🚀 CẬP NHẬT IMPORT DATA"):
+            try:
+                # 1. Read Excel
+                df = pd.read_excel(up_i, dtype=str).fillna("")
+                
+                # 2. Mapping Columns (Force mapping by index to match DB schema exactly)
+                # DB Columns: no, name_in_forwarder, name_in_supplier, name_in_customer, qty, uom, import_price_usd, import_tax_percent, hscode, clearance_custom_info
+                target_cols = [
+                    "no", "name_in_forwarder", "name_in_supplier", "name_in_customer", 
+                    "qty", "uom", "import_price_usd", "import_tax_percent", 
+                    "hscode", "clearance_custom_info"
+                ]
+                
+                if len(df.columns) < 10:
+                    st.error("File Excel không đủ 10 cột dữ liệu yêu cầu.")
+                else:
+                    # Lấy 10 cột đầu tiên và gán tên chuẩn DB
+                    df = df.iloc[:, :10]
+                    df.columns = target_cols
+                    
+                    data = df.to_dict('records')
+                    
+                    if data:
+                        # 3. Clear Old Data
+                        supabase.table("crm_import_data").delete().neq("id", 0).execute()
+                        
+                        # 4. Insert New Data (Chunking)
+                        chunk_size = 100
+                        for k in range(0, len(data), chunk_size):
+                            batch = data[k:k+chunk_size]
+                            supabase.table("crm_import_data").insert(batch).execute()
+                            
+                        st.success(f"✅ Đã import thành công {len(data)} dòng dữ liệu!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("File rỗng!")
+            except Exception as e:
+                st.error(f"Lỗi Import: {e}")
