@@ -1513,106 +1513,9 @@ def local_fmt_rmb(value):
     except:
         return "0.00"
 # =============================================================================
-# --- TAB 4: QUẢN LÝ PO (FULL VERSION - ĐÃ UPDATE THEO YÊU CẦU MỚI) ---
+# --- TAB 4: QUẢN LÝ PO (FULL CODE - FIX LỖI LOAD CẤU HÌNH & SYNTAX) ---
 # =============================================================================
-with t4:
-    # --- 1. CÁC HÀM HỖ TRỢ (HELPER FUNCTIONS) ---
-    def local_parse_money(val):
-        """Chuyển chuỗi có dấu phẩy/text về số Float để tính toán"""
-        try:
-            if pd.isna(val) or str(val).strip() == "": return 0.0
-            if isinstance(val, (int, float)): return float(val)
-            s = str(val).replace(",", "").replace("%", "").strip()
-            return float(s)
-        except: return 0.0
-
-    def local_fmt_vnd(val):
-        """Format số thành chuỗi 1,200,000"""
-        try:
-            if pd.isna(val) or val == "": return "0"
-            return "{:,.0f}".format(round(float(val)))
-        except: return str(val)
-
-    def local_fmt_rmb(val):
-        """Format số thành chuỗi 1,200.00"""
-        try:
-            if pd.isna(val) or val == "": return "0.00"
-            return "{:,.2f}".format(float(val))
-        except: return str(val)
-    
-    def to_float(val): return local_parse_money(val)
-
-    def normalize_match_str(val):
-        if pd.isna(val) or val is None: return ""
-        s = str(val).lower().strip()
-        s = re.sub(r'[^a-z0-9]', '', s) 
-        return s
-    
-    def get_history_config(record):
-        try:
-            if record.get('config_data'):
-                cfg = json.loads(record['config_data'])
-                return cfg.get('params', {}) 
-        except: pass
-        return {}
-
-    def get_deep_history_info(record, target_code):
-        supp, lead = "", ""
-        try:
-            if record.get('supplier_name'): supp = str(record.get('supplier_name'))
-            if record.get('leadtime'): lead = str(record.get('leadtime'))
-            
-            if (not supp or not lead) and record.get('config_data'):
-                cfg = json.loads(record['config_data'])
-                full_data = cfg.get('full_data', [])
-                if full_data:
-                    norm_target = normalize_match_str(target_code)
-                    for item in full_data:
-                        if normalize_match_str(item.get('Item code', '')) == norm_target:
-                            if not supp: supp = str(item.get('Supplier', ''))
-                            if not lead: lead = str(item.get('Leadtime', ''))
-                            break
-        except: pass
-        return supp, lead
-
-    # --- 2. LOGIC TÍNH TOÁN (CORE) ---
-    def recalculate_po_logic_final(df):
-        if df.empty: return df
-        for idx, row in df.iterrows():
-            try:
-                if str(row.get("No")) == "TOTAL": continue
-                qty = local_parse_money(row.get("Q'ty", 0))
-                
-                # Giá Mua
-                buy_vnd = local_parse_money(row.get("Buying price(VND)", 0))
-                buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
-                ex_rate = local_parse_money(row.get("Exchange rate", 0))
-                if buy_vnd == 0 and buy_rmb > 0 and ex_rate > 0:
-                    buy_vnd = round(buy_rmb * ex_rate, 0)
-
-                total_buy_vnd = round(buy_vnd * qty, 0)
-                total_buy_rmb = round(buy_rmb * qty, 2)
-
-                # Giá Bán & AP
-                ap_vnd = local_parse_money(row.get("AP price(VND)", 0))
-                ap_total = round(ap_vnd * qty, 0)
-
-                unit_price = local_parse_money(row.get("Unit price(VND)", 0))
-                total_sell = round(unit_price * qty, 0)
-                gap = total_sell - ap_total
-
-                # Chi phí
-                val_imp_tax = local_parse_money(row.get("Import tax(%)", 0))
-                val_end = local_parse_money(row.get("End user(%)", 0))
-                val_buyer = local_parse_money(row.get("Buyer(%)", 0))
-                val_vat = local_parse_money(row.get("VAT", 0))
-                val_mgmt = local_parse_money(row.get("Management fee(%)", 0))
-                val_trans = local_parse_money(row.get("Transportation", 0))
-                val_payback = local_parse_money(row.get("Payback(%)", 0))
-                if gap <= 0: val_payback = 0.0 
-# =============================================================================
-# --- TAB 4: QUẢN LÝ PO (FULL VERSION - FINAL FIX NAME ERROR) ---
-# =============================================================================
+# ĐẢM BẢO RẰNG KHÔNG CÓ LỆNH 'try:' NÀO BỊ BỎ DỞ NGAY TRÊN DÒNG NÀY
 with t4:
     # --- 1. CÁC HÀM HỖ TRỢ (HELPER FUNCTIONS) ---
     def local_parse_money(val):
@@ -1762,18 +1665,23 @@ with t4:
     uploaded_files = c_in3.file_uploader("Upload PO (Excel, CSV, PDF, Img)", type=["xlsx", "xls", "csv", "pdf", "png", "jpg"], accept_multiple_files=True)
 
     # --- 3.2 LOGIC TỰ ĐỘNG LOAD CẤU HÌNH TỪ LỊCH SỬ ---
+    # Giá trị mặc định
     d_tax, d_end, d_buy, d_vat, d_mgmt, d_pay = 0.0, 0.0, 0.0, 8.0, 0.0, 0.0
+    
+    # Chỉ load khi có khách hàng
     if cust_name:
         try:
             df_hist_c = load_data("crm_quotations_log")
             if not df_hist_c.empty:
                 df_cust_hist = df_hist_c[df_hist_c['customer'].astype(str).str.lower() == str(cust_name).lower()]
                 if not df_cust_hist.empty:
+                    # Sort để lấy mới nhất
                     if 'history_id' in df_cust_hist.columns:
                         df_cust_hist = df_cust_hist.sort_values(by=["date", "history_id"], ascending=[False, False])
                     else:
                         df_cust_hist = df_cust_hist.sort_values(by="date", ascending=False)
                     
+                    # Tìm config hợp lệ đầu tiên
                     for _, last_rec in df_cust_hist.iterrows():
                         cfg_json = last_rec.get('config_data', '{}')
                         if cfg_json and cfg_json != "{}":
@@ -1788,15 +1696,18 @@ with t4:
                                 break
         except Exception: pass
 
-    # --- 3.3 HIỂN THỊ GLOBAL CONFIG ---
+    # --- 3.3 HIỂN THỊ GLOBAL CONFIG (KEY ĐỘNG ĐỂ REFRESH KHI ĐỔI KHÁCH) ---
     with st.expander(f"⚙️ Cấu hình Chi phí Global (Đã load auto cho: {cust_name if cust_name else 'Mặc định'})", expanded=True):
         cg1, cg2, cg3, cg4, cg5, cg6 = st.columns(6)
-        g_tax = cg1.number_input("Thuế NK (%)", value=d_tax, step=1.0)
-        g_end = cg2.number_input("End User (%)", value=d_end, step=1.0)
-        g_buy = cg3.number_input("Buyer (%)", value=d_buy, step=1.0)
-        g_vat = cg4.number_input("VAT (%)", value=d_vat, step=1.0) 
-        g_mgmt = cg5.number_input("Mgmt Fee (%)", value=d_mgmt, step=1.0)
-        g_pay = cg6.number_input("Payback (%)", value=d_pay, step=1.0)
+        # Key động theo cust_name để ép input nhận giá trị mới khi đổi khách
+        k_suffix = f"_{cust_name}" if cust_name else "_def"
+        
+        g_tax = cg1.number_input("Thuế NK (%)", value=d_tax, step=1.0, key=f"gtax{k_suffix}")
+        g_end = cg2.number_input("End User (%)", value=d_end, step=1.0, key=f"gend{k_suffix}")
+        g_buy = cg3.number_input("Buyer (%)", value=d_buy, step=1.0, key=f"gbuy{k_suffix}")
+        g_vat = cg4.number_input("VAT (%)", value=d_vat, step=1.0, key=f"gvat{k_suffix}")
+        g_mgmt = cg5.number_input("Mgmt Fee (%)", value=d_mgmt, step=1.0, key=f"gmgmt{k_suffix}")
+        g_pay = cg6.number_input("Payback (%)", value=d_pay, step=1.0, key=f"gpay{k_suffix}")
 
     # --- ACTION: TẢI PO ---
     if st.button("🚀 Tải PO & Load Lịch Sử", key="btn_load_po_action"):
@@ -1909,6 +1820,7 @@ with t4:
                             if curr_gap > 0: m_pay = round(curr_gap * p_pay, 0)
                         
                         else:
+                            # KHÔNG CÓ HISTORY -> DÙNG GLOBAL CONFIG
                             hidden_cfg = {'tax': g_tax, 'end': g_end, 'buy': g_buy, 'vat': g_vat, 'mgmt': g_mgmt, 'pay': g_pay}
 
                         row_data = {
@@ -1980,7 +1892,8 @@ with t4:
         
         t_prof = numeric_sums.get("Profit(VND)", 0)
         t_rev = numeric_sums.get("Total price(VND)", 0)
-        # --- FIX NAME ERROR: ĐỊNH NGHĨA total_po_val ---
+        
+        # --- FIX NAME ERROR: ĐỊNH NGHĨA total_po_val TRƯỚC KHI DÙNG ---
         total_po_val = t_rev 
         total_row["Profit(%)"] = f"{(t_prof/t_rev)*100:.1f}%" if t_rev > 0 else "0%"
         
@@ -2105,7 +2018,7 @@ with t4:
             df_ncc_fmt = pd.concat([df_ncc_fmt, pd.DataFrame([total_row_fmt])], ignore_index=True)
             st.dataframe(df_ncc_fmt, use_container_width=True, hide_index=True)
             
-            # --- UPDATE: THÊM Ô TỔNG CỘNG CHO NCC ---
+            # --- THÊM TỔNG CỘNG CHO NCC ---
             total_ncc_val = total_row_ncc.get("Total buying price(VND)", 0)
             st.markdown(f"""<div style="display: flex; justify-content: flex-end; margin-top: 10px;"><div style="padding: 10px 20px; background-color: #262730; border-radius: 5px; color: #00FF00; font-weight: bold; font-size: 20px; border: 1px solid #444;">💰 TỔNG CỘNG: {local_fmt_vnd(total_ncc_val)} VND</div></div>""", unsafe_allow_html=True)
 
@@ -2133,7 +2046,7 @@ with t4:
 
                         out = io.BytesIO(); wb.save(out); out.seek(0)
                         fname = f"{curr_po}-{supp_name}.xlsx"
-                        # --- UPDATE: FOLDER PATH ---
+                        # --- FOLDER PATH MỚI ---
                         path_list = ["PO_NCC", curr_year, supp_name, curr_month, str(curr_po)]
                         try: lnk, _ = upload_to_drive_structured(out, path_list, fname)
                         except: lnk = "#"
@@ -2170,7 +2083,7 @@ with t4:
             df_kh_fmt = pd.concat([df_kh_fmt, pd.DataFrame([total_row_kh_fmt])], ignore_index=True)
             st.dataframe(df_kh_fmt, use_container_width=True, hide_index=True)
             
-            # --- UPDATE: THÊM Ô TỔNG CỘNG CHO KHÁCH HÀNG ---
+            # --- THÊM TỔNG CỘNG CHO KHÁCH HÀNG ---
             total_kh_val = total_row_kh.get("Total price(VND)", 0)
             st.markdown(f"""<div style="display: flex; justify-content: flex-end; margin-top: 10px;"><div style="padding: 10px 20px; background-color: #262730; border-radius: 5px; color: #00FF00; font-weight: bold; font-size: 20px; border: 1px solid #444;">💰 TỔNG CỘNG: {local_fmt_vnd(total_kh_val)} VND</div></div>""", unsafe_allow_html=True)
 
@@ -2192,7 +2105,7 @@ with t4:
                     supabase.table("db_customer_orders").insert(db_recs).execute()
                     
                     curr_year = datetime.now().strftime("%Y"); curr_month = datetime.now().strftime("%m")
-                    # --- UPDATE: FOLDER PATH ---
+                    # --- FOLDER PATH MỚI ---
                     path_list = ["PO_KHACH_HANG", curr_year, str(cust_name), curr_month, str(curr_po)]
                     wb = Workbook(); ws = wb.active; ws.title = "PO CUSTOMER"; ws.append(cols_kh + ["Customer"])
                     excel_data = df_kh_view.copy()
@@ -2239,7 +2152,7 @@ with t4:
             df_cost_fmt = pd.concat([df_cost_fmt, pd.DataFrame([total_row_cost_fmt])], ignore_index=True)
             st.dataframe(df_cost_fmt, use_container_width=True, hide_index=True)
             
-            # --- UPDATE: THÊM Ô TỔNG CỘNG CHO CHI PHÍ (HIỂN THỊ TỔNG DOANH THU ĐỂ ĐỐI CHIẾU) ---
+            # --- THÊM TỔNG CỘNG CHO CHI PHÍ ---
             st.markdown(f"""<div style="display: flex; justify-content: flex-end; margin-top: 10px;"><div style="padding: 10px 20px; background-color: #262730; border-radius: 5px; color: #00FF00; font-weight: bold; font-size: 20px; border: 1px solid #444;">💰 TỔNG CỘNG: {local_fmt_vnd(total_po_val)} VND</div></div>""", unsafe_allow_html=True)
 
             if st.button("💾 Lưu Chi Phí (Link Dashboard)"):
@@ -2247,7 +2160,7 @@ with t4:
                 else:
                     curr_po = st.session_state["po_no_input"]
                     curr_year = datetime.now().strftime("%Y"); curr_month = datetime.now().strftime("%m")
-                    # --- UPDATE: FOLDER PATH ---
+                    # --- FOLDER PATH MỚI ---
                     path_list = ["CHI PHI", curr_year, str(cust_name), curr_month, str(curr_po)]
                     wb = Workbook(); ws = wb.active; ws.title = "COST"; ws.append(cols_cost)
                     excel_cost_data = df_cost_view.copy()
@@ -2279,7 +2192,7 @@ with t4:
                         })
                     try:
                         supabase.table("crm_shared_history").insert(recs_hist).execute()
-                        st.success("✅ Đã lưu Chi phí & Lợi nhuận!"); st.markdown(f"📂 [Link File Chi Phí]({lnk})")
+                        st.success("✅ Đã lưu Chi phí & Lợi nhuận!"); st.markdown(f"📂 [Link File Drive]({lnk})")
                     except Exception as e: st.error(f"Lỗi lưu DB History: {e}")
 # --- TAB 5: TRACKING, PAYMENTS, HISTORY ---
 with t5:
