@@ -2217,12 +2217,12 @@ with t4:
 with t5:
     t5_1, t5_2, t5_3 = st.tabs(["📦 THEO DÕI ĐƠN HÀNG", "💸 THANH TOÁN", "📜 LỊCH SỬ"])
     
-    # --- HELPER: CHUẨN HÓA PO ĐỂ SO SÁNH (FIX LỖI KHÔNG TÌM THẤY NHAU) ---
+    # --- HELPER: CHUẨN HÓA PO SIÊU MẠNH (FIX LỖI KHÔNG TÌM THẤY NHAU) ---
     def normalize_po(val):
-        """Chuyển mọi format PO về dạng string chuẩn, xóa khoảng trắng và .0"""
-        s = str(val).strip()
-        if s.endswith(".0"): 
-            return s[:-2]
+        """Chuyển về String -> Viết hoa -> Xóa khoảng trắng -> Xóa .0 -> Xóa nan/none"""
+        s = str(val).strip().upper()
+        if s.endswith(".0"): s = s[:-2]
+        if s in ["NAN", "NONE", "", "NULL"]: return None
         return s
 
     # --- PRE-CALCULATE PAID POs (LOGIC CHO VIỆC CHUYỂN QUA LỊCH SỬ) ---
@@ -2230,14 +2230,16 @@ with t5:
     paid_pos = []
     
     if not df_pay_check.empty:
-        # 1. Lọc điều kiện: Status = Đã nhận thanh toán + Có ngày thanh toán
-        mask_paid = (df_pay_check['payment_status'] == "Đã nhận thanh toán") & \
-                    (df_pay_check['payment_date'].notna()) & \
-                    (df_pay_check['payment_date'].astype(str).str.strip() != "")
+        # 1. Lọc các dòng Đã thanh toán
+        # Lưu ý: Convert payment_date sang string để tránh lỗi dữ liệu kiểu Date/Object lẫn lộn
+        mask_status = df_pay_check['payment_status'] == "Đã nhận thanh toán"
+        mask_date = df_pay_check['payment_date'].astype(str).apply(lambda x: len(x.strip()) > 4 and x.lower() != 'nan')
         
-        # 2. Lấy danh sách PO và chuẩn hóa bằng hàm normalize_po
-        raw_paid = df_pay_check[mask_paid]['po_no'].unique()
-        paid_pos = [normalize_po(x) for x in raw_paid]
+        # 2. Lấy PO thỏa mãn cả 2 điều kiện
+        raw_paid = df_pay_check[mask_status & mask_date]['po_no'].unique()
+        
+        # 3. Chuẩn hóa list này
+        paid_pos = [normalize_po(x) for x in raw_paid if normalize_po(x) is not None]
 
     # ---------------- TAB 5.1: ĐƠN HÀNG (ACTIVE) ----------------
     with t5_1:
@@ -2246,10 +2248,12 @@ with t5:
         with col_ref:
             if st.button("🔄 Refresh Orders"): st.cache_data.clear(); st.rerun()
         
-        # --- DEBUG AREA (HIỂN THỊ ĐỂ KIỂM TRA LỖI) ---
-        with st.expander("🛠️ DEBUG: Kiểm tra tại sao đơn không qua Lịch sử"):
-            st.write(f"Danh sách PO ĐÃ THANH TOÁN (Hệ thống ghi nhận): {paid_pos}")
-            st.caption("Nếu PO của bạn không có trong list trên dù đã 'Đã nhận thanh toán', hãy kiểm tra lại cột 'Ngày Thanh Toán'.")
+        # --- DEBUG AREA (KIỂM TRA TẠI SAO KHÔNG QUA LỊCH SỬ) ---
+        # Nếu bạn thấy PO của mình trong danh sách này, nghĩa là phần Payment đã OK.
+        # Nếu có ở đây mà vẫn không qua tab Lịch sử -> Lỗi ở phần Tracking chưa khớp tên PO.
+        with st.expander("🛠️ DEBUG: Danh sách PO đã hoàn tất thanh toán (Hệ thống ghi nhận)"):
+            st.code(str(paid_pos))
+            st.caption("Nếu PO của bạn KHÔNG có trong dòng trên: Hãy qua tab 'Thanh Toán' kiểm tra lại xem đã chọn 'Đã nhận thanh toán' VÀ có 'Ngày TT' chưa.")
 
         with st.expander("🔐 Admin: Reset Orders (Xóa hết dữ liệu Tracking)"):
             adm_tr = st.text_input("Pass Admin", type="password", key="pass_tr")
@@ -2271,10 +2275,9 @@ with t5:
                 cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
                 cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
                 
-                # Condition 2: Payment Completion (FIX MẠNH TAY: Dùng hàm chuẩn hóa)
-                # Lấy PO hiện tại -> Chuẩn hóa -> So sánh với danh sách đã chuẩn hóa
+                # Condition 2: Payment Completion (So sánh sau khi chuẩn hóa UPPERCASE)
                 current_po = normalize_po(row['po_no'])
-                cond_paid = current_po in paid_pos
+                cond_paid = (current_po in paid_pos) if current_po else False
                 
                 return cond_ncc or cond_kh or cond_paid
 
@@ -2289,11 +2292,9 @@ with t5:
             # --- FORM CẬP NHẬT ---
             with c_up:
                 st.markdown("#### 📝 Cập nhật trạng thái")
-                # Lấy danh sách PO chưa xong
                 po_list = df_active['po_no'].unique()
                 sel_po = st.selectbox("Chọn PO", po_list, key="tr_po_active")
                 
-                # Lấy dữ liệu dòng hiện tại
                 curr_row = df_active[df_active['po_no'] == sel_po].iloc[0]
                 
                 new_status = st.selectbox("Trạng thái mới", 
@@ -2311,10 +2312,9 @@ with t5:
                     
                     supabase.table("crm_tracking").update(upd_data).eq("po_no", sel_po).execute()
                     
-                    # --- TRIGGER LOGIC: AUTOMATIC INSERT TO PAYMENTS ---
+                    # TRIGGER
                     if new_status == "Delivered" and curr_row['order_type'] == 'KH':
                         try:
-                            # Check payment exists
                             pay_check = supabase.table("crm_payments").select("*").eq("po_no", sel_po).execute()
                             if not pay_check.data:
                                 eta_pay = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
@@ -2328,7 +2328,7 @@ with t5:
                                 supabase.table("crm_payments").insert([pay_rec]).execute()
                                 st.toast("✅ Đã tự động tạo lịch thanh toán!", icon="💸")
                         except Exception as e:
-                            st.warning(f"Không thể tạo lịch thanh toán tự động. Lỗi: {e}")
+                            st.warning(f"Lỗi tạo lịch thanh toán: {e}")
                     
                     st.cache_data.clear()
                     st.success("Đã cập nhật!"); time.sleep(1); st.rerun()
@@ -2388,9 +2388,14 @@ with t5:
                 
                 if st.button("💾 Lưu Thanh Toán"):
                     upd_p = {"invoice_no": inv_no, "payment_status": new_p_status}
+                    
                     # TRIGGER: Update payment date if paid
                     if new_p_status == "Đã nhận thanh toán":
+                        # Chỉ update ngày nếu chưa có, hoặc ghi đè (tùy nhu cầu, ở đây tôi cho ghi đè để đảm bảo có dữ liệu)
                         upd_p["payment_date"] = datetime.now().strftime("%d/%m/%Y")
+                    elif new_p_status != "Đã nhận thanh toán":
+                         # Nếu quay lại trạng thái chưa thanh toán thì xóa ngày đi
+                         upd_p["payment_date"] = ""
                     
                     supabase.table("crm_payments").update(upd_p).eq("po_no", sel_p_po).execute()
                     st.cache_data.clear()
@@ -2421,19 +2426,18 @@ with t5:
         st.subheader("5.3: LỊCH SỬ ĐƠN HÀNG (HISTORY)")
         if st.button("🔄 Refresh History"): st.cache_data.clear(); st.rerun()
         
-        # Re-load tracking to get history
         df_track_h = load_data("crm_tracking", order_by="id")
         
         if not df_track_h.empty:
             def is_history_check(row):
-                # Condition 1: Physical Completion
+                # Condition 1
                 has_proof = pd.notna(row['proof_image']) and str(row['proof_image']) != ''
                 cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
                 cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
                 
-                # Condition 2: Payment Completion (FIX MẠNH TAY: Dùng hàm chuẩn hóa)
+                # Condition 2 (Aggressive Match)
                 current_po = normalize_po(row['po_no'])
-                cond_paid = current_po in paid_pos
+                cond_paid = (current_po in paid_pos) if current_po else False
 
                 return cond_ncc or cond_kh or cond_paid
             
