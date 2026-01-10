@@ -1610,6 +1610,104 @@ with t4:
                 val_trans = local_parse_money(row.get("Transportation", 0))
                 val_payback = local_parse_money(row.get("Payback(%)", 0))
                 if gap <= 0: val_payback = 0.0 
+# =============================================================================
+# --- TAB 4: QUẢN LÝ PO (FULL VERSION - FINAL FIX NAME ERROR) ---
+# =============================================================================
+with t4:
+    # --- 1. CÁC HÀM HỖ TRỢ (HELPER FUNCTIONS) ---
+    def local_parse_money(val):
+        """Chuyển chuỗi có dấu phẩy/text về số Float để tính toán"""
+        try:
+            if pd.isna(val) or str(val).strip() == "": return 0.0
+            if isinstance(val, (int, float)): return float(val)
+            s = str(val).replace(",", "").replace("%", "").strip()
+            return float(s)
+        except: return 0.0
+
+    def local_fmt_vnd(val):
+        """Format số thành chuỗi 1,200,000"""
+        try:
+            if pd.isna(val) or val == "": return "0"
+            return "{:,.0f}".format(round(float(val)))
+        except: return str(val)
+
+    def local_fmt_rmb(val):
+        """Format số thành chuỗi 1,200.00"""
+        try:
+            if pd.isna(val) or val == "": return "0.00"
+            return "{:,.2f}".format(float(val))
+        except: return str(val)
+    
+    def to_float(val): return local_parse_money(val)
+
+    def normalize_match_str(val):
+        if pd.isna(val) or val is None: return ""
+        s = str(val).lower().strip()
+        s = re.sub(r'[^a-z0-9]', '', s) 
+        return s
+    
+    def get_history_config(record):
+        try:
+            if record.get('config_data'):
+                cfg = json.loads(record['config_data'])
+                return cfg.get('params', {}) 
+        except: pass
+        return {}
+
+    def get_deep_history_info(record, target_code):
+        supp, lead = "", ""
+        try:
+            if record.get('supplier_name'): supp = str(record.get('supplier_name'))
+            if record.get('leadtime'): lead = str(record.get('leadtime'))
+            
+            if (not supp or not lead) and record.get('config_data'):
+                cfg = json.loads(record['config_data'])
+                full_data = cfg.get('full_data', [])
+                if full_data:
+                    norm_target = normalize_match_str(target_code)
+                    for item in full_data:
+                        if normalize_match_str(item.get('Item code', '')) == norm_target:
+                            if not supp: supp = str(item.get('Supplier', ''))
+                            if not lead: lead = str(item.get('Leadtime', ''))
+                            break
+        except: pass
+        return supp, lead
+
+    # --- 2. LOGIC TÍNH TOÁN (CORE) ---
+    def recalculate_po_logic_final(df):
+        if df.empty: return df
+        for idx, row in df.iterrows():
+            try:
+                if str(row.get("No")) == "TOTAL": continue
+                qty = local_parse_money(row.get("Q'ty", 0))
+                
+                # Giá Mua
+                buy_vnd = local_parse_money(row.get("Buying price(VND)", 0))
+                buy_rmb = local_parse_money(row.get("Buying price(RMB)", 0))
+                ex_rate = local_parse_money(row.get("Exchange rate", 0))
+                if buy_vnd == 0 and buy_rmb > 0 and ex_rate > 0:
+                    buy_vnd = round(buy_rmb * ex_rate, 0)
+
+                total_buy_vnd = round(buy_vnd * qty, 0)
+                total_buy_rmb = round(buy_rmb * qty, 2)
+
+                # Giá Bán & AP
+                ap_vnd = local_parse_money(row.get("AP price(VND)", 0))
+                ap_total = round(ap_vnd * qty, 0)
+
+                unit_price = local_parse_money(row.get("Unit price(VND)", 0))
+                total_sell = round(unit_price * qty, 0)
+                gap = total_sell - ap_total
+
+                # Chi phí
+                val_imp_tax = local_parse_money(row.get("Import tax(%)", 0))
+                val_end = local_parse_money(row.get("End user(%)", 0))
+                val_buyer = local_parse_money(row.get("Buyer(%)", 0))
+                val_vat = local_parse_money(row.get("VAT", 0))
+                val_mgmt = local_parse_money(row.get("Management fee(%)", 0))
+                val_trans = local_parse_money(row.get("Transportation", 0))
+                val_payback = local_parse_money(row.get("Payback(%)", 0))
+                if gap <= 0: val_payback = 0.0 
 
                 # Profit
                 sum_deductions = (total_buy_vnd + gap + val_end + val_buyer + val_imp_tax + val_vat + val_trans + val_mgmt)
@@ -1661,7 +1759,6 @@ with t4:
     cust_db = load_data("crm_customers")
     cust_name = c_in2.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [])
     
-    # --- UPDATE: UPLOAD NHIỀU FILE ---
     uploaded_files = c_in3.file_uploader("Upload PO (Excel, CSV, PDF, Img)", type=["xlsx", "xls", "csv", "pdf", "png", "jpg"], accept_multiple_files=True)
 
     # --- 3.2 LOGIC TỰ ĐỘNG LOAD CẤU HÌNH TỪ LỊCH SỬ ---
@@ -1705,7 +1802,6 @@ with t4:
     if st.button("🚀 Tải PO & Load Lịch Sử", key="btn_load_po_action"):
         if uploaded_files and cust_name:
             try:
-                # --- XỬ LÝ NHIỀU FILE: CHỈ LẤY FILE EXCEL/CSV ĐỂ ĐỌC DATA ---
                 target_file = None
                 for f in uploaded_files:
                     if f.name.lower().endswith(('.xls', '.xlsx', '.csv')):
@@ -1884,6 +1980,8 @@ with t4:
         
         t_prof = numeric_sums.get("Profit(VND)", 0)
         t_rev = numeric_sums.get("Total price(VND)", 0)
+        # --- FIX NAME ERROR: ĐỊNH NGHĨA total_po_val ---
+        total_po_val = t_rev 
         total_row["Profit(%)"] = f"{(t_prof/t_rev)*100:.1f}%" if t_rev > 0 else "0%"
         
         df_show = pd.concat([df_show, pd.DataFrame([total_row])], ignore_index=True)
@@ -2181,7 +2279,7 @@ with t4:
                         })
                     try:
                         supabase.table("crm_shared_history").insert(recs_hist).execute()
-                        st.success("✅ Đã lưu Chi phí & Lợi nhuận!"); st.markdown(f"📂 [Link File Drive]({lnk})")
+                        st.success("✅ Đã lưu Chi phí & Lợi nhuận!"); st.markdown(f"📂 [Link File Chi Phí]({lnk})")
                     except Exception as e: st.error(f"Lỗi lưu DB History: {e}")
 # --- TAB 5: TRACKING, PAYMENTS, HISTORY ---
 with t5:
