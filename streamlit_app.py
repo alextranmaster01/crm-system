@@ -2215,45 +2215,41 @@ with t4:
                     except Exception as e: st.error(f"Lỗi lưu DB History: {e}")
 import re
 
-# --- TAB 5: TRACKING & PAYMENT (REAL-TIME DIRECT FETCH) ---
+# --- TAB 5: TRACKING, PAYMENTS, HISTORY (DIRECT FETCH & DEBUG MODE) ---
 with t5:
-    t5_1, t5_2, t5_3 = st.tabs(["📦 THEO DÕI ĐƠN HÀNG", "💸 THANH TOÁN", "📜 LỊCH SỬ"])
+    t5_1, t5_2, t5_3 = st.tabs(["📦 THEO DÕI (ACTIVE)", "💸 THANH TOÁN", "📜 LỊCH SỬ"])
 
-    # ==============================================================================
-    # 1. HÀM LẤY DỮ LIỆU TƯƠI (KHÔNG QUA CACHE - CHẬM HƠN XÍU NHƯNG CHÍNH XÁC 100%)
-    # ==============================================================================
-    def get_fresh_data(table_name):
-        try:
-            response = supabase.table(table_name).select("*").order("id").execute()
-            return pd.DataFrame(response.data)
-        except Exception as e:
-            st.error(f"Lỗi tải {table_name}: {e}")
-            return pd.DataFrame()
-
-    # 2. HÀM CHUẨN HÓA MÃ PO (XÓA KHOẢNG TRẮNG, VIẾT HOA)
+    # 1. HÀM CHUẨN HÓA "SIÊU SẠCH" (Chỉ giữ Chữ và Số, bỏ hết dấu chấm, phẩy, cách)
+    # Giúp PO-01 và PO 01 đều hiểu là PO01
+    import re
     def clean_po(val):
-        return str(val).strip().upper()
+        if not val: return ""
+        # Chuyển thành chữ hoa, chỉ giữ A-Z và 0-9
+        return re.sub(r'[^A-Z0-9]', '', str(val).upper())
 
-    # ==============================================================================
-    # 3. XỬ LÝ LOGIC TRUNG TÂM (CHẠY MỖI LẦN RELOAD)
-    # ==============================================================================
-    
-    # Lấy dữ liệu mới nhất từ Server ngay lập tức
-    df_track = get_fresh_data("crm_tracking")
-    df_pay = get_fresh_data("crm_payments")
+    # 2. HÀM LẤY DỮ LIỆU TRỰC TIẾP (BỎ QUA CACHE CỦA STREAMLIT)
+    # Đảm bảo dữ liệu luôn tươi mới 100%
+    def fetch_fresh(table):
+        try:
+            res = supabase.table(table).select("*").execute()
+            return pd.DataFrame(res.data)
+        except: return pd.DataFrame()
 
-    # Tạo danh sách các PO ĐÃ THANH TOÁN
-    # Điều kiện: Status = "Đã nhận thanh toán" VÀ Có ngày
-    paid_po_set = set()
+    # 3. XỬ LÝ LOGIC (CHẠY MỚI MỖI LẦN)
+    df_track = fetch_fresh("crm_tracking")
+    df_pay = fetch_fresh("crm_payments")
+
+    # Tạo danh sách các PO ĐÃ TRẢ TIỀN
+    paid_list = set()
     if not df_pay.empty:
         for _, row in df_pay.iterrows():
             stt = str(row.get("payment_status", ""))
-            date = str(row.get("payment_date", "")).strip()
+            date = str(row.get("payment_date", ""))
             
-            # Chỉ cần có chữ "Đã nhận" và có "ngày" (không phải nan)
-            if "Đã nhận" in stt and len(date) > 5 and "nan" not in date.lower():
-                po_val = clean_po(row.get("po_no", ""))
-                if po_val: paid_po_set.add(po_val)
+            # Điều kiện: Phải là "Đã nhận thanh toán" VÀ Có ngày (độ dài > 5)
+            if stt == "Đã nhận thanh toán" and len(date) > 5 and "nan" not in date.lower():
+                po_clean = clean_po(row.get("po_no"))
+                if po_clean: paid_list.add(po_clean)
 
     # Phân loại Active / History
     active_rows = []
@@ -2261,29 +2257,28 @@ with t5:
 
     if not df_track.empty:
         for _, row in df_track.iterrows():
-            # Lấy thông tin
-            po = clean_po(row.get("po_no", ""))
+            po_clean = clean_po(row.get("po_no"))
             otype = str(row.get("order_type", ""))
             status = str(row.get("status", ""))
             proof = str(row.get("proof_image", ""))
             
             # Check điều kiện
-            has_proof = (len(proof) > 10) and ("nan" not in proof.lower()) # Link ảnh thường dài
-            is_paid = po in paid_po_set # Check trong danh sách đã trả tiền
+            has_proof = (len(proof) > 10) and ("nan" not in proof.lower())
+            is_money_ok = po_clean in paid_list
 
-            # LOGIC CHUYỂN LỊCH SỬ:
+            # LOGIC CHUYỂN TAB
             to_history = False
             
-            # 1. Nhà cung cấp: Hàng về + Có ảnh
+            # A. Với NCC: Arrived + Proof (Giữ nguyên)
             if otype == "NCC" and status == "Arrived" and has_proof:
                 to_history = True
             
-            # 2. Khách hàng: ĐÃ TRẢ TIỀN LÀ QUA (Bất chấp trạng thái giao hàng)
-            elif otype == "KH" and is_paid:
+            # B. Với KH: CHỈ CẦN TIỀN VỀ (Có trong paid_list) LÀ QUA LUÔN
+            elif otype == "KH" and is_money_ok:
                 to_history = True
             
-            # Lưu biến debug để hiển thị ra bảng (Cho bạn kiểm tra)
-            row["_PAID_CHECK"] = "✅ ĐÃ TRẢ" if is_paid else "❌ CHƯA"
+            # Gán cột Debug để bạn soi lỗi
+            row["_TIEN_VE_CHUA"] = "✅ ĐÃ TRẢ" if is_money_ok else "❌ CHƯA"
 
             if to_history:
                 history_rows.append(row)
@@ -2293,135 +2288,137 @@ with t5:
     df_active = pd.DataFrame(active_rows)
     df_history = pd.DataFrame(history_rows)
 
-    # ==============================================================================
-    # 4. GIAO DIỆN TAB 5.1: THEO DÕI (ACTIVE)
-    # ==============================================================================
+    # ================= TAB 5.1: ACTIVE =================
     with t5_1:
         st.subheader("5.1: ĐANG THEO DÕI")
         
-        # Nút làm mới dữ liệu
-        if st.button("🔄 LẤY DỮ LIỆU MỚI NHẤT TỪ SERVER", type="primary", use_container_width=True):
+        # Nút F5 mạnh
+        if st.button("🔄 BẤM ĐỂ CẬP NHẬT DỮ LIỆU", type="primary", use_container_width=True):
             st.rerun()
 
         if not df_active.empty:
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                st.markdown("#### 🛠 Xử lý đơn hàng")
+            c_form, c_view = st.columns([1, 2])
+            
+            with c_form:
+                st.markdown("#### 🛠 Xử lý")
                 po_list = df_active['po_no'].unique()
-                sel_po = st.selectbox("Chọn PO", po_list, key="act_po")
+                sel_po = st.selectbox("Chọn PO", po_list, key="a_po")
                 
-                # Thông tin dòng hiện tại
                 curr = df_active[df_active['po_no'] == sel_po].iloc[0]
                 
-                # HIỂN THỊ TRẠNG THÁI TIỀN (DEBUG)
-                st.write(f"💰 Trạng thái tiền: **{curr.get('_PAID_CHECK')}**")
-                if curr.get('_PAID_CHECK') == "❌ CHƯA":
-                    st.caption("👉 Đơn KH chưa qua Lịch sử vì chưa nhận đủ tiền.")
-                
-                # Form Update
+                # HIỂN THỊ TRẠNG THÁI TIỀN
+                st.info(f"Trạng thái tiền: {curr.get('_TIEN_VE_CHUA')}")
+                if curr.get('_TIEN_VE_CHUA') == "❌ CHƯA" and curr.get('order_type') == 'KH':
+                    st.caption("👉 Đơn KH này chưa qua Lịch Sử vì hệ thống chưa thấy 'Đã nhận thanh toán' + 'Ngày' bên Tab 5.2")
+
+                # Update Status
                 ops = ["Ordered", "Shipping", "Arrived", "Delivered", "Waiting"]
                 st_now = curr.get("status", "Ordered")
                 idx = ops.index(st_now) if st_now in ops else 0
-                new_st = st.selectbox("Trạng thái", ops, index=idx, key="act_st")
+                new_st = st.selectbox("Status", ops, index=idx, key="a_st")
                 
-                up_img = st.file_uploader("Upload Proof", type=["png","jpg"], key="act_img")
+                up_img = st.file_uploader("Proof", type=["png","jpg"], key="a_img")
                 
                 if st.button("💾 CẬP NHẬT"):
-                    load = {"status": new_st, "last_update": datetime.now().strftime("%d/%m/%Y")}
+                    ld = {"status": new_st, "last_update": datetime.now().strftime("%d/%m/%Y")}
                     if up_img:
-                        lnk, _ = upload_to_drive_simple(up_img, "CRM_PROOF", f"PRF_{sel_po}_{int(time.time())}.png")
-                        load["proof_image"] = lnk
+                        lnk, _ = upload_to_drive_simple(up_img, "CRM_PROOF", f"PRF_{clean_po(sel_po)}_{int(time.time())}.png")
+                        ld["proof_image"] = lnk
                     
-                    supabase.table("crm_tracking").update(load).eq("po_no", sel_po).execute()
+                    supabase.table("crm_tracking").update(ld).eq("po_no", sel_po).execute()
                     
-                    # Auto tạo payment nếu KH Delivered
+                    # Auto tạo Payment
                     if new_st == "Delivered" and curr.get("order_type") == "KH":
-                         # Check nhanh xem có chưa
-                         po_clean = clean_po(sel_po)
-                         if po_clean not in paid_po_set:
-                             # Check DB lần nữa cho chắc
-                             chk = supabase.table("crm_payments").select("*").eq("po_no", sel_po).execute()
-                             if not chk.data:
-                                 new_p = {
-                                     "po_no": sel_po, "partner": curr.get("partner",""),
-                                     "payment_status": "Đợi xuất hóa đơn",
-                                     "eta_payment": (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
-                                 }
-                                 supabase.table("crm_payments").insert([new_p]).execute()
+                        if clean_po(sel_po) not in paid_list:
+                            chk = supabase.table("crm_payments").select("*").eq("po_no", sel_po).execute()
+                            if not chk.data:
+                                p_new = {
+                                    "po_no": sel_po, "partner": curr.get("partner",""),
+                                    "payment_status": "Đợi xuất hóa đơn",
+                                    "eta_payment": (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+                                }
+                                supabase.table("crm_payments").insert([p_new]).execute()
                     
                     st.success("Đã lưu!")
                     time.sleep(0.5)
                     st.rerun()
-
+                
                 st.divider()
-                if st.button("🗑️ Xóa Đơn Này"):
+                if st.button("🗑️ Xóa Đơn"):
                     supabase.table("crm_tracking").delete().eq("po_no", sel_po).execute()
                     st.rerun()
 
-            with c2:
-                # Hiển thị bảng kèm cột Debug
+            with c_view:
                 st.dataframe(
                     df_active,
                     column_config={
                         "proof_image": st.column_config.ImageColumn("Proof"),
-                        "_PAID_CHECK": "Đã Trả Tiền?"
+                        "_TIEN_VE_CHUA": "KIỂM TRA TIỀN" # Cột debug
                     },
                     use_container_width=True, hide_index=True
                 )
         else:
-            st.success("🎉 Sạch bóng! Không còn đơn hàng tồn đọng.")
+            st.success("🎉 Không có đơn hàng tồn đọng! (Tất cả đã qua Lịch Sử)")
 
-    # ==============================================================================
-    # 5. GIAO DIỆN TAB 5.2: THANH TOÁN
-    # ==============================================================================
+    # ================= TAB 5.2: PAYMENT =================
     with t5_2:
         st.subheader("5.2: QUẢN LÝ THANH TOÁN")
-        if st.button("🔄 Refresh Payments"): st.rerun()
+        if st.button("🔄 Refresh Payment"): st.rerun()
         
         if not df_pay.empty:
-            c_p1, c_p2 = st.columns([1, 2])
-            with c_p1:
+            c1, c2 = st.columns([1, 2])
+            with c1:
                 st.markdown("#### Cập nhật TT")
                 p_list = df_pay['po_no'].unique()
-                sel_p = st.selectbox("Chọn PO", p_list, key="pay_po")
+                sel_p = st.selectbox("Chọn PO", p_list, key="p_po")
                 
                 row_p = df_pay[df_pay['po_no'] == sel_p].iloc[0]
-                
-                inv = st.text_input("Invoice No", value=str(row_p.get('invoice_no','') or ''))
+                inv = st.text_input("Invoice", value=str(row_p.get('invoice_no','') or ''))
                 
                 ops_p = ["Đợi xuất hóa đơn", "Đợi thanh toán", "Đã nhận thanh toán"]
                 st_p = str(row_p.get('payment_status',''))
                 idx_p = ops_p.index(st_p) if st_p in ops_p else 0
-                new_st_p = st.selectbox("Trạng thái", ops_p, index=idx_p, key="pay_st")
+                new_st_p = st.selectbox("Trạng thái", ops_p, index=idx_p, key="p_st")
                 
-                # Hiển thị ngày hiện tại
-                cur_d = str(row_p.get('payment_date','') or '')
-                st.write(f"Ngày TT hiện tại: `{cur_d}`")
+                st.write(f"Ngày TT: `{row_p.get('payment_date')}`")
                 
                 if st.button("💾 LƯU PAYMENT"):
-                    load_p = {"invoice_no": inv, "payment_status": new_st_p}
+                    ld_p = {"invoice_no": inv, "payment_status": new_st_p}
                     
-                    # Logic ngày
+                    # Tự động điền ngày hôm nay nếu chọn Đã nhận
                     if new_st_p == "Đã nhận thanh toán":
-                        # Luôn update ngày hôm nay
-                        load_p["payment_date"] = datetime.now().strftime("%d/%m/%Y")
+                        ld_p["payment_date"] = datetime.now().strftime("%d/%m/%Y")
                     else:
-                        load_p["payment_date"] = ""
+                        ld_p["payment_date"] = ""
                         
-                    supabase.table("crm_payments").update(load_p).eq("po_no", sel_p).execute()
-                    st.success("Đã lưu! Hãy quay lại Tab 5.1 kiểm tra.")
+                    supabase.table("crm_payments").update(ld_p).eq("po_no", sel_p).execute()
+                    st.success("Đã lưu! Hãy quay lại Tab 5.1 check cột Tiền.")
                     time.sleep(0.5)
                     st.rerun()
                 
-                if st.button("🗑️ Xóa dòng TT"):
+                if st.button("Xóa dòng TT"):
                     supabase.table("crm_payments").delete().eq("po_no", sel_p).execute()
                     st.rerun()
 
-            with c_p2:
+            with c2:
                 st.dataframe(df_pay, use_container_width=True, hide_index=True)
         else:
-            st.info("Chưa có dữ liệu thanh toán.")
+            st.info("Chưa có dữ liệu.")
 
+    # ================= TAB 5.3: HISTORY =================
+    with t5_3:
+        st.subheader("5.3: LỊCH SỬ (ĐÃ HOÀN TẤT)")
+        if st.button("🔄 Refresh History"): st.rerun()
+        
+        if not df_history.empty:
+            st.dataframe(df_history, use_container_width=True, hide_index=True)
+            with st.expander("Xóa Dữ Liệu"):
+                d = st.selectbox("Chọn PO xóa", df_history['po_no'].unique(), key="h_del")
+                if st.button("Xác nhận xóa"):
+                    supabase.table("crm_tracking").delete().eq("po_no", d).execute()
+                    st.rerun()
+        else:
+            st.info("Chưa có đơn hàng lịch sử.")
     # ==============================================================================
     # 6. GIAO DIỆN TAB 5.3: LỊCH SỬ
     # ==============================================================================
