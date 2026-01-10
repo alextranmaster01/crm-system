@@ -2223,10 +2223,13 @@ with t5:
     paid_pos = []
     if not df_pay_check.empty:
         # Lọc các PO có trạng thái "Đã nhận thanh toán" VÀ có ngày thanh toán
+        # CẬP NHẬT: Xử lý kỹ hơn để tránh lỗi dữ liệu rỗng/None
         mask_paid = (df_pay_check['payment_status'] == "Đã nhận thanh toán") & \
                     (df_pay_check['payment_date'].notna()) & \
-                    (df_pay_check['payment_date'] != "")
-        paid_pos = df_pay_check[mask_paid]['po_no'].unique().tolist()
+                    (df_pay_check['payment_date'].astype(str).str.strip() != "")
+        
+        # CẬP NHẬT: Chuẩn hóa PO về dạng string và xóa khoảng trắng để so sánh chính xác 100%
+        paid_pos = [str(x).strip() for x in df_pay_check[mask_paid]['po_no'].unique()]
 
     # ---------------- TAB 5.1: ĐƠN HÀNG (ACTIVE) ----------------
     with t5_1:
@@ -2253,8 +2256,8 @@ with t5:
                 cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
                 cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
                 
-                # Condition 2: Payment Completion (New Requirement)
-                cond_paid = row['po_no'] in paid_pos
+                # Condition 2: Payment Completion (CẬP NHẬT: Chuẩn hóa string)
+                cond_paid = str(row['po_no']).strip() in paid_pos
                 
                 return cond_ncc or cond_kh or cond_paid
 
@@ -2306,7 +2309,9 @@ with t5:
                                 st.toast("✅ Đã tự động tạo lịch thanh toán!", icon="💸")
                         except Exception as e:
                             st.warning(f"Không thể tạo lịch thanh toán tự động. Lỗi: {e}")
-
+                    
+                    # CẬP NHẬT: Xóa cache để cập nhật list ngay lập tức
+                    st.cache_data.clear()
                     st.success("Đã cập nhật!"); time.sleep(1); st.rerun()
 
                 st.divider()
@@ -2315,6 +2320,7 @@ with t5:
                 po_to_del = st.selectbox("Chọn PO để xóa", [""] + list(po_list), key="del_po_active")
                 if po_to_del and st.button("Xóa PO này"):
                     supabase.table("crm_tracking").delete().eq("po_no", po_to_del).execute()
+                    st.cache_data.clear()
                     st.warning(f"Đã xóa {po_to_del}"); time.sleep(1); st.rerun()
 
             # --- DISPLAY LIST ---
@@ -2341,6 +2347,7 @@ with t5:
             if st.button("⚠️ XÓA HẾT PAYMENTS"):
                 if adm_pay == "admin":
                     supabase.table("crm_payments").delete().neq("id", 0).execute()
+                    st.cache_data.clear()
                     st.success("Deleted All Payments!"); time.sleep(1); st.rerun()
                 else: st.error("Sai Pass!")
 
@@ -2370,6 +2377,9 @@ with t5:
                         upd_p["payment_date"] = datetime.now().strftime("%d/%m/%Y")
                     
                     supabase.table("crm_payments").update(upd_p).eq("po_no", sel_p_po).execute()
+                    
+                    # CẬP NHẬT: Xóa cache ngay lập tức để TAB ACTIVE nhận biết được sự thay đổi
+                    st.cache_data.clear()
                     st.success("Updated Payment!"); time.sleep(1); st.rerun()
                 
                 st.divider()
@@ -2377,6 +2387,7 @@ with t5:
                 st.markdown("#### 🗑️ Xóa dòng thanh toán")
                 if st.button("Xóa dòng này"):
                     supabase.table("crm_payments").delete().eq("po_no", sel_p_po).execute()
+                    st.cache_data.clear()
                     st.warning("Deleted!"); time.sleep(1); st.rerun()
 
             with c_p_list:
@@ -2407,8 +2418,8 @@ with t5:
                 cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
                 cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
                 
-                # Condition 2: Payment Completion (New Requirement)
-                cond_paid = row['po_no'] in paid_pos
+                # Condition 2: Payment Completion (CẬP NHẬT: Chuẩn hóa string)
+                cond_paid = str(row['po_no']).strip() in paid_pos
 
                 return cond_ncc or cond_kh or cond_paid
             
@@ -2431,6 +2442,7 @@ with t5:
                     po_del_h = st.selectbox("Chọn PO Lịch sử để xóa", h_po_list, key="del_hist_sel")
                     if st.button("Xóa Vĩnh Viễn PO Lịch Sử"):
                         supabase.table("crm_tracking").delete().eq("po_no", po_del_h).execute()
+                        st.cache_data.clear()
                         st.warning("Deleted!"); time.sleep(1); st.rerun()
             else:
                 st.info("Chưa có đơn hàng nào hoàn tất quy trình (Có Proof + Đúng trạng thái đích HOẶC Đã thanh toán).")
