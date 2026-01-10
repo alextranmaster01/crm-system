@@ -2217,6 +2217,17 @@ with t4:
 with t5:
     t5_1, t5_2, t5_3 = st.tabs(["📦 THEO DÕI ĐƠN HÀNG", "💸 THANH TOÁN", "📜 LỊCH SỬ"])
     
+    # --- PRE-CALCULATE PAID POs (LOGIC CHO VIỆC CHUYỂN QUA LỊCH SỬ) ---
+    # Load bảng payments để xem đơn nào đã thanh toán xong
+    df_pay_check = load_data("crm_payments")
+    paid_pos = []
+    if not df_pay_check.empty:
+        # Lọc các PO có trạng thái "Đã nhận thanh toán" VÀ có ngày thanh toán
+        mask_paid = (df_pay_check['payment_status'] == "Đã nhận thanh toán") & \
+                    (df_pay_check['payment_date'].notna()) & \
+                    (df_pay_check['payment_date'] != "")
+        paid_pos = df_pay_check[mask_paid]['po_no'].unique().tolist()
+
     # ---------------- TAB 5.1: ĐƠN HÀNG (ACTIVE) ----------------
     with t5_1:
         st.subheader("5.1: THEO DÕI ĐƠN HÀNG (ACTIVE)")
@@ -2234,13 +2245,18 @@ with t5:
         df_track = load_data("crm_tracking", order_by="id")
         
         # Filter Active Orders (Exclude History conditions)
-        # History Logic: (NCC + Arrived + Proof) OR (KH + Delivered + Proof)
+        # History Logic: (NCC + Arrived + Proof) OR (KH + Delivered + Proof) OR (PAID & HAS DATE)
         if not df_track.empty:
             def is_history(row):
+                # Condition 1: Physical Completion
                 has_proof = pd.notna(row['proof_image']) and str(row['proof_image']) != ''
                 cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
                 cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
-                return cond_ncc or cond_kh
+                
+                # Condition 2: Payment Completion (New Requirement)
+                cond_paid = row['po_no'] in paid_pos
+                
+                return cond_ncc or cond_kh or cond_paid
 
             mask_active = ~df_track.apply(is_history, axis=1)
             df_active = df_track[mask_active].copy()
@@ -2386,10 +2402,15 @@ with t5:
         
         if not df_track_h.empty:
             def is_history_check(row):
+                # Condition 1: Physical Completion
                 has_proof = pd.notna(row['proof_image']) and str(row['proof_image']) != ''
                 cond_ncc = (row['order_type'] == 'NCC' and row['status'] == 'Arrived' and has_proof)
                 cond_kh = (row['order_type'] == 'KH' and row['status'] == 'Delivered' and has_proof)
-                return cond_ncc or cond_kh
+                
+                # Condition 2: Payment Completion (New Requirement)
+                cond_paid = row['po_no'] in paid_pos
+
+                return cond_ncc or cond_kh or cond_paid
             
             mask_hist = df_track_h.apply(is_history_check, axis=1)
             df_history = df_track_h[mask_hist].copy()
@@ -2412,10 +2433,9 @@ with t5:
                         supabase.table("crm_tracking").delete().eq("po_no", po_del_h).execute()
                         st.warning("Deleted!"); time.sleep(1); st.rerun()
             else:
-                st.info("Chưa có đơn hàng nào hoàn tất quy trình (Có Proof + Đúng trạng thái đích).")
+                st.info("Chưa có đơn hàng nào hoàn tất quy trình (Có Proof + Đúng trạng thái đích HOẶC Đã thanh toán).")
         else:
             st.info("No Data.")
-
 # --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025) ---
 with t6:
     # CẬP NHẬT: Thêm tab "IMPORT DATA"
