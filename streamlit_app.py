@@ -361,7 +361,7 @@ def parse_formula(formula, buying_price, ap_price):
 t1, t2, t3, t4, t5, t6 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "⚙️ MASTER DATA"])
 
 # =============================================================================
-# --- TAB 1: DASHBOARD (UPDATED) ---
+# --- TAB 1: DASHBOARD (UPDATED - FIX METRICS LOGIC) ---
 # =============================================================================
 with t1:
     # --- 1. HEADER & ADMIN RESET ---
@@ -392,32 +392,39 @@ with t1:
                     st.error("Sai mật khẩu!")
 
     # --- 2. LOAD DATA ---
-    db_cust_po = load_data("db_customer_orders") # Nguồn PO Khách hàng (Doanh thu thực)
-    db_hist = load_data("crm_shared_history")    # Nguồn Lịch sử (Để tính Profit & Cost theo công thức)
+    db_cust_po = load_data("db_customer_orders") # Nguồn PO Khách hàng (Tham khảo)
+    db_hist = load_data("crm_shared_history")    # Nguồn Lịch sử (Chính xác cho Doanh thu/Chi phí/Lợi nhuận)
     db_items = load_data("crm_purchases")        # Master Data
 
-    # --- 3. METRICS CALCULATION ---
-    # Doanh thu = Tổng PO Khách Hàng
-    revenue_total = db_cust_po['total_price'].apply(to_float).sum() if not db_cust_po.empty else 0
+    # --- 3. METRICS CALCULATION (FIXED) ---
+    # Logic cũ sai vì lấy Doanh thu từ PO nhưng Chi phí từ History.
+    # Logic mới: Lấy TẤT CẢ từ History để đảm bảo (Doanh thu - Chi phí = Lợi nhuận)
     
-    # Lợi nhuận & Chi phí (Lấy từ bảng History đã tính toán kỹ)
+    revenue_total = 0
     profit_total = 0
     cost_total = 0
-    
+    total_po_raw = db_cust_po['total_price'].apply(to_float).sum() if not db_cust_po.empty else 0
+
     if not db_hist.empty:
-        # Profit được lưu trực tiếp trong history
+        # Lấy Doanh thu từ những đơn ĐÃ CÓ lịch sử chi phí
+        revenue_total = db_hist['total_price_vnd'].apply(to_float).sum()
+        # Lấy Lợi nhuận thực tế
         profit_total = db_hist['profit_vnd'].apply(to_float).sum()
-        # Revenue trong history (dùng để tính cost tương ứng)
-        rev_hist_sum = db_hist['total_price_vnd'].apply(to_float).sum()
-        # Cost = Revenue (History) - Profit
-        cost_total = rev_hist_sum - profit_total
-        
-        # Nếu chưa có history nhưng có PO (trường hợp hiếm), cost = 0 hoặc logic khác
-        # Ở đây ưu tiên hiển thị từ History để khớp công thức.
+        # Tính chi phí khớp với doanh thu này
+        cost_total = revenue_total - profit_total
+    else:
+        # Nếu chưa có history thì hiển thị doanh thu thô, lợi nhuận = 0
+        revenue_total = total_po_raw
     
     # --- 4. KPI CARDS ---
     c1, c2, c3 = st.columns(3)
-    c1.markdown(f"<div class='card-3d bg-sales'><h3>DOANH THU (Total PO)</h3><h1>{fmt_num(revenue_total)}</h1></div>", unsafe_allow_html=True)
+    
+    # Hiển thị Note nhỏ để biết tổng PO thực tế nếu lệch với History
+    delta_msg = ""
+    if total_po_raw > revenue_total:
+        delta_msg = f" (Tổng PO thực: {fmt_num(total_po_raw)})"
+
+    c1.markdown(f"<div class='card-3d bg-sales'><h3>DOANH THU (Đã chốt Cost)</h3><h1>{fmt_num(revenue_total)}</h1><p style='font-size:12px; margin:0;'>{delta_msg}</p></div>", unsafe_allow_html=True)
     c2.markdown(f"<div class='card-3d bg-cost'><h3>CHI PHÍ (Formula)</h3><h1>{fmt_num(cost_total)}</h1></div>", unsafe_allow_html=True)
     c3.markdown(f"<div class='card-3d bg-profit'><h3>LỢI NHUẬN (Est.)</h3><h1>{fmt_num(profit_total)}</h1></div>", unsafe_allow_html=True)
 
@@ -456,12 +463,10 @@ with t1:
             tooltip=['Month', 'customer', alt.Tooltip('Revenue', format=',.0f')]
         )
         
-        # Text Labels for Bar (Total per month stack or per segment? 
-        # Altair stack labels are tricky. We will label the total per month using the line data logic or simple text on bars)
-        # Cách đơn giản nhất: Label trên từng đoạn bar
+        # Text Labels for Bar
         text_bar = base.mark_text(dy=3, color='white').encode(
             y=alt.Y('Revenue', stack='zero'),
-            text=alt.Text('Revenue', format='.2s') # Format gọn (vd: 10M)
+            text=alt.Text('Revenue', format='.2s') 
         )
 
         # Trend Line (Total per Month)
@@ -473,7 +478,6 @@ with t1:
             tooltip=[alt.Tooltip('Revenue', format=',.0f', title='Tổng Trend')]
         )
         
-        # Labels for Trend Line (Hiển thị tổng doanh số trên đỉnh đường line)
         text_line = base_line.mark_text(align='center', baseline='bottom', dy=-10, color='red').encode(
             y='Revenue',
             text=alt.Text('Revenue', format=',.0f')
@@ -482,38 +486,29 @@ with t1:
         st.altair_chart((bar + text_bar + line + text_line).interactive(), use_container_width=True)
         
         # -----------------------------------------------------------
-        # CHART 2 & 3: PIE CHARTS (CƠ CẤU) - CÓ LABEL % VÀ GIÁ TRỊ
+        # CHART 2 & 3: PIE CHARTS
         # -----------------------------------------------------------
         st.divider()
         st.subheader("🍰 Cơ cấu Doanh số")
         col_pie1, col_pie2 = st.columns(2)
         
-        # Helper function to create Pie Chart with Labels
         def create_pie_chart_with_labels(df_source, group_col, value_col, color_scheme="category20"):
-            # 1. Aggregate
             df_agg = df_source.groupby(group_col)[value_col].sum().reset_index()
-            # 2. Calculate Percentage & Label
             total_val = df_agg[value_col].sum()
             df_agg['Percent'] = (df_agg[value_col] / total_val * 100).round(1)
-            # Tạo nhãn: "Name: 20% (1,000)"
             df_agg['Label'] = df_agg.apply(lambda x: f"{x['Percent']}% ({fmt_num(x[value_col])})", axis=1)
             
-            base = alt.Chart(df_agg).encode(
-                theta=alt.Theta(field=value_col, type="quantitative", stack=True)
-            )
-            
+            base = alt.Chart(df_agg).encode(theta=alt.Theta(field=value_col, type="quantitative", stack=True))
             pie = base.mark_arc(outerRadius=120).encode(
                 color=alt.Color(field=group_col, type="nominal", scale=alt.Scale(scheme=color_scheme)),
                 order=alt.Order(field=value_col, sort="descending"),
                 tooltip=[group_col, alt.Tooltip(value_col, format=',.0f'), 'Percent']
             )
-            
             text = base.mark_text(radius=140).encode(
                 text=alt.Text("Label"),
                 order=alt.Order(field=value_col, sort="descending"),
                 color=alt.value("black") 
             )
-            
             return (pie + text)
 
         with col_pie1:
