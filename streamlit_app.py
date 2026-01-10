@@ -2464,6 +2464,7 @@ with t5:
                     st.cache_data.clear(); st.rerun()
         else:
             st.info("Chưa có đơn hàng nào hoàn tất quy trình.")
+            
 # --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025) ---
 with t6:
     # CẬP NHẬT: Thêm tab "IMPORT DATA"
