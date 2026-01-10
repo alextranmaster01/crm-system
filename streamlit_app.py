@@ -2125,28 +2125,57 @@ with t4:
                          "Buying price(VND)", "Total buying price(VND)", 
                          "GAP", "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
                          "Transportation", "Management fee(%)", "Profit(%)"]
+            
             valid_cols_cost = [c for c in cols_cost if c in st.session_state.po_main_df.columns]
             df_cost_view = st.session_state.po_main_df[valid_cols_cost].copy()
             
+            # --- TÍNH TỔNG DÒNG (TOTAL ROW) ---
             total_row_cost = {"No": "TOTAL", "Item code": "", "Item name": "", "SPECS": "", "Profit(%)": ""}
             sum_cols_cost = ["Q'ty", "Buying price(VND)", "Total buying price(VND)", "GAP", 
                              "End user(%)", "Buyer(%)", "Import tax(%)", "VAT", 
                              "Transportation", "Management fee(%)"]
+            
+            # Cộng tổng từng cột
             for c in sum_cols_cost:
                 total_row_cost[c] = df_cost_view[c].apply(to_float).sum() if c in df_cost_view.columns else 0.0
             
+            # --- [FIX QUAN TRỌNG] TÍNH TỔNG CHI PHÍ THEO CÔNG THỨC BẠN YÊU CẦU ---
+            # Công thức: Buying(Total) + GAP + End + Buyer + Tax + VAT + Trans + Mgmt
+            total_cost_val = (
+                total_row_cost.get("Total buying price(VND)", 0) +
+                total_row_cost.get("GAP", 0) +
+                total_row_cost.get("End user(%)", 0) +
+                total_row_cost.get("Buyer(%)", 0) +
+                total_row_cost.get("Import tax(%)", 0) +
+                total_row_cost.get("VAT", 0) +
+                total_row_cost.get("Transportation", 0) +
+                total_row_cost.get("Management fee(%)", 0)
+            )
+
+            # Format hiển thị bảng
             df_cost_fmt = df_cost_view.copy()
             for c in sum_cols_cost:
                  if c in df_cost_fmt.columns: df_cost_fmt[c] = df_cost_fmt[c].apply(local_fmt_vnd)
+            
+            # Format cột RMB nếu có
             if "Buying price(RMB)" in df_cost_fmt.columns: df_cost_fmt["Buying price(RMB)"] = df_cost_fmt["Buying price(RMB)"].apply(local_fmt_rmb)
             if "Total buying price(rmb)" in df_cost_fmt.columns: df_cost_fmt["Total buying price(rmb)"] = df_cost_fmt["Total buying price(rmb)"].apply(local_fmt_rmb)
 
+            # Thêm dòng Total vào bảng hiển thị
             total_row_cost_fmt = total_row_cost.copy()
             for c in sum_cols_cost: total_row_cost_fmt[c] = local_fmt_vnd(total_row_cost.get(c, 0))
             df_cost_fmt = pd.concat([df_cost_fmt, pd.DataFrame([total_row_cost_fmt])], ignore_index=True)
+            
             st.dataframe(df_cost_fmt, use_container_width=True, hide_index=True)
             
-            st.markdown(f"""<div style="display: flex; justify-content: flex-end; margin-top: 10px;"><div style="padding: 10px 20px; background-color: #262730; border-radius: 5px; color: #00FF00; font-weight: bold; font-size: 20px; border: 1px solid #444;">💰 TỔNG CỘNG: {local_fmt_vnd(total_po_val)} VND</div></div>""", unsafe_allow_html=True)
+            # --- HIỂN THỊ CON SỐ TỔNG CỘNG ĐÃ FIX ---
+            st.markdown(f"""
+            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                <div style="padding: 10px 20px; background-color: #262730; border-radius: 5px; color: #FF4B4B; font-weight: bold; font-size: 20px; border: 1px solid #444;">
+                    💸 TỔNG CHI PHÍ: {local_fmt_vnd(total_cost_val)} VND
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
             if st.button("💾 Lưu Chi Phí (Link Dashboard)"):
                 if not st.session_state.get("po_no_input"): st.error("Thiếu số PO!")
@@ -2159,6 +2188,8 @@ with t4:
                     for c in cols_cost: 
                         if c not in excel_cost_data.columns: excel_cost_data[c] = ""
                     for r in excel_cost_data[cols_cost].to_dict('records'): ws.append(list(r.values()))
+                    
+                    # Dòng Total trong Excel cũng phải đúng thứ tự
                     vals = ["TOTAL", "", "", ""]
                     vals.append(total_row_cost.get("Q'ty", 0)); vals.append(""); vals.append(""); vals.append("")
                     vals.append(total_row_cost.get("Buying price(VND)", 0)); vals.append(total_row_cost.get("Total buying price(VND)", 0))
@@ -2167,6 +2198,7 @@ with t4:
                     vals.append(total_row_cost.get("VAT", 0)); vals.append(total_row_cost.get("Transportation", 0))
                     vals.append(total_row_cost.get("Management fee(%)", 0)); vals.append("")
                     ws.append(vals)
+                    
                     out = io.BytesIO(); wb.save(out); out.seek(0)
                     fname = f"{curr_po}.xlsx"
                     try: lnk, _ = upload_to_drive_structured(out, path_list, fname)
