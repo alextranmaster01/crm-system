@@ -2438,7 +2438,6 @@ with t6:
                 df = pd.read_excel(up_c, dtype=str).fillna("")
                 
                 # 2. Normalize Columns (Logic V6025 Safe Import)
-                # Chuyển tên cột về dạng lowercase và thay khoảng trắng bằng gạch dưới để khớp với DB
                 df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
                 
                 data = df.to_dict('records')
@@ -2451,7 +2450,6 @@ with t6:
                     chunk_size = 100
                     for k in range(0, len(data), chunk_size):
                         batch = data[k:k+chunk_size]
-                        # Remove 'id' if exists to let DB auto-inc
                         for b in batch:
                             if 'id' in b: del b['id']
                         supabase.table("crm_customers").insert(batch).execute()
@@ -2517,15 +2515,56 @@ with t6:
                 st.rerun()
         st.dataframe(load_data("crm_templates"))
 
-    # --- IMPORT DATA (NEW TAB) ---
+    # --- IMPORT DATA (UPDATED) ---
     with ti:
         st.markdown("### 4. DỮ LIỆU IMPORT (MASTER)")
-        # Load data to display
+        
+        # Load data
         try:
             df_i = load_data("crm_import_data", order_by="id")
-            st.dataframe(df_i, use_container_width=True, hide_index=True)
-        except:
-            st.info("Chưa có dữ liệu.")
+            
+            if not df_i.empty:
+                # 1. Bỏ cột created_at (Requirement)
+                if "created_at" in df_i.columns:
+                    df_i = df_i.drop(columns=["created_at"])
+                
+                # 2. Format Price USD (Requirement: $ và 2 số thập phân)
+                if "import_price_usd" in df_i.columns:
+                    def fmt_price(x):
+                        try:
+                            # Xóa ký tự lạ, chuyển sang float rồi format
+                            clean_val = str(x).replace('$', '').replace(',', '').strip()
+                            if clean_val == "": return ""
+                            val = float(clean_val)
+                            return f"${val:,.2f}"
+                        except:
+                            return x
+                    df_i["import_price_usd"] = df_i["import_price_usd"].apply(fmt_price)
+
+                # 3. Search Box (Requirement)
+                col_search, col_dummy = st.columns([1, 2])
+                with col_search:
+                    search_term = st.text_input("🔎 Tìm kiếm (Tên, HS Code, Part Number...)", key="search_import_master")
+                
+                if search_term:
+                    # Lọc dữ liệu trên các cột quan trọng
+                    mask = (
+                        df_i["name_in_forwarder"].astype(str).str.contains(search_term, case=False, na=False) |
+                        df_i["name_in_supplier"].astype(str).str.contains(search_term, case=False, na=False) |
+                        df_i["name_in_customer"].astype(str).str.contains(search_term, case=False, na=False) |
+                        df_i["hscode"].astype(str).str.contains(search_term, case=False, na=False)
+                    )
+                    df_i = df_i[mask]
+
+            # 4. Hiển thị bảng (Requirement: Tăng chiều cao > 20 dòng)
+            st.dataframe(
+                df_i, 
+                use_container_width=True, 
+                hide_index=True, 
+                height=800  # ~25-30 dòng
+            )
+        except Exception as e:
+            st.info(f"Chưa có dữ liệu hoặc đang tải... ({e})")
 
         st.write("---")
         st.write("📥 **Import Dữ Liệu IMPORT DATA (Ghi đè toàn bộ)**")
@@ -2538,7 +2577,6 @@ with t6:
                 df = pd.read_excel(up_i, dtype=str).fillna("")
                 
                 # 2. Mapping Columns (Force mapping by index to match DB schema exactly)
-                # DB Columns: no, name_in_forwarder, name_in_supplier, name_in_customer, qty, uom, import_price_usd, import_tax_percent, hscode, clearance_custom_info
                 target_cols = [
                     "no", "name_in_forwarder", "name_in_supplier", "name_in_customer", 
                     "qty", "uom", "import_price_usd", "import_tax_percent", 
