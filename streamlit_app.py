@@ -525,7 +525,7 @@ with t1:
 # --- TAB 2: KHO HÀNG (FINAL FIX: FORCE TYPE CASTING) ---
 with t2:
     st.subheader("QUẢN LÝ KHO HÀNG (Excel Online)")
-    c_imp, c_view = st.columns([1, 4])
+    c_imp, c_view = st.columns([0.5, 5])
     
     # --- HÀM LÀM SẠCH DỮ LIỆU ---
     def clean_strict(val):
