@@ -2732,7 +2732,7 @@ with t7:
         st.divider()
 
         # --- 4. DANH SÁCH DỰ ÁN VỚI BỘ LỌC KHÁCH HÀNG ---
-        c_left, c_right = st.columns([1, 4])
+        c_left, c_right = st.columns([1, 6])
         
         with c_left:
             st.markdown("**📂 TÊN KHÁCH HÀNG**")
