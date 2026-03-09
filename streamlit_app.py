@@ -2447,36 +2447,35 @@ with t6:
     # CẬP NHẬT: Thêm tab "IMPORT DATA"
     tc, ts, tt, ti = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE", "IMPORT DATA"])
     
-    # --- CUSTOMERS (ALGORITHM: DELETE ALL -> INSERT CHUNKS, NORMALIZED COLUMNS) ---
+   # --- CUSTOMERS (ALGORITHM: SMART IMPORT - BỎ QUA CỘT THỪA) ---
     with tc:
         st.markdown("### 1. QUẢN LÝ KHÁCH HÀNG")
         df_c = load_data("crm_customers", order_by="id")
         st.dataframe(df_c, use_container_width=True, hide_index=True)
+        
         st.write("---")
-        st.write("📥 **Import Dữ Liệu Mới (Ghi đè toàn bộ)**")
-        st.caption("Excel Headers: Short Name, Eng Name, VN Name, Address 1, Tax Code... (Hệ thống tự động chuẩn hóa)")
+        st.write("📥 **Import Dữ Liệu Mới (Tự động vứt bỏ cột lạ)**")
         up_c = st.file_uploader("Upload Excel Khách Hàng", type=["xlsx"], key="up_cust_master")
-        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (V6025 Algorithm)"):
+        
+        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG"):
             try:
-                # 1. Read Excel
+                # 1. Đọc Excel
                 df = pd.read_excel(up_c, dtype=str).fillna("")
                 
-                # 2. Normalize Columns: Xóa ký tự xuống dòng và chuẩn hóa tên cột
+                # 2. Xóa khoảng trắng, ký tự xuống dòng ở tên cột
                 df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
                 
-                # 3. LỌC CỘT THÔNG MINH: Lấy danh sách cột chuẩn từ DB và vứt bỏ các cột rác trong Excel
+                # 3. LỌC CỘT THÔNG MINH: Chỉ giữ lại các cột có mặt trong Database
                 if not df_c.empty:
-                    valid_db_cols = df_c.columns.tolist()
-                    cols_to_keep = [c for c in df.columns if c in valid_db_cols]
-                    df = df[cols_to_keep]
+                    db_cols = df_c.columns.tolist()
+                    valid_cols = [c for c in df.columns if c in db_cols]
+                    df = df[valid_cols] # Lệnh này tự động vứt bỏ mọi cột rác (như giám_đốc, destination...)
                 
                 data = df.to_dict('records')
                 
                 if data:
-                    # 3. Clear Data
                     supabase.table("crm_customers").delete().neq("id", 0).execute()
                     
-                    # 4. Insert Data (Chunking)
                     chunk_size = 100
                     for k in range(0, len(data), chunk_size):
                         batch = data[k:k+chunk_size]
@@ -2484,66 +2483,40 @@ with t6:
                             if 'id' in b: del b['id']
                         supabase.table("crm_customers").insert(batch).execute()
                         
-                    st.success(f"✅ Đã import thành công {len(data)} khách hàng!")
-                    time.sleep(1)
+                    st.success(f"✅ Đã import thành công {len(data)} khách hàng (Các cột rác đã bị tự động loại bỏ)!")
+                    time.sleep(1.5)
                     st.rerun()
                 else:
-                    st.warning("File rỗng hoặc không có cột nào khớp với Database!")
-            except Exception as e:
-                st.error(f"Lỗi Import: {e}")
-                
-                # 3. LỌC CỘT THÔNG MINH: Chỉ lấy những cột có tồn tại trong Database
-                if not df_c.empty:
-                    valid_db_cols = df_c.columns.tolist()
-                    # Giữ lại các cột có trong Excel VÀ có trong DB
-                    cols_to_keep = [c for c in df.columns if c in valid_db_cols]
-                    df = df[cols_to_keep]
-                data = df.to_dict('records')                
-                if data:
-                    # 3. Clear Data
-                    supabase.table("crm_customers").delete().neq("id", 0).execute()
-                    
-                    # 4. Insert Data (Chunking)
-                    chunk_size = 100
-                    for k in range(0, len(data), chunk_size):
-                        batch = data[k:k+chunk_size]
-                        for b in batch:
-                            if 'id' in b: del b['id']
-                        supabase.table("crm_customers").insert(batch).execute()
-                        
-                    st.success(f"✅ Đã import thành công {len(data)} khách hàng!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.warning("File rỗng!")
+                    st.warning("File rỗng hoặc không có cột nào khớp dữ liệu!")
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 
-    # --- SUPPLIERS (ALGORITHM: DELETE ALL -> INSERT CHUNKS) ---
+    # --- SUPPLIERS (ALGORITHM: SMART IMPORT - BỎ QUA CỘT THỪA) ---
     with ts:
         st.markdown("### 2. QUẢN LÝ NHÀ CUNG CẤP")
         df_s = load_data("crm_suppliers", order_by="id")
         st.dataframe(df_s, use_container_width=True, hide_index=True)
         
         st.write("---")
-        st.write("📥 **Import Dữ Liệu Mới (Ghi đè toàn bộ)**")
+        st.write("📥 **Import Dữ Liệu Mới (Tự động vứt bỏ cột lạ)**")
         up_s = st.file_uploader("Upload Excel Nhà Cung Cấp", type=["xlsx"], key="up_supp_master")
         
-        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP (V6025 Algorithm)"):
+        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP"):
             try:
-                # 1. Read Excel
                 df = pd.read_excel(up_s, dtype=str).fillna("")
+                df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
                 
-                # 2. Normalize Columns
-                df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+                # LỌC CỘT THÔNG MINH
+                if not df_s.empty:
+                    db_cols = df_s.columns.tolist()
+                    valid_cols = [c for c in df.columns if c in db_cols]
+                    df = df[valid_cols]
                 
                 data = df.to_dict('records')
                 
                 if data:
-                    # 3. Clear Data
                     supabase.table("crm_suppliers").delete().neq("id", 0).execute()
                     
-                    # 4. Insert Data (Chunking)
                     chunk_size = 100
                     for k in range(0, len(data), chunk_size):
                         batch = data[k:k+chunk_size]
@@ -2551,11 +2524,11 @@ with t6:
                             if 'id' in b: del b['id']
                         supabase.table("crm_suppliers").insert(batch).execute()
                         
-                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp!")
-                    time.sleep(1)
+                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp (Các cột rác đã bị tự động loại bỏ)!")
+                    time.sleep(1.5)
                     st.rerun()
                 else:
-                    st.warning("File rỗng!")
+                    st.warning("File rỗng hoặc không có cột nào khớp dữ liệu!")
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 
