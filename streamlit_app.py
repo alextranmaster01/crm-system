@@ -24,7 +24,7 @@ st.markdown("""
     .bg-sales { background: linear-gradient(135deg, #00b09b, #96c93d); }
     .bg-cost { background: linear-gradient(135deg, #ff5f6d, #ffc371); }
     .bg-profit { background: linear-gradient(135deg, #f83600, #f9d423); }
-    [data-testid="stDataFrame"] > div { max-height: 750px; }
+    [data-testid="stDataFrame"] > div { max-height: 70px; }
     .highlight-low { background-color: #ffcccc !important; color: red !important; font-weight: bold; }
     
     /* CSS CHO CÁC NÚT BẤM: NỀN TỐI - CHỮ SÁNG */
