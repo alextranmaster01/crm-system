@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL SYNC: DASHBOARD + GANTT + AUTO-CALC) ---
+# --- TAB 7: PROJECT MANAGEMENT (FINAL FIX: FORMATTING & SYNC) ---
 # =============================================================================
 with t7:
     st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
@@ -2660,7 +2660,7 @@ with t7:
     if not df_projects.empty:
         df_dash = df_projects.copy()
         
-        # Tính tổng chi phí thực tế từ bảng costs
+        # Tính tổng chi phí thực tế
         if not df_costs_master.empty:
             df_costs_master['amount_vnd'] = pd.to_numeric(df_costs_master['amount_vnd'], errors='coerce').fillna(0)
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
@@ -2686,16 +2686,20 @@ with t7:
         margin_color = "bg-profit" if grand_margin >= 15 else "bg-cost"
         c_m3.markdown(f"<div class='card-3d {margin_color}'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>{fmt_num(grand_profit)} <span style='font-size:18px;'>({grand_margin:.1f}%)</span></h1></div>", unsafe_allow_html=True)
         
-        # Bảng danh sách dự án (Đã fix dấu phẩy ngăn cách hàng nghìn)
+        # --- FIX VÙNG MÀU ĐỎ: ÉP ĐỊNH DẠNG SỐ TRỰC TIẾP ---
         with st.expander("📋 DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI", expanded=True):
             st.dataframe(
                 df_dash[['project_code', 'project_name', 'customer_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'margin']],
                 column_config={
-                    "project_code": "Mã DA", "project_name": "Tên Dự Án", "customer_name": "Khách Hàng",
-                    "start_date": "Bắt Đầu", "end_date": "Kết Thúc", "status": "Trạng thái",
-                    "budget_vnd": st.column_config.NumberColumn("Doanh Thu", format="%d,"), # Dấu phẩy ở đây
-                    "total_cost": st.column_config.NumberColumn("Chi Phí", format="%d,"),   # Dấu phẩy ở đây
-                    "profit": st.column_config.NumberColumn("Lợi Nhuận", format="%d,"),     # Dấu phẩy ở đây
+                    "project_code": "Mã DA",
+                    "project_name": "Tên Dự Án",
+                    "customer_name": "Khách Hàng",
+                    "start_date": "Bắt Đầu",
+                    "end_date": "Kết Thúc",
+                    "status": "Trạng thái",
+                    "budget_vnd": st.column_config.NumberColumn("Doanh Thu", format="%d,"), # Thêm dấu phẩy cưỡng bức
+                    "total_cost": st.column_config.NumberColumn("Chi Phí", format="%d,"),   # Thêm dấu phẩy cưỡng bức
+                    "profit": st.column_config.NumberColumn("Lợi Nhuận", format="%d,"),     # Thêm dấu phẩy cưỡng bức
                     "margin": st.column_config.NumberColumn("LN (%)", format="%.1f%%")
                 },
                 use_container_width=True, hide_index=True
@@ -2735,7 +2739,7 @@ with t7:
                     st.success("✅ Thành công!"); time.sleep(1); st.rerun()
 
     # ====================================================================
-    # PHẦN 3: CHI TIẾT DỰ ÁN (GANTT 2 TẦNG & AUTO-CALC COSTS)
+    # PHẦN 3: CHI TIẾT DỰ ÁN (GANTT & AUTO-CALC COSTS)
     # ====================================================================
     if selected_project:
         st.markdown(f"#### 🎯 ĐANG XEM: {current_project_info['project_name']} ({selected_project})")
@@ -2751,12 +2755,10 @@ with t7:
             with c_edit_task:
                 st.markdown("**📝 BẢNG CÔNG VIỆC CON**")
                 task_df_edit = curr_tasks[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() if not curr_tasks.empty else pd.DataFrame([{"task_name": "", "assignee": "", "start_date": datetime.now().date(), "end_date": (datetime.now() + timedelta(days=7)).date(), "progress_pct": "0% 🔴", "status": "To-do"}])
-                
-                # Ép kiểu ngày để hiển thị lịch
                 task_df_edit['start_date'] = pd.to_datetime(task_df_edit['start_date'], errors='coerce').dt.date
                 task_df_edit['end_date'] = pd.to_datetime(task_df_edit['end_date'], errors='coerce').dt.date
 
-                edited_tasks = st.data_editor(task_df_edit, num_rows="dynamic", use_container_width=True, hide_index=True, key="ed_tasks_v2")
+                edited_tasks = st.data_editor(task_df_edit, num_rows="dynamic", use_container_width=True, hide_index=True, key="ed_tasks_v3")
 
                 if st.button("💾 LƯU TIẾN ĐỘ", use_container_width=True):
                     supabase.table("crm_project_tasks").delete().eq("project_code", selected_project).execute()
@@ -2770,7 +2772,6 @@ with t7:
                 if not df_gantt.empty:
                     df_gantt['start_date'] = pd.to_datetime(df_gantt['start_date'])
                     df_gantt['end_date'] = pd.to_datetime(df_gantt['end_date'])
-                    # Thêm thanh Master Dự án
                     master_row = pd.DataFrame([{'task_name': '⭐ TỔNG DỰ ÁN', 'start_date': pd.to_datetime(current_project_info['start_date']), 'end_date': pd.to_datetime(current_project_info['end_date']), 'status': 'Master'}])
                     df_plot = pd.concat([master_row, df_gantt], ignore_index=True).dropna(subset=['start_date', 'end_date'])
                     chart = alt.Chart(df_plot).mark_bar(cornerRadius=5, height=25).encode(
@@ -2781,7 +2782,7 @@ with t7:
 
         # --- 3.2 CHI PHÍ (AUTO-CALC & FORMAT) ---
         with tp_costs:
-            st.markdown("**💸 CHI PHÍ CHI TIẾT (Hỗ trợ công thức `=10%*...`)**")
+            st.markdown("**💸 CHI PHÍ CHI TIẾT (Công thức `=10%*...`)**")
             
             def parse_money(val):
                 try:
@@ -2792,14 +2793,18 @@ with t7:
                 except: return 0.0
 
             cost_df_display = curr_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy() if not curr_costs.empty else pd.DataFrame([{"cost_type": "", "amount_vnd": "", "ref_po": "", "description": ""}])
-            cost_df_display['amount_vnd'] = cost_df_display['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if pd.notnull(x) and str(x) != "" else "")
+            
+            # Ép kiểu số để hiển thị dấu phẩy ngay khi bảng load lên
+            cost_df_display['amount_vnd'] = pd.to_numeric(cost_df_display['amount_vnd'], errors='coerce').fillna(0)
+            cost_df_display['amount_vnd'] = cost_df_display['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 else "")
 
             ed_costs = st.data_editor(
                 cost_df_display, num_rows="dynamic", use_container_width=True, hide_index=True,
-                column_config={"amount_vnd": st.column_config.TextColumn("Số tiền / Công thức")}
+                column_config={"amount_vnd": st.column_config.TextColumn("Số tiền / Công thức")},
+                key="ed_costs_v3"
             )
 
-            # Logic Auto-Save khi data thay đổi
+            # Logic Auto-Save khi data thay đổi (Không cần nút bấm)
             if not cost_df_display.equals(ed_costs):
                 supabase.table("crm_project_costs").delete().eq("project_code", selected_project).execute()
                 new_db_costs = []
@@ -2821,12 +2826,14 @@ with t7:
                 n_bud = st.number_input("Doanh thu", value=float(current_project_info['budget_vnd']))
                 n_st = st.date_input("Bắt đầu", value=pd.to_datetime(current_project_info['start_date']).date())
                 n_en = st.date_input("Kết thúc", value=pd.to_datetime(current_project_info['end_date']).date())
-                if st.button("🔄 CẬP NHẬT"):
+                if st.button("🔄 CẬP NHẬT DỰ ÁN"):
                     supabase.table("crm_projects").update({"budget_vnd": n_bud, "start_date": str(n_st), "end_date": str(n_en)}).eq("project_code", selected_project).execute()
                     st.rerun()
             with c_s2:
                 st.write("**Xóa dự án**")
-                if st.text_input("Nhập 'admin' để xóa", type="password") == "admin":
-                    if st.button("🗑️ XÓA VĨNH VIỄN"):
+                pwd = st.text_input("Nhập 'admin' để xóa", type="password", key="pwd_del")
+                if st.button("🗑️ XÓA VĨNH VIỄN"):
+                    if pwd == "admin":
                         supabase.table("crm_projects").delete().eq("project_code", selected_project).execute()
                         st.rerun()
+                    else: st.error("Sai mật khẩu!")
