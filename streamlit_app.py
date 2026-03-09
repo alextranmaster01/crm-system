@@ -2848,25 +2848,40 @@ with t7:
                     st.info("Chưa có công việc nào. Hãy thêm ở bảng bên phải và nhấn LƯU.")
 
         # -------------------------------------------------------------------
-        # 2.3 TAB CHI PHÍ (EXCEL-LIKE)
+        # 2.3 TAB CHI PHÍ (EXCEL-LIKE + TÍNH TOÁN CÔNG THỨC THÔNG MINH)
         # -------------------------------------------------------------------
         with tp_costs:
-            st.markdown("**💸 BẢNG KÊ CHI TIẾT CHI PHÍ (Thêm/Sửa/Xóa trực tiếp)**")
-            st.caption("Cập nhật tất cả các khoản chi thực tế của dự án. Hệ thống sẽ tự động tổng hợp vào Lợi Nhuận ở Tab Tổng Quan.")
+            st.markdown("**💸 BẢNG KÊ CHI TIẾT CHI PHÍ (Hỗ trợ gõ công thức Excel)**")
+            st.caption("💡 Mẹo: Cột Số tiền có thể gõ công thức (VD: `=20%*50944000` hoặc `5000+100`). Ấn Enter để hệ thống tự động tính toán!")
             
-            # --- FIX LỖI ÉP KIỂU SỐ TIỀN TẠI ĐÂY ---
+            # --- HÀM PHÂN TÍCH TOÁN HỌC MINI ---
+            def parse_smart_money(val):
+                try:
+                    if pd.isna(val) or val is None or str(val).strip() == "": return 0.0
+                    s = str(val).strip().replace(",", "") # Xóa dấu phẩy
+                    if s.startswith("="): s = s[1:] # Bỏ dấu = nếu có
+                    s = s.replace("%", "/100").replace("X", "*").replace("x", "*") # Đổi % và chữ x
+                    s = re.sub(r'[^0-9.+\-*/()]', '', s) # Chỉ giữ lại ký tự toán học
+                    if not s: return 0.0
+                    return float(eval(s)) # Tính toán kết quả
+                except: return 0.0
+
+            # --- LOAD DATA VÀ ĐỊNH DẠNG DẤU PHẨY CHO ĐẸP MẮT ---
             cost_df_edit = curr_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
             if cost_df_edit.empty:
-                cost_df_edit = pd.DataFrame([{"cost_type": "Vật tư (PO)", "amount_vnd": 0.0, "ref_po": "", "description": ""}])
+                cost_df_edit = pd.DataFrame([{"cost_type": "", "amount_vnd": "0", "ref_po": "", "description": ""}])
             else:
-                cost_df_edit['amount_vnd'] = pd.to_numeric(cost_df_edit['amount_vnd'], errors='coerce').fillna(0.0)
+                # Đắp dấu phẩy ngăn cách hàng nghìn khi hiển thị lên màn hình
+                cost_df_edit['amount_vnd'] = cost_df_edit['amount_vnd'].apply(
+                    lambda x: "{:,.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "0"
+                )
 
             edited_costs = st.data_editor(
                 cost_df_edit,
                 num_rows="dynamic",
                 column_config={
-                    "cost_type": st.column_config.TextColumn("Loại chi phí (Gõ tự do)", required=True, width="medium"),
-                    "amount_vnd": st.column_config.NumberColumn("Số tiền (VND)", min_value=0.0, format="%d", required=True, width="medium"),
+                    "cost_type": st.column_config.TextColumn("Loại chi phí (Gõ tự do)", width="medium"),
+                    "amount_vnd": st.column_config.TextColumn("Số tiền / Công thức", required=True, width="medium"),
                     "ref_po": st.column_config.TextColumn("Số PO (Tra cứu)", width="small"),
                     "description": st.column_config.TextColumn("Ghi chú chi tiết", width="large")
                 },
@@ -2880,19 +2895,23 @@ with t7:
                     
                     new_costs = []
                     for _, r in edited_costs.iterrows():
-                        amount = float(r.get("amount_vnd", 0))
-                        if amount > 0 or str(r.get("description", "")).strip() != "":
+                        # Đưa chuỗi (có phẩy/công thức) qua bộ lọc để lấy ra số thực chuẩn
+                        raw_amount = r.get("amount_vnd", "0")
+                        amount_clean = parse_smart_money(raw_amount)
+                        
+                        if amount_clean > 0 or str(r.get("description", "")).strip() != "" or str(r.get("cost_type", "")).strip() != "":
                             new_costs.append({
                                 "project_code": selected_project,
                                 "cost_type": str(r.get("cost_type", "")).replace("nan", ""),
-                                "amount_vnd": amount,
+                                "amount_vnd": amount_clean, # Lưu số sạch không dấu phẩy vào DB
                                 "ref_po": str(r.get("ref_po", "")).replace("nan", ""),
                                 "description": str(r.get("description", "")).replace("nan", "")
                             })
                     if new_costs:
                         supabase.table("crm_project_costs").insert(new_costs).execute()
                     st.toast("✅ Đã cập nhật chi phí!"); time.sleep(1); st.rerun()
+            
             with c_btn_c2:
-                # Hiển thị tổng tiền ngay dưới bảng cho dễ nhìn
-                total_draft_cost = edited_costs["amount_vnd"].astype(float).sum()
+                # Tính Tổng Tiền Nháp ngay lập tức mỗi khi anh gõ công thức và ấn Enter
+                total_draft_cost = sum([parse_smart_money(val) for val in edited_costs["amount_vnd"]])
                 st.markdown(f"<div style='text-align: right; font-size: 20px; font-weight: bold; color: #ff5f6d;'>Tổng chi phí nháp: {fmt_num(total_draft_cost)} VND</div>", unsafe_allow_html=True)
