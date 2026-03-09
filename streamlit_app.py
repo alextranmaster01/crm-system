@@ -2865,7 +2865,7 @@ with t7:
                 cost_df_edit,
                 num_rows="dynamic",
                 column_config={
-                    "cost_type": st.column_config.SelectboxColumn("Loại chi phí", options=["Vật tư (PO)", "Vận chuyển", "Gia công ngoài", "Nhân công", "Khác"], required=True, width="medium"),
+                    "cost_type": st.column_config.TextColumn("Loại chi phí (Gõ tự do)", required=True, width="medium"),
                     "amount_vnd": st.column_config.NumberColumn("Số tiền (VND)", min_value=0.0, format="%d", required=True, width="medium"),
                     "ref_po": st.column_config.TextColumn("Số PO (Tra cứu)", width="small"),
                     "description": st.column_config.TextColumn("Ghi chú chi tiết", width="large")
@@ -2884,7 +2884,7 @@ with t7:
                         if amount > 0 or str(r.get("description", "")).strip() != "":
                             new_costs.append({
                                 "project_code": selected_project,
-                                "cost_type": str(r.get("cost_type", "Khác")).replace("nan", "Khác"),
+                                "cost_type": str(r.get("cost_type", "")).replace("nan", ""),
                                 "amount_vnd": amount,
                                 "ref_po": str(r.get("ref_po", "")).replace("nan", ""),
                                 "description": str(r.get("description", "")).replace("nan", "")
