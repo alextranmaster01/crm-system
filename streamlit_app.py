@@ -2442,34 +2442,29 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025) ---
+# --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025 - SELF HEALING IMPORT) ---
 with t6:
     # CẬP NHẬT: Thêm tab "IMPORT DATA"
     tc, ts, tt, ti = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE", "IMPORT DATA"])
     
-   # --- CUSTOMERS (ALGORITHM: SMART IMPORT - BỎ QUA CỘT THỪA) ---
+    # --- CUSTOMERS (ALGORITHM: SELF-HEALING IMPORT) ---
     with tc:
         st.markdown("### 1. QUẢN LÝ KHÁCH HÀNG")
         df_c = load_data("crm_customers", order_by="id")
         st.dataframe(df_c, use_container_width=True, hide_index=True)
         
         st.write("---")
-        st.write("📥 **Import Dữ Liệu Mới (Tự động vứt bỏ cột lạ)**")
+        st.write("📥 **Import Dữ Liệu Mới (Chấp nhận mọi file - Tự động dọn rác)**")
+        st.caption("Cứ upload file thoải mái, phần mềm sẽ tự động ép Supabase nhận dữ liệu!")
         up_c = st.file_uploader("Upload Excel Khách Hàng", type=["xlsx"], key="up_cust_master")
         
-        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG"):
+        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (Auto-Fix)"):
             try:
                 # 1. Đọc Excel
                 df = pd.read_excel(up_c, dtype=str).fillna("")
                 
-                # 2. Xóa khoảng trắng, ký tự xuống dòng ở tên cột
+                # 2. Chuẩn hóa tên cột thô
                 df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
-                
-                # 3. LỌC CỘT THÔNG MINH: Chỉ giữ lại các cột có mặt trong Database
-                if not df_c.empty:
-                    db_cols = df_c.columns.tolist()
-                    valid_cols = [c for c in df.columns if c in db_cols]
-                    df = df[valid_cols] # Lệnh này tự động vứt bỏ mọi cột rác (như giám_đốc, destination...)
                 
                 data = df.to_dict('records')
                 
@@ -2481,37 +2476,49 @@ with t6:
                         batch = data[k:k+chunk_size]
                         for b in batch:
                             if 'id' in b: del b['id']
-                        supabase.table("crm_customers").insert(batch).execute()
                         
-                    st.success(f"✅ Đã import thành công {len(data)} khách hàng (Các cột rác đã bị tự động loại bỏ)!")
+                        # --- THUẬT TOÁN TỰ CHỮA LÀNH (SELF-HEALING) ---
+                        max_retries = 20 # Cho phép sai tối đa 20 cột rác
+                        for attempt in range(max_retries):
+                            try:
+                                supabase.table("crm_customers").insert(batch).execute()
+                                break # Insert thành công thì thoát vòng lặp Retry ngay
+                            except Exception as e:
+                                err_str = str(e)
+                                # Dùng AI Regex tóm cổ cái tên cột gây lỗi do Supabase trả về
+                                match = re.search(r"Could not find the '(.*?)' column", err_str)
+                                if match:
+                                    bad_col = match.group(1)
+                                    # Đi từng dòng xóa sạch cái cột rác đó đi
+                                    for r in batch:
+                                        if bad_col in r:
+                                            del r[bad_col]
+                                else:
+                                    # Nếu lỗi khác không phải do dư cột thì văng lỗi thật
+                                    raise e
+                                    
+                    st.success(f"✅ Đã import thành công {len(data)} khách hàng! (Đã tự động nhận diện và xóa bỏ các cột rác)")
                     time.sleep(1.5)
                     st.rerun()
                 else:
-                    st.warning("File rỗng hoặc không có cột nào khớp dữ liệu!")
+                    st.warning("File rỗng!")
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 
-    # --- SUPPLIERS (ALGORITHM: SMART IMPORT - BỎ QUA CỘT THỪA) ---
+    # --- SUPPLIERS (ALGORITHM: SELF-HEALING IMPORT) ---
     with ts:
         st.markdown("### 2. QUẢN LÝ NHÀ CUNG CẤP")
         df_s = load_data("crm_suppliers", order_by="id")
         st.dataframe(df_s, use_container_width=True, hide_index=True)
         
         st.write("---")
-        st.write("📥 **Import Dữ Liệu Mới (Tự động vứt bỏ cột lạ)**")
+        st.write("📥 **Import Dữ Liệu Mới (Chấp nhận mọi file - Tự động dọn rác)**")
         up_s = st.file_uploader("Upload Excel Nhà Cung Cấp", type=["xlsx"], key="up_supp_master")
         
-        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP"):
+        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP (Auto-Fix)"):
             try:
                 df = pd.read_excel(up_s, dtype=str).fillna("")
                 df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
-                
-                # LỌC CỘT THÔNG MINH
-                if not df_s.empty:
-                    db_cols = df_s.columns.tolist()
-                    valid_cols = [c for c in df.columns if c in db_cols]
-                    df = df[valid_cols]
-                
                 data = df.to_dict('records')
                 
                 if data:
@@ -2522,16 +2529,29 @@ with t6:
                         batch = data[k:k+chunk_size]
                         for b in batch:
                             if 'id' in b: del b['id']
-                        supabase.table("crm_suppliers").insert(batch).execute()
-                        
-                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp (Các cột rác đã bị tự động loại bỏ)!")
+                            
+                        # --- THUẬT TOÁN TỰ CHỮA LÀNH ---
+                        max_retries = 20
+                        for attempt in range(max_retries):
+                            try:
+                                supabase.table("crm_suppliers").insert(batch).execute()
+                                break
+                            except Exception as e:
+                                err_str = str(e)
+                                match = re.search(r"Could not find the '(.*?)' column", err_str)
+                                if match:
+                                    bad_col = match.group(1)
+                                    for r in batch:
+                                        if bad_col in r: del r[bad_col]
+                                else: raise e
+                                
+                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp! (Đã tự động dọn rác)")
                     time.sleep(1.5)
                     st.rerun()
                 else:
-                    st.warning("File rỗng hoặc không có cột nào khớp dữ liệu!")
+                    st.warning("File rỗng!")
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
-
     # --- TEMPLATE ---
     with tt:
         st.write("Upload Template Excel (Quotation)")
