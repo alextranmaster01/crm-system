@@ -2739,7 +2739,7 @@ with t7:
         # 2.2 TAB TIẾN ĐỘ & GANTT CHART (EXCEL-LIKE)
         # -------------------------------------------------------------------
         with tp_tasks:
-            c_gantt, c_edit_task = st.columns([1, 4])
+            c_gantt, c_edit_task = st.columns([1.5, 3.5])
             
             # Khung Edit Excel-like
             with c_edit_task:
