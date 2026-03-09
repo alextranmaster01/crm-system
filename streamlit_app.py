@@ -2663,7 +2663,15 @@ with t7:
             st.markdown("**Nhập thông tin dự án mới**")
             p_code = st.text_input("Mã Dự Án (VD: PRJ-001)", key="new_p_code")
             p_name = st.text_input("Tên Dự Án", key="new_p_name")
-            p_cust = st.text_input("Tên Khách Hàng", key="new_p_cust")
+            
+            # Kéo Tên Khách Hàng từ Master Data
+            try:
+                df_cust_master = load_data("crm_customers")
+                cust_list = df_cust_master["short_name"].tolist() if not df_cust_master.empty else []
+            except:
+                cust_list = []
+            p_cust = st.selectbox("Tên Khách Hàng (Từ Master Data)", [""] + cust_list, key="new_p_cust")
+            
             p_budget = st.number_input("Ngân sách/Doanh thu (VND)", min_value=0.0, step=1000000.0)
             
             if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary"):
@@ -2691,7 +2699,7 @@ with t7:
         df_tasks = load_data("crm_project_tasks")
         df_costs = load_data("crm_project_costs")
         
-        curr_tasks = df_tasks[df_tasks["project_code"] == selected_project] if not df_tasks.empty else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "status"])
+        curr_tasks = df_tasks[df_tasks["project_code"] == selected_project] if not df_tasks.empty else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
         curr_costs = df_costs[df_costs["project_code"] == selected_project] if not df_costs.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
 
         # Layout 3 Tabs con
@@ -2739,28 +2747,37 @@ with t7:
         # 2.2 TAB TIẾN ĐỘ & GANTT CHART (EXCEL-LIKE)
         # -------------------------------------------------------------------
         with tp_tasks:
-            c_gantt, c_edit_task = st.columns([1.5, 3.5])
+            # Đã chỉnh tỷ lệ: Biểu đồ 40%, Không gian nhập liệu 60%
+            c_gantt, c_edit_task = st.columns([2, 3])
             
             # Khung Edit Excel-like
             with c_edit_task:
                 st.markdown("**📝 BẢNG CÔNG VIỆC (Thêm/Sửa/Xóa trực tiếp)**")
                 st.caption("Mẹo: Click vào ô trống cuối cùng để thêm dòng mới. Chọn dòng và nhấn phím Delete để xóa.")
                 
-                # --- FIX LỖI ÉP KIỂU NGÀY THÁNG TẠI ĐÂY ---
-                task_df_edit = curr_tasks[["task_name", "assignee", "start_date", "end_date", "status"]].copy()
+                # Load và ép kiểu dữ liệu
+                cols_to_pull = ["task_name", "assignee", "start_date", "end_date", "status"]
+                if "progress_pct" in curr_tasks.columns: cols_to_pull.append("progress_pct")
+                
+                task_df_edit = curr_tasks[cols_to_pull].copy()
+                
                 if task_df_edit.empty:
-                    # Tạo dòng mặc định với định dạng DATETIME thật, không dùng String
+                    # Tạo dòng mặc định
                     task_df_edit = pd.DataFrame([{
                         "task_name": "", 
                         "assignee": "", 
                         "start_date": datetime.now().date(), 
                         "end_date": (datetime.now() + timedelta(days=7)).date(), 
+                        "progress_pct": "0% 🔴",
                         "status": "To-do"
                     }])
                 else:
-                    # Ép kiểu dữ liệu Text từ DB về Datetime chuẩn của Python
                     task_df_edit['start_date'] = pd.to_datetime(task_df_edit['start_date'], errors='coerce').dt.date
                     task_df_edit['end_date'] = pd.to_datetime(task_df_edit['end_date'], errors='coerce').dt.date
+                    if "progress_pct" not in task_df_edit.columns: task_df_edit["progress_pct"] = "0% 🔴"
+
+                # Dải màu tương ứng phần trăm
+                progress_options = ["0% 🔴", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🟢", "80% 🟢", "90% 🟢", "100% ✅"]
 
                 edited_tasks = st.data_editor(
                     task_df_edit,
@@ -2770,6 +2787,7 @@ with t7:
                         "assignee": st.column_config.TextColumn("Người PT"),
                         "start_date": st.column_config.DateColumn("Bắt đầu", format="YYYY-MM-DD"),
                         "end_date": st.column_config.DateColumn("Kết thúc", format="YYYY-MM-DD"),
+                        "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=progress_options, required=True),
                         "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"], required=True)
                     },
                     use_container_width=True, hide_index=True, key="editor_tasks"
@@ -2788,6 +2806,7 @@ with t7:
                                 "assignee": str(r.get("assignee", "")).replace("nan", ""),
                                 "start_date": str(r["start_date"])[:10] if pd.notna(r["start_date"]) else None,
                                 "end_date": str(r["end_date"])[:10] if pd.notna(r["end_date"]) else None,
+                                "progress_pct": str(r.get("progress_pct", "0% 🔴")),
                                 "status": str(r.get("status", "To-do"))
                             })
                     if new_tasks:
