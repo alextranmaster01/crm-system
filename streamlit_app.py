@@ -2452,22 +2452,26 @@ with t6:
         st.markdown("### 1. QUẢN LÝ KHÁCH HÀNG")
         df_c = load_data("crm_customers", order_by="id")
         st.dataframe(df_c, use_container_width=True, hide_index=True)
-        
         st.write("---")
         st.write("📥 **Import Dữ Liệu Mới (Ghi đè toàn bộ)**")
         st.caption("Excel Headers: Short Name, Eng Name, VN Name, Address 1, Tax Code... (Hệ thống tự động chuẩn hóa)")
         up_c = st.file_uploader("Upload Excel Khách Hàng", type=["xlsx"], key="up_cust_master")
-        
         if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (V6025 Algorithm)"):
             try:
+                try:
+                try:
                 # 1. Read Excel
                 df = pd.read_excel(up_c, dtype=str).fillna("")
+                # 2. Normalize Columns: Xóa ký tự xuống dòng (\n) và chuẩn hóa tên cột
+                df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
                 
-                # 2. Normalize Columns (Logic V6025 Safe Import)
-                df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
-                
-                data = df.to_dict('records')
-                
+                # 3. LỌC CỘT THÔNG MINH: Chỉ lấy những cột có tồn tại trong Database
+                if not df_c.empty:
+                    valid_db_cols = df_c.columns.tolist()
+                    # Giữ lại các cột có trong Excel VÀ có trong DB
+                    cols_to_keep = [c for c in df.columns if c in valid_db_cols]
+                    df = df[cols_to_keep]
+                data = df.to_dict('records')                
                 if data:
                     # 3. Clear Data
                     supabase.table("crm_customers").delete().neq("id", 0).execute()
