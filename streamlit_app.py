@@ -13,7 +13,7 @@ import altair as alt # Thêm thư viện vẽ biểu đồ
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "V6032 - DASHBOARD UPGRADE & METRICS"
+APP_VERSION = "APL CRM SYSTEM"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
