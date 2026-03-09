@@ -2748,7 +2748,7 @@ with t7:
         # -------------------------------------------------------------------
         with tp_tasks:
             # Đã chỉnh tỷ lệ: Biểu đồ 40%, Không gian nhập liệu 60%
-            c_gantt, c_edit_task = st.columns([2, 3])
+            c_gantt, c_edit_task = st.columns([1.7, 4])
             
             # Khung Edit Excel-like
             with c_edit_task:
