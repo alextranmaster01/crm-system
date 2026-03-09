@@ -2771,17 +2771,24 @@ with t7:
                             "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"])
                         }, key=f"tasks_editor_{prj_id}")
                     
-                    if st.button("💾 LƯU TIẾN ĐỘ", key=f"btn_sv_t_{prj_id}", use_container_width=True):
-                        # Xóa sạch bản ghi cũ của dự án để tránh trùng lặp
-                        supabase.table("crm_project_tasks").delete().eq("project_code", prj_id).execute()
-                        # Chuẩn bị dữ liệu mới, ép kiểu ngày tháng sang string ISO để DB nhận diện chuẩn
-                        new_ts = [{"project_code": prj_id, "task_name": r['task_name'], "assignee": r['assignee'], 
-                                   "start_date": str(r['start_date']), "end_date": str(r['end_date']), 
-                                   "progress_pct": r['progress_pct'], "status": r['status']} 
-                                  for r in ed_tasks.to_dict('records') if r['task_name']]
-                        if new_ts: 
-                            supabase.table("crm_project_tasks").insert(new_ts).execute() # Fix lỗi APIError
-                            st.success("Cập nhật thành công!"); time.sleep(0.5); st.rerun()
+                   if st.button("💾 LƯU TIẾN ĐỘ", key=f"btn_sv_t_{prj_id}", use_container_width=True):
+    # 1. Xóa dữ liệu cũ
+    supabase.table("crm_project_tasks").delete().eq("project_code", prj_id).execute()
+    
+    # 2. Chuẩn bị dữ liệu mới
+    new_ts = [{"project_code": prj_id, "task_name": r['task_name'], "assignee": r['assignee'], 
+               "start_date": str(r['start_date']), "end_date": str(r['end_date']), 
+               "progress_pct": r['progress_pct'], "status": r['status']} 
+              for r in ed_tasks.to_dict('records') if r['task_name']]
+    
+    if new_ts:
+        # 3. Insert vào Database
+        supabase.table("crm_project_tasks").insert(new_ts).execute()
+        
+        # 4. QUAN TRỌNG NHẤT: Thông báo thành công và ÉP LOAD LẠI NGAY LẬP TỨC
+        st.success("✅ Đã cập nhật tiến độ!")
+        time.sleep(0.5) 
+        st.rerun()  # <--- Lệnh này giúp biểu đồ cập nhật ngay sau 1 lần ấn
 
             with t_costs:
                 st.markdown("💰 **CHI PHÍ DỰ ÁN (AUTO-CALC)**")
