@@ -20,7 +20,7 @@ st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="�
 st.markdown("""
     <style>
     button[data-baseweb="tab"] div p { font-size: 18px !important; font-weight: 700 !important; }
-    .card-3d { border-radius: 12px; padding: 20px; color: white; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); margin-bottom: 10px; }
+    .card-3d { border-radius: 12px; padding: 10px; color: white; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); margin-bottom: 10px; }
     .bg-sales { background: linear-gradient(135deg, #00b09b, #96c93d); }
     .bg-cost { background: linear-gradient(135deg, #ff5f6d, #ffc371); }
     .bg-profit { background: linear-gradient(135deg, #f83600, #f9d423); }
@@ -2684,7 +2684,7 @@ with t7:
         c_m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(grand_budget)}</h1></div>", unsafe_allow_html=True)
         c_m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>{fmt_num(grand_cost)}</h1></div>", unsafe_allow_html=True)
         margin_color = "bg-profit" if grand_margin >= 15 else "bg-cost"
-        c_m3.markdown(f"<div class='card-3d {margin_color}'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>{fmt_num(grand_profit)} <span style='font-size:12px;'>({grand_margin:.1f}%)</span></h1></div>", unsafe_allow_html=True)
+        c_m3.markdown(f"<div class='card-3d {margin_color}'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>{fmt_num(grand_profit)} <span style='font-size:18px;'>({grand_margin:.1f}%)</span></h1></div>", unsafe_allow_html=True)
         
         # 3. FIX VÙNG ĐỎ: ÉP ĐỊNH DẠNG DẤU PHẨY CHO BẢNG DANH SÁCH
         with st.expander("📋 DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI", expanded=True):
