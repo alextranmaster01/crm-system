@@ -2458,8 +2458,6 @@ with t6:
         up_c = st.file_uploader("Upload Excel Khách Hàng", type=["xlsx"], key="up_cust_master")
         if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (V6025 Algorithm)"):
             try:
-                try:
-                try:
                 # 1. Read Excel
                 df = pd.read_excel(up_c, dtype=str).fillna("")
                 # 2. Normalize Columns: Xóa ký tự xuống dòng (\n) và chuẩn hóa tên cột
