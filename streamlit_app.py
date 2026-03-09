@@ -2833,6 +2833,5 @@ with t7:
                             if st.button("🗑️ XÓA VĨNH VIỄN DỰ ÁN"):
                                 supabase.table("crm_projects").delete().eq("project_code", sel_prj).execute()
                                 st.rerun()
-                else: st.error("Sai mật khẩu!")
     else:
         st.info("Chưa có dữ liệu dự án. Hãy tạo dự án đầu tiên!")
