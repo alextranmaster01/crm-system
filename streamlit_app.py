@@ -2655,12 +2655,12 @@ with t7:
     df_tasks_master = load_data("crm_project_tasks")
     
     # ====================================================================
-    # PHẦN 1: MASTER DASHBOARD (TỔNG QUAN TẤT CẢ DỰ ÁN)
+    # PHẦN 1: MASTER DASHBOARD (FIXED: ĐỒNG BỘ DẤU PHẨY NHƯ MACRO VIEW)
     # ====================================================================
     if not df_projects.empty:
         df_dash = df_projects.copy()
         
-        # Tính tổng chi phí thực tế
+        # 1. Tính toán chi phí (Giữ nguyên logic gốc)
         if not df_costs_master.empty:
             df_costs_master['amount_vnd'] = pd.to_numeric(df_costs_master['amount_vnd'], errors='coerce').fillna(0)
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
@@ -2673,7 +2673,7 @@ with t7:
         df_dash['profit'] = df_dash['budget_vnd'] - df_dash['total_cost']
         df_dash['margin'] = (df_dash['profit'] / df_dash['budget_vnd'] * 100).fillna(0)
         
-        # Chỉ số Tổng Toàn Công Ty (Macro)
+        # 2. Hiển thị Macro View (Vẫn mượt mà như cũ)
         grand_budget = df_dash['budget_vnd'].sum()
         grand_cost = df_dash['total_cost'].sum()
         grand_profit = df_dash['profit'].sum()
@@ -2686,29 +2686,31 @@ with t7:
         margin_color = "bg-profit" if grand_margin >= 15 else "bg-cost"
         c_m3.markdown(f"<div class='card-3d {margin_color}'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>{fmt_num(grand_profit)} <span style='font-size:18px;'>({grand_margin:.1f}%)</span></h1></div>", unsafe_allow_html=True)
         
-        # --- FIX VÙNG MÀU ĐỎ: ÉP ĐỊNH DẠNG SỐ TRỰC TIẾP ---
+        # 3. FIX VÙNG ĐỎ: ÉP ĐỊNH DẠNG DẤU PHẨY CHO BẢNG DANH SÁCH
         with st.expander("📋 DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI", expanded=True):
+            # Tạo bản sao dữ liệu để định dạng mà không làm hỏng tính toán bên dưới
+            df_display = df_dash[['project_code', 'project_name', 'customer_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'margin']].copy()
+            
+            # --- THUẬT TOÁN "HỌC HỎI" TỪ MACRO VIEW ---
+            # Ép kiểu dữ liệu sang String có dấu phẩy cho 3 cột anh cần
+            for col in ['budget_vnd', 'total_cost', 'profit']:
+                df_display[col] = df_display[col].apply(lambda x: "{:,.0f}".format(x))
+            
+            # Định dạng cột %
+            df_display['margin'] = df_display['margin'].apply(lambda x: f"{x:.1f}%")
+
             st.dataframe(
-                df_dash[['project_code', 'project_name', 'customer_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'margin']],
+                df_display,
                 column_config={
-                    "project_code": "Mã DA",
-                    "project_name": "Tên Dự Án",
-                    "customer_name": "Khách Hàng",
-                    "start_date": "Bắt Đầu",
-                    "end_date": "Kết Thúc",
-                    "status": "Trạng thái",
-                    "budget_vnd": st.column_config.NumberColumn("Doanh Thu", format="%d,"), # Thêm dấu phẩy cưỡng bức
-                    "total_cost": st.column_config.NumberColumn("Chi Phí", format="%d,"),   # Thêm dấu phẩy cưỡng bức
-                    "profit": st.column_config.NumberColumn("Lợi Nhuận", format="%d,"),     # Thêm dấu phẩy cưỡng bức
-                    "margin": st.column_config.NumberColumn("LN (%)", format="%.1f%%")
+                    "project_code": "Mã DA", "project_name": "Tên Dự Án", "customer_name": "Khách Hàng",
+                    "start_date": "Bắt Đầu", "end_date": "Kết Thúc", "status": "Trạng thái",
+                    "budget_vnd": st.column_config.TextColumn("Doanh Thu (VND)"),
+                    "total_cost": st.column_config.TextColumn("Chi Phí (VND)"),
+                    "profit": st.column_config.TextColumn("Lợi Nhuận (VND)"),
+                    "margin": "Biên LN (%)"
                 },
                 use_container_width=True, hide_index=True
             )
-    else:
-        st.info("Hệ thống chưa có dự án nào.")
-
-    st.divider()
-
     # ====================================================================
     # PHẦN 2: CHỌN & TẠO DỰ ÁN (CHI TIẾT)
     # ====================================================================
