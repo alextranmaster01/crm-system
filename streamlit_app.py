@@ -20,7 +20,7 @@ st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="ðŸ
 st.markdown("""
     <style>
     button[data-baseweb="tab"] div p { font-size: 18px !important; font-weight: 700 !important; }
-    .card-3d { border-radius: 12px; padding: 20px; color: white; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); margin-bottom: 10px; }
+    .card-3d { border-radius: 12px; padding: 5px; color: white; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); margin-bottom: 10px; }
     .bg-sales { background: linear-gradient(135deg, #00b09b, #96c93d); }
     .bg-cost { background: linear-gradient(135deg, #ff5f6d, #ffc371); }
     .bg-profit { background: linear-gradient(135deg, #f83600, #f9d423); }
