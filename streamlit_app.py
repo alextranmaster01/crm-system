@@ -2447,57 +2447,47 @@ with t6:
     # CẬP NHẬT: Thêm tab "IMPORT DATA"
     tc, ts, tt, ti = st.tabs(["KHÁCH HÀNG", "NHÀ CUNG CẤP", "TEMPLATE", "IMPORT DATA"])
     
-    # --- CUSTOMERS (ALGORITHM: SELF-HEALING IMPORT) ---
+    # --- CUSTOMERS (ALGORITHM: FORCE INDEX MAPPING - BẤT CHẤP TIÊU ĐỀ) ---
     with tc:
         st.markdown("### 1. QUẢN LÝ KHÁCH HÀNG")
         df_c = load_data("crm_customers", order_by="id")
         st.dataframe(df_c, use_container_width=True, hide_index=True)
         
         st.write("---")
-        st.write("📥 **Import Dữ Liệu Mới (Chấp nhận mọi file - Tự động dọn rác)**")
-        st.caption("Cứ upload file thoải mái, phần mềm sẽ tự động ép Supabase nhận dữ liệu!")
+        st.write("📥 **Import Dữ Liệu Mới (Giữ nguyên toàn bộ Data)**")
+        st.caption("💡 Mẹo: Phần mềm không quan tâm Tiêu đề cột trên Excel là gì (Giám đốc, Tên, Name...). Chỉ cần file Excel sắp xếp đúng **Thứ tự cột** giống hệt bảng trên là Import thành công 100%!")
         up_c = st.file_uploader("Upload Excel Khách Hàng", type=["xlsx"], key="up_cust_master")
         
-        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (Auto-Fix)"):
+        if up_c and st.button("🚀 CẬP NHẬT KHÁCH HÀNG (Force Map)"):
             try:
                 # 1. Đọc Excel
                 df = pd.read_excel(up_c, dtype=str).fillna("")
                 
-                # 2. Chuẩn hóa tên cột thô
-                df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
+                # 2. Lấy danh sách tên cột chuẩn xác từ Database (bỏ id, created_at)
+                db_cols = ["no", "short_name", "eng_name", "vn_name", "address_1", "address_2", "contact_person", "director", "phone", "fax", "tax_code", "destination", "payment_term"]
+                if not df_c.empty:
+                    db_cols = [c for c in df_c.columns if c not in ['id', 'created_at']]
+
+                # 3. Cắt bỏ các cột rác ở tít bên phải của file Excel (nếu có)
+                num_expected = len(db_cols)
+                df = df.iloc[:, :num_expected]
+                
+                # 4. ÉP TÊN CỘT EXCEL: Bắt buộc các cột trong Excel phải mang tên chuẩn của DB
+                df.columns = db_cols[:len(df.columns)]
                 
                 data = df.to_dict('records')
                 
                 if data:
+                    # Clear cũ
                     supabase.table("crm_customers").delete().neq("id", 0).execute()
                     
+                    # Insert mới
                     chunk_size = 100
                     for k in range(0, len(data), chunk_size):
                         batch = data[k:k+chunk_size]
-                        for b in batch:
-                            if 'id' in b: del b['id']
+                        supabase.table("crm_customers").insert(batch).execute()
                         
-                        # --- THUẬT TOÁN TỰ CHỮA LÀNH (SELF-HEALING) ---
-                        max_retries = 20 # Cho phép sai tối đa 20 cột rác
-                        for attempt in range(max_retries):
-                            try:
-                                supabase.table("crm_customers").insert(batch).execute()
-                                break # Insert thành công thì thoát vòng lặp Retry ngay
-                            except Exception as e:
-                                err_str = str(e)
-                                # Dùng AI Regex tóm cổ cái tên cột gây lỗi do Supabase trả về
-                                match = re.search(r"Could not find the '(.*?)' column", err_str)
-                                if match:
-                                    bad_col = match.group(1)
-                                    # Đi từng dòng xóa sạch cái cột rác đó đi
-                                    for r in batch:
-                                        if bad_col in r:
-                                            del r[bad_col]
-                                else:
-                                    # Nếu lỗi khác không phải do dư cột thì văng lỗi thật
-                                    raise e
-                                    
-                    st.success(f"✅ Đã import thành công {len(data)} khách hàng! (Đã tự động nhận diện và xóa bỏ các cột rác)")
+                    st.success(f"✅ Đã import thành công {len(data)} khách hàng (Bảo toàn 100% dữ liệu)!")
                     time.sleep(1.5)
                     st.rerun()
                 else:
@@ -2505,20 +2495,30 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 
-    # --- SUPPLIERS (ALGORITHM: SELF-HEALING IMPORT) ---
+    # --- SUPPLIERS (ALGORITHM: FORCE INDEX MAPPING - BẤT CHẤP TIÊU ĐỀ) ---
     with ts:
         st.markdown("### 2. QUẢN LÝ NHÀ CUNG CẤP")
         df_s = load_data("crm_suppliers", order_by="id")
         st.dataframe(df_s, use_container_width=True, hide_index=True)
         
         st.write("---")
-        st.write("📥 **Import Dữ Liệu Mới (Chấp nhận mọi file - Tự động dọn rác)**")
+        st.write("📥 **Import Dữ Liệu Mới (Giữ nguyên toàn bộ Data)**")
         up_s = st.file_uploader("Upload Excel Nhà Cung Cấp", type=["xlsx"], key="up_supp_master")
         
-        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP (Auto-Fix)"):
+        if up_s and st.button("🚀 CẬP NHẬT NHÀ CUNG CẤP (Force Map)"):
             try:
                 df = pd.read_excel(up_s, dtype=str).fillna("")
-                df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
+                
+                # Lấy danh sách cột chuẩn từ DB (bỏ id, created_at)
+                db_cols_s = ["no", "short_name", "eng_name", "vn_name", "address_1", "address_2", "contact_person", "director", "phone", "fax", "tax_code", "destination", "payment_term"]
+                if not df_s.empty:
+                    db_cols_s = [c for c in df_s.columns if c not in ['id', 'created_at']]
+
+                # Cắt cột thừa và Ép tên cột giống Khách hàng
+                num_expected = len(db_cols_s)
+                df = df.iloc[:, :num_expected]
+                df.columns = db_cols_s[:len(df.columns)]
+                
                 data = df.to_dict('records')
                 
                 if data:
@@ -2527,25 +2527,9 @@ with t6:
                     chunk_size = 100
                     for k in range(0, len(data), chunk_size):
                         batch = data[k:k+chunk_size]
-                        for b in batch:
-                            if 'id' in b: del b['id']
-                            
-                        # --- THUẬT TOÁN TỰ CHỮA LÀNH ---
-                        max_retries = 20
-                        for attempt in range(max_retries):
-                            try:
-                                supabase.table("crm_suppliers").insert(batch).execute()
-                                break
-                            except Exception as e:
-                                err_str = str(e)
-                                match = re.search(r"Could not find the '(.*?)' column", err_str)
-                                if match:
-                                    bad_col = match.group(1)
-                                    for r in batch:
-                                        if bad_col in r: del r[bad_col]
-                                else: raise e
-                                
-                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp! (Đã tự động dọn rác)")
+                        supabase.table("crm_suppliers").insert(batch).execute()
+                        
+                    st.success(f"✅ Đã import thành công {len(data)} nhà cung cấp (Bảo toàn 100% dữ liệu)!")
                     time.sleep(1.5)
                     st.rerun()
                 else:
