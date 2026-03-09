@@ -2460,8 +2460,37 @@ with t6:
             try:
                 # 1. Read Excel
                 df = pd.read_excel(up_c, dtype=str).fillna("")
-                # 2. Normalize Columns: Xóa ký tự xuống dòng (\n) và chuẩn hóa tên cột
+                
+                # 2. Normalize Columns: Xóa ký tự xuống dòng và chuẩn hóa tên cột
                 df.columns = [str(c).strip().lower().replace(" ", "_").replace("\n", "").replace("\r", "") for c in df.columns]
+                
+                # 3. LỌC CỘT THÔNG MINH: Lấy danh sách cột chuẩn từ DB và vứt bỏ các cột rác trong Excel
+                if not df_c.empty:
+                    valid_db_cols = df_c.columns.tolist()
+                    cols_to_keep = [c for c in df.columns if c in valid_db_cols]
+                    df = df[cols_to_keep]
+                
+                data = df.to_dict('records')
+                
+                if data:
+                    # 3. Clear Data
+                    supabase.table("crm_customers").delete().neq("id", 0).execute()
+                    
+                    # 4. Insert Data (Chunking)
+                    chunk_size = 100
+                    for k in range(0, len(data), chunk_size):
+                        batch = data[k:k+chunk_size]
+                        for b in batch:
+                            if 'id' in b: del b['id']
+                        supabase.table("crm_customers").insert(batch).execute()
+                        
+                    st.success(f"✅ Đã import thành công {len(data)} khách hàng!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("File rỗng hoặc không có cột nào khớp với Database!")
+            except Exception as e:
+                st.error(f"Lỗi Import: {e}")
                 
                 # 3. LỌC CỘT THÔNG MINH: Chỉ lấy những cột có tồn tại trong Database
                 if not df_c.empty:
