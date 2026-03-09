@@ -2848,70 +2848,91 @@ with t7:
                     st.info("Chưa có công việc nào. Hãy thêm ở bảng bên phải và nhấn LƯU.")
 
         # -------------------------------------------------------------------
-        # 2.3 TAB CHI PHÍ (EXCEL-LIKE + TÍNH TOÁN CÔNG THỨC THÔNG MINH)
+        # 2.3 TAB CHI PHÍ (EXCEL-LIKE + AUTO-CALC + AUTO-SAVE)
         # -------------------------------------------------------------------
         with tp_costs:
-            st.markdown("**💸 BẢNG KÊ CHI TIẾT CHI PHÍ (Hỗ trợ gõ công thức Excel)**")
-            st.caption("💡 Mẹo: Cột Số tiền có thể gõ công thức (VD: `=20%*50944000` hoặc `5000+100`). Ấn Enter để hệ thống tự động tính toán!")
+            st.markdown("**💸 BẢNG KÊ CHI TIẾT CHI PHÍ (Tự động tính toán & Lưu)**")
+            st.caption("💡 Mẹo: Gõ số tiền hoặc công thức (VD: `=13%*50944000` hoặc `5000+100`) và **ấn Enter**. Phần mềm sẽ tự động tính ra số, thêm dấu phẩy và lưu lại ngay lập tức!")
             
-            # --- HÀM PHÂN TÍCH TOÁN HỌC MINI ---
+            # --- HÀM PHÂN TÍCH TOÁN HỌC ---
             def parse_smart_money(val):
                 try:
                     if pd.isna(val) or val is None or str(val).strip() == "": return 0.0
-                    s = str(val).strip().replace(",", "") # Xóa dấu phẩy
-                    if s.startswith("="): s = s[1:] # Bỏ dấu = nếu có
-                    s = s.replace("%", "/100").replace("X", "*").replace("x", "*") # Đổi % và chữ x
-                    s = re.sub(r'[^0-9.+\-*/()]', '', s) # Chỉ giữ lại ký tự toán học
+                    s = str(val).strip().replace(",", "") # Xóa phẩy
+                    if s.startswith("="): s = s[1:] # Bỏ dấu =
+                    s = s.replace("%", "/100").replace("X", "*").replace("x", "*") # Đổi ký tự
+                    s = re.sub(r'[^0-9.+\-*/()]', '', s) # Lọc bỏ chữ, chỉ giữ số và phép toán
                     if not s: return 0.0
-                    return float(eval(s)) # Tính toán kết quả
+                    return float(eval(s))
                 except: return 0.0
 
-            # --- LOAD DATA VÀ ĐỊNH DẠNG DẤU PHẨY CHO ĐẸP MẮT ---
+            # --- 1. LOAD DATA TỪ DB VÀ ĐỊNH DẠNG DẤU PHẨY ---
             cost_df_edit = curr_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
             if cost_df_edit.empty:
-                cost_df_edit = pd.DataFrame([{"cost_type": "", "amount_vnd": "0", "ref_po": "", "description": ""}])
+                cost_df_edit = pd.DataFrame([{"cost_type": "", "amount_vnd": "", "ref_po": "", "description": ""}])
             else:
-                # Đắp dấu phẩy ngăn cách hàng nghìn khi hiển thị lên màn hình
+                # Đắp dấu phẩy ngăn cách hàng nghìn (Không thay đổi giá trị thực trong DB)
                 cost_df_edit['amount_vnd'] = cost_df_edit['amount_vnd'].apply(
-                    lambda x: "{:,.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "0"
+                    lambda x: "{:,.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else ""
                 )
 
+            # --- 2. HIỂN THỊ BẢNG NHẬP LIỆU ---
             edited_costs = st.data_editor(
                 cost_df_edit,
                 num_rows="dynamic",
                 column_config={
                     "cost_type": st.column_config.TextColumn("Loại chi phí (Gõ tự do)", width="medium"),
-                    "amount_vnd": st.column_config.TextColumn("Số tiền / Công thức", required=True, width="medium"),
+                    "amount_vnd": st.column_config.TextColumn("Số tiền / Công thức", width="medium"), # Đã bỏ required=True để hết viền đỏ
                     "ref_po": st.column_config.TextColumn("Số PO (Tra cứu)", width="small"),
                     "description": st.column_config.TextColumn("Ghi chú chi tiết", width="large")
                 },
-                use_container_width=True, hide_index=True, key="editor_costs", height=400
+                use_container_width=True, hide_index=True, key="editor_costs_auto", height=400
             )
 
-            c_btn_c1, c_btn_c2 = st.columns([1, 4])
-            with c_btn_c1:
-                if st.button("💾 LƯU BẢNG CHI PHÍ", type="primary", use_container_width=True):
-                    supabase.table("crm_project_costs").delete().eq("project_code", selected_project).execute()
-                    
-                    new_costs = []
-                    for _, r in edited_costs.iterrows():
-                        # Đưa chuỗi (có phẩy/công thức) qua bộ lọc để lấy ra số thực chuẩn
-                        raw_amount = r.get("amount_vnd", "0")
-                        amount_clean = parse_smart_money(raw_amount)
-                        
-                        if amount_clean > 0 or str(r.get("description", "")).strip() != "" or str(r.get("cost_type", "")).strip() != "":
-                            new_costs.append({
-                                "project_code": selected_project,
-                                "cost_type": str(r.get("cost_type", "")).replace("nan", ""),
-                                "amount_vnd": amount_clean, # Lưu số sạch không dấu phẩy vào DB
-                                "ref_po": str(r.get("ref_po", "")).replace("nan", ""),
-                                "description": str(r.get("description", "")).replace("nan", "")
-                            })
-                    if new_costs:
-                        supabase.table("crm_project_costs").insert(new_costs).execute()
-                    st.toast("✅ Đã cập nhật chi phí!"); time.sleep(1); st.rerun()
-            
-            with c_btn_c2:
-                # Tính Tổng Tiền Nháp ngay lập tức mỗi khi anh gõ công thức và ấn Enter
-                total_draft_cost = sum([parse_smart_money(val) for val in edited_costs["amount_vnd"]])
-                st.markdown(f"<div style='text-align: right; font-size: 20px; font-weight: bold; color: #ff5f6d;'>Tổng chi phí nháp: {fmt_num(total_draft_cost)} VND</div>", unsafe_allow_html=True)
+            # --- 3. LOGIC AUTO-SAVE VÀ TÍNH TOÁN KHI ẤN ENTER (NHƯ EXCEL) ---
+            def normalize_row(r):
+                return {
+                    "c": str(r.get("cost_type", "")).strip().replace("nan", ""),
+                    "a": str(r.get("amount_vnd", "")).strip().replace("nan", ""),
+                    "r": str(r.get("ref_po", "")).strip().replace("nan", ""),
+                    "d": str(r.get("description", "")).strip().replace("nan", "")
+                }
+
+            # Lọc bỏ các dòng trống hoàn toàn (để không bị lỗi khi ấn dấu +)
+            old_data = [normalize_row(r) for _, r in cost_df_edit.iterrows() if any(normalize_row(r).values())]
+            new_data = [normalize_row(r) for _, r in edited_costs.iterrows() if any(normalize_row(r).values())]
+
+            # KIỂM TRA: Chỉ khi dữ liệu THỰC SỰ thay đổi (Gõ mới, sửa công thức, xóa dòng)
+            if old_data != new_data:
+                # Xóa sạch data cũ của dự án này
+                supabase.table("crm_project_costs").delete().eq("project_code", selected_project).execute()
+                
+                # Tính toán ra số sạch và Lưu dữ liệu mới
+                new_costs_db = []
+                for _, r in edited_costs.iterrows():
+                    row_norm = normalize_row(r)
+                    if any(row_norm.values()): # Chỉ lưu dòng có dữ liệu
+                        amount_clean = parse_smart_money(row_norm["a"])
+                        new_costs_db.append({
+                            "project_code": selected_project,
+                            "cost_type": row_norm["c"],
+                            "amount_vnd": amount_clean, # Lưu số thực (VD: 6622720) vào DB
+                            "ref_po": row_norm["r"],
+                            "description": row_norm["d"]
+                        })
+                
+                if new_costs_db:
+                    supabase.table("crm_project_costs").insert(new_costs_db).execute()
+                
+                # Rerun ngay lập tức để đắp dấu phẩy lên giao diện
+                st.rerun()
+
+            # --- 4. HIỂN THỊ TỔNG CỘNG ---
+            total_cost_val = sum([parse_smart_money(r["a"]) for r in new_data])
+            st.markdown(f"""
+            <div style='display: flex; justify-content: flex-end; margin-top: 10px;'>
+                <div style='padding: 10px 20px; background-color: #262730; border-radius: 5px; color: #00FF00; font-weight: bold; font-size: 20px; border: 1px solid #444;'>
+                    ✅ TỔNG CHI PHÍ THỰC TẾ: {fmt_num(total_cost_val)} VND
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
