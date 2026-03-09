@@ -2644,54 +2644,65 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN CHUẨN HÓA THEO MẪU 100%) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - TIẾN ĐỘ % & MÀU SẮC CHUẨN) ---
 # =============================================================================
 with t7:
-    st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
-    
     # --- 1. TẢI DỮ LIỆU ---
     df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
     df_costs_master = load_data("crm_project_costs")
     df_tasks_master = load_data("crm_project_tasks")
     cust_db = load_data("crm_customers")
 
-    # --- 2. HEADER & NÚT TẠO DỰ ÁN (GÓC PHẢI) ---
+    # --- 2. HEADER & NÚT TẠO DỰ ÁN (GÓC PHẢI TRÊN CÙNG) ---
     c_head1, c_head2 = st.columns([5, 1])
+    with c_head1:
+        st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
     with c_head2:
         with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-            p_code_in = st.text_input("Mã Dự Án", key="p_code_final")
-            p_name_in = st.text_input("Tên Dự Án", key="p_name_final")
-            list_custs = [""] + cust_db["short_name"].tolist() if not cust_db.empty else []
-            p_cust_sel = st.selectbox("Khách Hàng", list_custs, key="p_cust_final")
-            p_budget_val = st.number_input("Ngân sách (VND)", min_value=0.0, step=1000000.0, key="p_budget_final")
-            p_img_file = st.file_uploader("Ảnh dự án", type=["png", "jpg", "jpeg"], key="p_img_final")
-            col_d1, col_d2 = st.columns(2)
-            p_start_d = col_d1.date_input("Ngày Bắt Đầu", key="p_start_final")
-            p_end_d = col_d2.date_input("Ngày Kết Thúc", key="p_end_final")
+            p_code_in = st.text_input("Mã Dự Án (VD: ONSM-001)", key="p_code_v7_final")
+            p_name_in = st.text_input("Tên Dự Án", key="p_name_v7_final")
             
-            if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary"):
+            list_custs = [""] + cust_db["short_name"].tolist() if not cust_db.empty else []
+            p_cust_sel = st.selectbox("Khách Hàng", list_custs, key="p_cust_v7_final")
+            
+            p_budget_val = st.number_input("Ngân sách dự kiến (VND)", min_value=0.0, step=1000000.0, key="p_budget_v7_final")
+            p_img_file = st.file_uploader("🖼️ Ảnh dự án", type=["png", "jpg", "jpeg"], key="p_img_v7_final")
+            
+            col_d1, col_d2 = st.columns(2)
+            p_start_d = col_d1.date_input("Ngày Bắt Đầu", key="p_start_v7_final")
+            p_end_d = col_d2.date_input("Ngày Kết Thúc", key="p_end_v7_final")
+            
+            if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_prj_final"):
                 if p_code_in and p_name_in:
                     img_url = ""
                     if p_img_file:
                         img_url, _ = upload_to_drive_simple(p_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{p_code_in}.png")
+                    
                     new_rec = {
-                        "project_code": p_code_in.strip().upper(), "project_name": p_name_in,
-                        "customer_name": p_cust_sel, "project_image": img_url,
-                        "start_date": str(p_start_d), "end_date": str(p_end_d),
-                        "budget_vnd": float(p_budget_val), "status": "In Progress"
+                        "project_code": p_code_in.strip().upper(),
+                        "project_name": p_name_in,
+                        "customer_name": p_cust_sel,
+                        "project_image": img_url,
+                        "start_date": str(p_start_d),
+                        "end_date": str(p_end_d),
+                        "budget_vnd": float(p_budget_val),
+                        "status": "In Progress"
                     }
-                    supabase.table("crm_projects").insert([new_rec]).execute()
-                    st.success("✅ Thành công!"); time.sleep(1); st.rerun()
+                    try:
+                        supabase.table("crm_projects").insert([new_rec]).execute()
+                        st.success("✅ Dự án đã được tạo!"); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"Lỗi: {e}")
 
-    # --- 3. MACRO VIEW (ĐỒNG BỘ MÀU SẮC THEO ẢNH) ---
+    # --- 3. BỨC TRANH TOÀN CẢNH (MACRO VIEW) ---
     if not df_projects.empty:
         df_dash_calc = df_projects.copy()
         if not df_costs_master.empty:
             df_costs_master['amount_vnd'] = pd.to_numeric(df_costs_master['amount_vnd'], errors='coerce').fillna(0)
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
             df_dash_calc = pd.merge(df_dash_calc, cost_sum, on='project_code', how='left')
-        else: df_dash_calc['total_cost'] = 0.0
-        
+        else:
+            df_dash_calc['total_cost'] = 0.0
+            
         df_dash_calc['total_cost'] = df_dash_calc['total_cost'].fillna(0)
         df_dash_calc['profit'] = df_dash_calc['budget_vnd'].apply(to_float) - df_dash_calc['total_cost']
         
@@ -2709,8 +2720,9 @@ with t7:
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
             cust_options = ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].unique().tolist())
-            selected_cust = st.selectbox("Lọc theo khách hàng:", cust_options, key="strict_filter_final")
-            st.markdown(f"<div style='border:1px solid #ddd; padding:15px; text-align:center; color:#ff4b4b; font-weight:bold; border-radius:5px; background:#f9f9f9;'>{selected_cust}</div>", unsafe_allow_html=True)
+            selected_cust = st.selectbox("Lọc theo khách hàng:", cust_options, key="filter_prj_final")
+            # Hiển thị thông tin đơn giản, không dùng ô vuông chữ đỏ
+            st.info(f"Đang xem: **{selected_cust}**")
 
         with c_right:
             st.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
@@ -2718,7 +2730,6 @@ with t7:
             if selected_cust != "TẤT CẢ":
                 df_final_view = df_final_view[df_final_view["customer_name"] == selected_cust]
             
-            # Chuẩn bị bảng hiển thị (Ép định dạng dấu phẩy)
             df_table = df_final_view[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit']].copy()
             for col in ['budget_vnd', 'total_cost', 'profit']:
                 df_table[col] = df_table[col].apply(lambda x: "{:,.0f}".format(float(x)))
@@ -2730,7 +2741,7 @@ with t7:
                 "total_cost": "Chi Phí", "profit": "Lợi Nhuận"
             }, use_container_width=True, hide_index=True)
 
-        # --- 5. CHI TIẾT QUẢN LÝ (GANTT & TASKS) ---
+        # --- 5. QUẢN LÝ CHI TIẾT (NẰM DƯỚI THẲNG HÀNG) ---
         if not df_final_view.empty:
             active_prj = df_final_view.iloc[0]
             prj_id = active_prj['project_code']
@@ -2740,18 +2751,40 @@ with t7:
             
             with t_tasks:
                 col_g1, col_g2 = st.columns([2, 3])
+                
+                # Lấy dữ liệu công việc con
+                tasks_data = df_tasks_master[df_tasks_master["project_code"] == prj_id] if not df_tasks_master.empty else pd.DataFrame()
+                
+                # Thuật toán tính % trung bình cho thanh Master
+                total_progress = 0
+                if not tasks_data.empty:
+                    # Tách số từ chuỗi "80% 🔵" -> 80
+                    progress_values = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0]))
+                    total_progress = progress_values.mean()
+
                 with col_g1:
                     st.markdown("📈 **BIỂU ĐỒ GANTT**")
-                    tasks_data = df_tasks_master[df_tasks_master["project_code"] == prj_id] if not df_tasks_master.empty else pd.DataFrame()
                     if not tasks_data.empty:
                         df_g = tasks_data.copy()
                         df_g['start_date'] = pd.to_datetime(df_g['start_date'])
                         df_g['end_date'] = pd.to_datetime(df_g['end_date'])
-                        master_row = pd.DataFrame([{'task_name': '⭐ TỔNG DỰ ÁN', 'start_date': pd.to_datetime(active_prj['start_date']), 'end_date': pd.to_datetime(active_prj['end_date']), 'status': 'Master'}])
+                        
+                        # Hiển thị % tiến độ ngay trên thanh Master
+                        master_label = f"⭐ TỔNG DỰ ÁN ({total_progress:.1f}%)"
+                        master_row = pd.DataFrame([{
+                            'task_name': master_label, 
+                            'start_date': pd.to_datetime(active_prj['start_date']), 
+                            'end_date': pd.to_datetime(active_prj['end_date']), 
+                            'status': 'Master'
+                        }])
                         df_plot = pd.concat([master_row, df_g], ignore_index=True)
+                        
                         chart = alt.Chart(df_plot).mark_bar(cornerRadius=5, height=20).encode(
-                            x='start_date', x2='end_date', y=alt.Y('task_name', sort=None),
-                            color=alt.Color('status', scale=alt.Scale(domain=['Master', 'To-do', 'Doing', 'Review', 'Done'], range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']))
+                            x='start_date', x2='end_date', y=alt.Y('task_name', sort=None, title=None),
+                            color=alt.Color('status', scale=alt.Scale(
+                                domain=['Master', 'To-do', 'Doing', 'Review', 'Done'], 
+                                range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
+                            ))
                         ).properties(height=350)
                         st.altair_chart(chart, use_container_width=True)
 
@@ -2762,21 +2795,31 @@ with t7:
                         df_t_ed['start_date'] = pd.to_datetime(df_t_ed['start_date']).dt.date
                         df_t_ed['end_date'] = pd.to_datetime(df_t_ed['end_date']).dt.date
 
+                    # Hiển thị 10 cấp độ tiến độ chi tiết với icon màu sắc rực rỡ
                     ed_tasks = st.data_editor(df_t_ed, num_rows="dynamic", use_container_width=True, hide_index=True, 
-                                             column_config={"progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"])},
-                                             key=f"editor_tasks_{prj_id}")
+                        column_config={
+                            "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=[
+                                "0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", 
+                                "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"
+                            ]),
+                            "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"])
+                        },
+                        key=f"editor_tasks_{prj_id}")
+                    
                     if st.button("💾 LƯU TIẾN ĐỘ", key=f"btn_sv_t_{prj_id}", use_container_width=True):
                         supabase.table("crm_project_tasks").delete().eq("project_code", prj_id).execute()
                         new_ts = [{"project_code": prj_id, **r} for r in ed_tasks.to_dict('records') if r['task_name']]
                         if new_ts: supabase.table("crm_project_tasks").insert(new_ts).execute()
-                        st.rerun()
+                        st.success("Cập nhật thành công!"); time.sleep(0.5); st.rerun()
 
             with t_costs:
                 st.markdown("💰 **CHI PHÍ DỰ ÁN (AUTO-CALC)**")
                 prj_costs = df_costs_master[df_costs_master["project_code"] == prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
                 c_disp = prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
                 c_disp['amount_vnd'] = c_disp['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 else "")
+                
                 ed_c = st.data_editor(c_disp, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"costs_editor_{prj_id}")
+                
                 if st.button("💾 CẬP NHẬT CHI PHÍ", key=f"btn_sv_c_{prj_id}", use_container_width=True):
                     def parse_val(v):
                         try:
@@ -2784,8 +2827,9 @@ with t7:
                             if s.startswith("="): s = s[1:]
                             return float(eval(re.sub(r'[^0-9.+\-*/()]', '', s.replace('%','/100'))))
                         except: return 0.0
+                    
                     supabase.table("crm_project_costs").delete().eq("project_code", prj_id).execute()
                     new_cs = [{"project_code": prj_id, "cost_type": r['cost_type'], "amount_vnd": parse_val(r['amount_vnd']), "ref_po": r['ref_po'], "description": r['description']} for r in ed_c.to_dict('records')]
                     if new_cs: supabase.table("crm_project_costs").insert(new_cs).execute()
-                    st.rerun()
-    else: st.info("Chưa có dự án nào.")
+                    st.success("Đã cập nhật chi phí!"); time.sleep(0.5); st.rerun()
+    else: st.info("Chưa có dự án nào được tạo.")
