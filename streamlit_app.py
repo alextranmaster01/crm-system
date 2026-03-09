@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIXED RERUN & PROGRESS %) ---
+# --- TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN TƯƠNG TÁC CLICK-TO-VIEW) ---
 # =============================================================================
 with t7:
     # --- 1. TẢI DỮ LIỆU ---
@@ -2659,25 +2659,20 @@ with t7:
         st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
     with c_head2:
         with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-            p_code_in = st.text_input("Mã Dự Án (VD: HS-001)", key="p_code_v7_new")
+            p_code_in = st.text_input("Mã Dự Án (VD: ONSM-001)", key="p_code_v7_new")
             p_name_in = st.text_input("Tên Dự Án", key="p_name_v7_new")
-            
             list_custs = [""] + cust_db["short_name"].tolist() if not cust_db.empty else []
             p_cust_sel = st.selectbox("Khách Hàng", list_custs, key="p_cust_v7_new")
-            
             p_budget_val = st.number_input("Ngân sách dự kiến (VND)", min_value=0.0, step=1000000.0, key="p_budget_v7_new")
             p_img_file = st.file_uploader("🖼️ Ảnh dự án", type=["png", "jpg", "jpeg"], key="p_img_v7_new")
-            
             col_d1, col_d2 = st.columns(2)
             p_start_d = col_d1.date_input("Ngày Bắt Đầu", key="p_start_v7_new")
             p_end_d = col_d2.date_input("Ngày Kết Thúc", key="p_end_v7_new")
-            
             if st.button("💾 LƯU DỰ ÁN MỚI", use_container_width=True, type="primary"):
                 if p_code_in and p_name_in:
                     img_url = ""
                     if p_img_file:
                         img_url, _ = upload_to_drive_simple(p_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{p_code_in}.png")
-                    
                     new_rec = {
                         "project_code": p_code_in.strip().upper(), "project_name": p_name_in,
                         "customer_name": p_cust_sel, "project_image": img_url,
@@ -2695,7 +2690,6 @@ with t7:
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
             df_dash_calc = pd.merge(df_dash_calc, cost_sum, on='project_code', how='left')
         else: df_dash_calc['total_cost'] = 0.0
-            
         df_dash_calc['total_cost'] = df_dash_calc['total_cost'].fillna(0)
         df_dash_calc['profit'] = df_dash_calc['budget_vnd'].apply(to_float) - df_dash_calc['total_cost']
         
@@ -2707,16 +2701,17 @@ with t7:
 
         st.divider()
 
-        # --- 4. BỐ CỤC CHÍNH: BỘ LỌC (TRÁI) & DANH SÁCH (PHẢI) ---
+        # --- 4. BỘ LỌC KHÁCH HÀNG & DANH SÁCH DỰ ÁN ---
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
             cust_options = ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].unique().tolist())
-            selected_cust = st.selectbox("Lọc theo khách hàng:", cust_options, key="strict_filter_v7_final")
+            selected_cust = st.selectbox("Lọc theo khách hàng:", cust_options, key="filter_prj_final")
             st.info(f"Đang xem: **{selected_cust}**")
 
         with c_right:
             st.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
+            st.caption("💡 Nhấn vào một dòng để xem chi tiết GANTT và Chi phí phía dưới")
             df_final_view = df_dash_calc.copy()
             if selected_cust != "TẤT CẢ":
                 df_final_view = df_final_view[df_final_view["customer_name"] == selected_cust]
@@ -2725,25 +2720,39 @@ with t7:
             for col in ['budget_vnd', 'total_cost', 'profit']:
                 df_table[col] = df_table[col].apply(lambda x: "{:,.0f}".format(float(x)))
             
-            st.dataframe(df_table, column_config={
-                "project_image": st.column_config.ImageColumn("Hình ảnh", width="small"),
-                "project_code": "Mã DA", "project_name": "Tên Dự Án", "start_date": "Bắt Đầu",
-                "end_date": "Kết Thúc", "status": "Trạng thái", "budget_vnd": "Doanh Thu",
-                "total_cost": "Chi Phí", "profit": "Lợi Nhuận"
-            }, use_container_width=True, hide_index=True)
+            # --- THUẬT TOÁN TƯƠNG TÁC DÒNG (SELECTION) ---
+            event = st.dataframe(
+                df_table, 
+                column_config={
+                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="small"),
+                    "project_code": "Mã DA", "project_name": "Tên Dự Án", "start_date": "Bắt Đầu",
+                    "end_date": "Kết Thúc", "status": "Trạng thái", "budget_vnd": "Doanh Thu",
+                    "total_cost": "Chi Phí", "profit": "Lợi Nhuận"
+                }, 
+                use_container_width=True, hide_index=True,
+                on_select="rerun", selection_mode="single_row" # Cho phép click chọn dòng
+            )
 
-        # --- 5. QUẢN LÝ CHI TIẾT ---
-        if not df_final_view.empty:
-            active_prj = df_final_view.iloc[0]
+        # --- 5. XỬ LÝ DỮ LIỆU DỰ ÁN ĐƯỢC CHỌN ---
+        # Mặc định lấy dự án đầu tiên nếu chưa nhấn chọn dòng nào
+        active_prj = df_final_view.iloc[0] if not df_final_view.empty else None
+        
+        # Nếu người dùng nhấn chọn một dòng cụ thể
+        if event and event.get("selection") and event["selection"]["rows"]:
+            selected_idx = event["selection"]["rows"][0]
+            active_prj = df_final_view.iloc[selected_idx]
+
+        if active_prj is not None:
             prj_id = active_prj['project_code']
             st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({prj_id})**")
+            
             t_tasks, t_costs = st.tabs(["⏳ TIẾN ĐỘ & GANTT", "💸 CHI PHÍ (AUTO-CALC)"])
             
             with t_tasks:
                 col_g1, col_g2 = st.columns([2, 3])
                 tasks_data = df_tasks_master[df_tasks_master["project_code"] == prj_id] if not df_tasks_master.empty else pd.DataFrame()
                 
-                # Tính % tiến độ dự án
+                # Tính % tiến độ
                 prj_progress = 0
                 if not tasks_data.empty:
                     p_vals = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0]))
