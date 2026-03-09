@@ -2680,7 +2680,7 @@ with t7:
         grand_margin = (grand_profit / grand_budget * 100) if grand_budget > 0 else 0
         
         st.markdown("##### 🌐 BỨC TRANH TOÀN CẢNH (MACRO VIEW)")
-        c_m1, c_m2, c_m3 = st.columns(3)
+        c_m1, c_m2, c_m3, _ = st.columns([0.5, 1, 1, 1, 0.5])
         c_m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(grand_budget)}</h1></div>", unsafe_allow_html=True)
         c_m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>{fmt_num(grand_cost)}</h1></div>", unsafe_allow_html=True)
         margin_color = "bg-profit" if grand_margin >= 15 else "bg-cost"
