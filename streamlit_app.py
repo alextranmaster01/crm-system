@@ -2856,4 +2856,3 @@ with t7:
                 st.info(f"Khách hàng {sel_customer} hiện chưa có dự án nào.")
     else:
         st.info("Chưa có dữ liệu dự án. Hãy tạo dự án đầu tiên!")
-                    else: st.error("Sai mật khẩu!")
