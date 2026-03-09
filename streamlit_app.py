@@ -2746,11 +2746,21 @@ with t7:
                 st.markdown("**📝 BẢNG CÔNG VIỆC (Thêm/Sửa/Xóa trực tiếp)**")
                 st.caption("Mẹo: Click vào ô trống cuối cùng để thêm dòng mới. Chọn dòng và nhấn phím Delete để xóa.")
                 
-                # Cấu hình form hiển thị cho DataFrame
+                # --- FIX LỖI ÉP KIỂU NGÀY THÁNG TẠI ĐÂY ---
                 task_df_edit = curr_tasks[["task_name", "assignee", "start_date", "end_date", "status"]].copy()
                 if task_df_edit.empty:
-                    # Tạo 1 dòng trống mặc định nếu chưa có data
-                    task_df_edit = pd.DataFrame([{"task_name": "", "assignee": "", "start_date": datetime.now().strftime("%Y-%m-%d"), "end_date": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"), "status": "To-do"}])
+                    # Tạo dòng mặc định với định dạng DATETIME thật, không dùng String
+                    task_df_edit = pd.DataFrame([{
+                        "task_name": "", 
+                        "assignee": "", 
+                        "start_date": datetime.now().date(), 
+                        "end_date": (datetime.now() + timedelta(days=7)).date(), 
+                        "status": "To-do"
+                    }])
+                else:
+                    # Ép kiểu dữ liệu Text từ DB về Datetime chuẩn của Python
+                    task_df_edit['start_date'] = pd.to_datetime(task_df_edit['start_date'], errors='coerce').dt.date
+                    task_df_edit['end_date'] = pd.to_datetime(task_df_edit['end_date'], errors='coerce').dt.date
 
                 edited_tasks = st.data_editor(
                     task_df_edit,
@@ -2817,9 +2827,12 @@ with t7:
             st.markdown("**💸 BẢNG KÊ CHI TIẾT CHI PHÍ (Thêm/Sửa/Xóa trực tiếp)**")
             st.caption("Cập nhật tất cả các khoản chi thực tế của dự án. Hệ thống sẽ tự động tổng hợp vào Lợi Nhuận ở Tab Tổng Quan.")
             
+            # --- FIX LỖI ÉP KIỂU SỐ TIỀN TẠI ĐÂY ---
             cost_df_edit = curr_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
             if cost_df_edit.empty:
-                cost_df_edit = pd.DataFrame([{"cost_type": "Vật tư (PO)", "amount_vnd": 0, "ref_po": "", "description": ""}])
+                cost_df_edit = pd.DataFrame([{"cost_type": "Vật tư (PO)", "amount_vnd": 0.0, "ref_po": "", "description": ""}])
+            else:
+                cost_df_edit['amount_vnd'] = pd.to_numeric(cost_df_edit['amount_vnd'], errors='coerce').fillna(0.0)
 
             edited_costs = st.data_editor(
                 cost_df_edit,
