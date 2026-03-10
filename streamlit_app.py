@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NÚT UPDATE THỦ CÔNG CHO TIẾN ĐỘ & CHI PHÍ) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NÚT UPDATE THỦ CÔNG + XÓA DỰ ÁN BẰNG ICON & PASSWORD) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
@@ -2800,26 +2800,33 @@ with t7:
                 key="prj_editor_v7_final_sync_tick"
             )
 
-            # --- XÓA DỰ ÁN ---
+            # --- PHẦN XÓA DỰ ÁN BẰNG ICON (HIỆN KHI CÓ DÒNG ĐƯỢC CHỌN) ---
             selected_rows = edited_df_p[edited_df_p["Select"] == True]
+
             if not selected_rows.empty and st.session_state.is_admin:
-                st.warning(f"🛑 Đang chọn xóa {len(selected_rows)} dự án.")
-                col_pass, col_btn = st.columns([3, 1])
-                with col_pass:
-                    pass_admin = st.text_input("NHẬP MẬT KHẨU ADMIN ĐỂ XÓA:", type="password", key="pwd_del_v7_fix")
+                st.markdown("### 🗑️ XÓA DỰ ÁN ĐÃ CHỌN")
+                st.warning(f"Đang chọn xóa **{len(selected_rows)}** dự án: {', '.join(selected_rows['project_code'].tolist())}")
+
+                col_pwd, col_btn = st.columns([3, 1])
+                with col_pwd:
+                    delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_delete_icon_v7")
                 with col_btn:
-                    if st.button("🔥 XÓA NGAY", type="primary", use_container_width=True):
-                        if pass_admin == "admin123":
-                            target_ids = selected_rows["project_code"].tolist()
-                            supabase.table("crm_projects").delete().in_("project_code", target_ids).execute()
-                            supabase.table("crm_project_tasks").delete().in_("project_code", target_ids).execute()
-                            supabase.table("crm_project_costs").delete().in_("project_code", target_ids).execute()
+                    if st.button("🗑️ XÓA NGAY", type="primary", use_container_width=True, key="btn_delete_icon_v7"):
+                        if delete_pwd == "admin123":
+                            with st.spinner("Đang xóa dự án..."):
+                                target_codes = selected_rows["project_code"].tolist()
+
+                                # Xóa dữ liệu liên quan
+                                supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
+                                supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
+                                supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
+
                             st.cache_data.clear()
-                            st.success("✅ Đã xóa hoàn tất!")
-                            time.sleep(1)
+                            st.success(f"✅ Đã xóa thành công {len(target_codes)} dự án!")
+                            time.sleep(1.2)
                             st.rerun()
                         else:
-                            st.error("Mật khẩu sai!")
+                            st.error("Mật khẩu sai! Không thể xóa.")
 
         # --- 5. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
@@ -2950,7 +2957,7 @@ with t7:
                                 new_costs = []
                                 for row in edited_costs.to_dict('records'):
                                     amount = to_float(row['amount_vnd']) if row['amount_vnd'] else 0
-                                    if row.get('cost_type') and amount > 0:  # chỉ lưu nếu có loại chi phí và số tiền > 0
+                                    if row.get('cost_type') and amount > 0:
                                         new_costs.append({
                                             "project_code": sel_prj_id,
                                             "cost_type": row['cost_type'],
