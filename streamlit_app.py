@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - TÍNH NĂNG CÀI ĐẶT, XÓA & ẢNH ĐẸP) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - ĐỒNG BỘ THUẬT TOÁN HIỂN THỊ ẢNH) ---
 # =============================================================================
 with t7:
     # --- 1. TẢI DỮ LIỆU ---
@@ -2710,7 +2710,7 @@ with t7:
             col_t1, col_t2 = st.columns([4, 1])
             col_t1.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
             with col_t2:
-                # --- PHẦN 1: NÂNG CẤP TẠO DỰ ÁN MỚI ---
+                # --- PHẦN 1: NÂNG CẤP TẠO DỰ ÁN MỚI (FIX HIỂN THỊ ẢNH) ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
                     p_code = st.text_input("Mã Dự Án (VD: HS-001)", key="new_p_code_v7_26")
                     p_name = st.text_input("Tên Dự Án", key="new_p_name_v7_26")
@@ -2721,14 +2721,15 @@ with t7:
                     p_start = c_date1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="new_p_start_v7_26")
                     p_end = c_date2.date_input("Ngày Kết Thúc", value=datetime.now(), key="new_p_end_v7_26")
                     
-                    p_img = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="new_p_img_v7_26")
+                    p_img_file = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="new_p_img_v7_26")
                     
                     if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_26"):
                         if p_code and p_name:
-                            img_url = ""
-                            if p_img:
-                                # Áp dụng thuật toán upload của Tab Kho hàng
-                                img_url, _ = upload_to_drive_simple(p_img, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
+                            # THUẬT TOÁN HIỂN THỊ ẢNH THÀNH CÔNG 100% (GIỐNG PHẦN CÀI ĐẶT)
+                            img_url_final = ""
+                            if p_img_file:
+                                with st.spinner("Đang tải ảnh lên Drive..."):
+                                    img_url_final, _ = upload_to_drive_simple(p_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
                             
                             new_rec = {
                                 "project_code": p_code.strip().upper(), 
@@ -2737,7 +2738,7 @@ with t7:
                                 "budget_vnd": float(p_bud),
                                 "start_date": str(p_start),
                                 "end_date": str(p_end),
-                                "project_image": img_url,
+                                "project_image": img_url_final, # Gán URL đã upload vào đây
                                 "status": "In Progress"
                             }
                             supabase.table("crm_projects").insert([new_rec]).execute()
@@ -2759,7 +2760,6 @@ with t7:
             df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
             df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
 
-            # Sử dụng ImageColumn để hiển thị ảnh thumbnail đẹp mắt
             edited_df_prj = st.data_editor(
                 df_table[['Select', 'project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit']], 
                 column_config={
@@ -2808,7 +2808,6 @@ with t7:
             
             with tabs[0]: # TAB TIẾN ĐỘ
                 col_g1, col_g2 = st.columns([2, 3])
-                # Tính % tiến độ tổng trung bình
                 avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
 
                 with col_g1:
@@ -2826,7 +2825,6 @@ with t7:
 
                 with col_g2:
                     st.markdown("📋 **BẢNG CÔNG VIỆC (AUTO-SAVE)**")
-                    # FIX DATE CHUẨN ĐỂ KHÔNG BỊ MÀN HÌNH ĐỎ
                     if not tasks_data.empty:
                         df_ed = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy()
                         df_ed['start_date'] = pd.to_datetime(df_ed['start_date'], errors='coerce').dt.date
@@ -2834,7 +2832,6 @@ with t7:
                     else:
                         df_ed = pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
 
-                    # Chỉnh sửa bảng trực tiếp với thang màu 11 cấp độ
                     ed_v7 = st.data_editor(df_ed, num_rows="dynamic", use_container_width=True, hide_index=True, 
                         column_config={
                             "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]),
@@ -2856,8 +2853,14 @@ with t7:
                     ed_c = st.data_editor(df_c_disp, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"cs_ed_tab7_fix_v26_{sel_prj_id}")
                     
                     if not df_c_disp.equals(ed_c):
+                        def parse_v_v7(v):
+                            try:
+                                s = str(v).replace(",", "").strip()
+                                if s.startswith("="): s = s[1:]
+                                return float(eval(re.sub(r'[^0-9.+\-*/()]', '', s.replace('%','/100'))))
+                            except: return 0.0
                         supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
-                        new_cs = [{"project_code": sel_prj_id, "cost_type": r['cost_type'], "amount_vnd": to_float(r['amount_vnd']), "ref_po": r['ref_po'], "description": r['description']} for r in ed_c.to_dict('records')]
+                        new_cs = [{"project_code": sel_prj_id, "cost_type": r['cost_type'], "amount_vnd": parse_v_v7(r['amount_vnd']), "ref_po": r['ref_po'], "description": r['description']} for r in ed_c.to_dict('records')]
                         if new_cs: supabase.table("crm_project_costs").insert(new_cs).execute()
                         st.toast("💰 Cost saved!", icon="✅"); time.sleep(0.3); st.rerun()
 
@@ -2889,8 +2892,9 @@ with t7:
                             }
                             
                             if up_img_file:
-                                img_url_up, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code.strip()}.png")
-                                update_data["project_image"] = img_url_up
+                                with st.spinner("Đang tải ảnh lên Drive..."):
+                                    img_url_up, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code.strip()}.png")
+                                    update_data["project_image"] = img_url_up
                             
                             try:
                                 if up_code.strip().upper() != active_prj['project_code']:
