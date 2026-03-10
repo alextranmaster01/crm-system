@@ -2838,7 +2838,6 @@ with t7:
 
             with tabs[0]:  # TAB TIẾN ĐỘ & GANTT
     col_g1, col_g2 = st.columns([2, 3])
-    
     # Tính trung bình tiến độ để hiển thị trong chart
     avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
     
