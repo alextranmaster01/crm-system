@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - CÓ TÍNH NĂNG CÀI ĐẶT & XÓA) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - UPLOAD ẢNH & HIỂN THỊ ĐẸP) ---
 # =============================================================================
 with t7:
     # --- 1. TẢI DỮ LIỆU ---
@@ -2693,7 +2693,7 @@ with t7:
 
         st.divider()
 
-        # --- 3. BỘ LỌC & DANH SÁCH DỰ ÁN (CÓ CHỨC NĂNG XÓA) ---
+        # --- 3. BỘ LỌC & DANH SÁCH DỰ ÁN ---
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
@@ -2709,16 +2709,42 @@ with t7:
             col_t1, col_t2 = st.columns([4, 1])
             col_t1.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
             with col_t2:
+                # --- PHẦN 1: NÂNG CẤP TẠO DỰ ÁN MỚI ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-                    p_code = st.text_input("Mã Dự Án", key="new_p_code_v7")
+                    p_code = st.text_input("Mã Dự Án (VD: DA-001)", key="new_p_code_v7")
                     p_name = st.text_input("Tên Dự Án", key="new_p_name_v7")
                     p_cust = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="new_p_cust_v7")
-                    p_bud = st.number_input("Ngân sách (VND)", min_value=0.0, key="new_p_bud_v7")
+                    p_bud = st.number_input("Ngân sách/Doanh thu (VND)", min_value=0.0, step=1000000.0, key="new_p_bud_v7")
+                    
+                    c_date1, c_date2 = st.columns(2)
+                    p_start = c_date1.date_input("Ngày Bắt Đầu", key="new_p_start_v7")
+                    p_end = c_date2.date_input("Ngày Kết Thúc", key="new_p_end_v7")
+                    
+                    p_img = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="new_p_img_v7")
+                    
                     if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary"):
-                        new_rec = {"project_code": p_code.strip().upper(), "project_name": p_name, "customer_name": p_cust, "budget_vnd": float(p_bud), "status": "In Progress"}
-                        supabase.table("crm_projects").insert([new_rec]).execute()
-                        st.success("Thành công!"); time.sleep(0.5); st.rerun()
+                        if p_code and p_name:
+                            img_url = ""
+                            if p_img:
+                                # Áp dụng thuật toán upload của Tab Kho hàng
+                                img_url, _ = upload_to_drive_simple(p_img, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
+                            
+                            new_rec = {
+                                "project_code": p_code.strip().upper(), 
+                                "project_name": p_name, 
+                                "customer_name": p_cust, 
+                                "budget_vnd": float(p_bud),
+                                "start_date": str(p_start),
+                                "end_date": str(p_end),
+                                "project_image": img_url,
+                                "status": "In Progress"
+                            }
+                            supabase.table("crm_projects").insert([new_rec]).execute()
+                            st.success("Tạo dự án thành công!"); time.sleep(0.5); st.rerun()
+                        else:
+                            st.error("Vui lòng nhập Mã và Tên dự án!")
 
+            # --- PHẦN 2: HIỂN THỊ ẢNH ĐẸP NHƯ TAB KHO HÀNG ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
             df_table.insert(0, "Select", False) 
 
@@ -2727,22 +2753,27 @@ with t7:
                     return "{:,.0f}".format(float(v)) if is_money else f"{v:.1f}%"
                 return "*******"
 
-            df_table['budget_vnd'] = df_table['budget_vnd'].apply(lambda x: "{:,.0f}".format(float(x)))
-            df_table['total_cost'] = df_table['total_cost'].apply(lambda x: mask_data_v7(x))
-            df_table['profit'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
+            df_table['budget_vnd_disp'] = df_table['budget_vnd'].apply(lambda x: "{:,.0f}".format(float(x)))
+            df_table['total_cost_disp'] = df_table['total_cost'].apply(lambda x: mask_data_v7(x))
+            df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
             df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
 
+            # Sử dụng ImageColumn để hiển thị ảnh từ URL Drive thumbnail
             edited_df_prj = st.data_editor(
-                df_table.drop(columns=['profit_pct_raw']), 
+                df_table[['Select', 'project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit']], 
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="small"),
+                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="medium"), # Thuật toán hiển thị ảnh đẹp
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
-                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True)
+                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True),
+                    "budget_vnd_disp": "Doanh Thu",
+                    "total_cost_disp": "Chi Phí",
+                    "profit_disp": "Lợi Nhuận"
                 }, 
                 use_container_width=True, hide_index=True, key="prj_editor_v7_with_del"
             )
 
+            # Chức năng xóa dành cho Admin
             selected_rows = edited_df_prj[edited_df_prj["Select"] == True]
             if not selected_rows.empty and st.session_state.get('is_admin', False):
                 st.warning(f"⚠️ Đang chọn xóa {len(selected_rows)} dự án.")
@@ -2759,7 +2790,7 @@ with t7:
                             st.success("✅ Đã xóa hoàn tất!"); time.sleep(1); st.rerun()
                         else: st.error("Mật khẩu không đúng!")
 
-        # --- 4. QUẢN LÝ CHI TIẾT (AUTO-SAVE, GANTT & CÀI ĐẶT) ---
+        # --- 4. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
             active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
             st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})**")
@@ -2770,7 +2801,7 @@ with t7:
             tab_list = ["⏳ TIẾN ĐỘ & GANTT"]
             if st.session_state.get('is_admin', False): 
                 tab_list.append("💸 CHI PHÍ (AUTO-CALC)")
-                tab_list.append("⚙️ CÀI ĐẶT DỰ ÁN") # Thêm Tab Cài đặt cho Admin
+                tab_list.append("⚙️ CÀI ĐẶT DỰ ÁN") 
             
             tabs = st.tabs(tab_list)
             
@@ -2832,7 +2863,7 @@ with t7:
                         if new_cs: supabase.table("crm_project_costs").insert(new_cs).execute()
                         st.toast("💰 Cost saved!", icon="✅"); time.sleep(0.3); st.rerun()
 
-                with tabs[2]: # TAB CÀI ĐẶT (TÍNH NĂNG MỚI THEO YÊU CẦU)
+                with tabs[2]: # TAB CÀI ĐẶT
                     st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN DỰ ÁN")
                     with st.form(key=f"edit_prj_form_{sel_prj_id}"):
                         c_edit1, c_edit2 = st.columns(2)
@@ -2863,15 +2894,13 @@ with t7:
                                 img_url, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code}.png")
                                 update_data["project_image"] = img_url
                             
-                            # Update Database
                             try:
-                                # Nếu thay đổi Project Code, phải update cả các bảng liên quan (Task & Cost)
                                 if up_code.strip().upper() != active_prj['project_code']:
                                     supabase.table("crm_project_tasks").update({"project_code": up_code.strip().upper()}).eq("project_code", active_prj['project_code']).execute()
                                     supabase.table("crm_project_costs").update({"project_code": up_code.strip().upper()}).eq("project_code", active_prj['project_code']).execute()
                                 
                                 supabase.table("crm_projects").update(update_data).eq("project_code", active_prj['project_code']).execute()
-                                st.success("✅ Đã cập nhật thông tin dự án thành công!"); time.sleep(0.5); st.rerun()
+                                st.success("✅ Đã cập nhật thành công!"); time.sleep(0.5); st.rerun()
                             except Exception as e:
                                 st.error(f"Lỗi khi cập nhật: {e}")
     else: st.info("Chưa có dự án nào.")
