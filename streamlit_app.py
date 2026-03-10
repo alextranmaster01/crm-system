@@ -2651,7 +2651,6 @@ with t7:
     df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
     df_costs_master = load_data("crm_project_costs")
     cust_db = load_data("crm_customers")
-
     # --- 0. TIÊU ĐỀ & NÚT PHÂN QUYỀN (GÓC PHẢI) ---
     c_tab_head1, c_tab_head2 = st.columns([8, 2])
     with c_tab_head1:
