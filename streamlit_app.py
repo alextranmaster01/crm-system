@@ -2800,32 +2800,37 @@ with t7:
                 key="prj_editor_v7_final_sync_tick"
             )
 
-            # --- PHẦN MỞ RỘNG: XÓA DỰ ÁN (MŨI TÊN TRỎ XUỐNG) ---
+            # --- CHỨC NĂNG XÓA DỰ ÁN (THÊM MỚI THEO YÊU CẦU) ---
             selected_rows = edited_df_p[edited_df_p["Select"] == True]
-            if not selected_rows.empty:
-                with st.expander(f"🗑️ THÙNG RÁC - XÓA {len(selected_rows)} DỰ ÁN ĐÃ CHỌN"):
-                    st.error("CẢNH BÁO: Hành động này sẽ xóa vĩnh viễn dự án và các dữ liệu nhiệm vụ, chi phí liên quan.")
-                    col_del_1, col_del_2 = st.columns([3, 1])
-                    with col_del_1:
-                        pass_del = st.text_input("Xác nhận mật khẩu Admin để xóa:", type="password", key="pwd_delete_v7_final")
-                    with col_del_2:
-                        st.write("##") # Tạo khoảng trống căn lề nút
-                        if st.button("🔥 XÓA NGAY", type="primary", use_container_width=True, key="btn_confirm_delete_v7"):
-                            if pass_del == "admin123":
+            with st.expander("Xóa dự án 🔽", expanded=False):
+                if not selected_rows.empty:
+                    st.warning(f"Bạn đang chọn xóa {len(selected_rows)} dự án.")
+                    c_del1, c_del2 = st.columns([3, 1])
+                    with c_del1:
+                        pwd_confirm = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_del_confirm_v7")
+                    with c_del2:
+                        st.write("##") # Căn lề nút bấm
+                        if st.button("Xác nhận xóa", type="primary", use_container_width=True):
+                            if pwd_confirm == "admin123":
                                 with st.spinner("Đang xóa dữ liệu..."):
                                     try:
-                                        target_ids = selected_rows["project_code"].tolist()
-                                        supabase.table("crm_projects").delete().in_("project_code", target_ids).execute()
-                                        supabase.table("crm_project_tasks").delete().in_("project_code", target_ids).execute()
-                                        supabase.table("crm_project_costs").delete().in_("project_code", target_ids).execute()
+                                        target_codes = selected_rows["project_code"].tolist()
+                                        # Xóa chính dự án
+                                        supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
+                                        # Xóa các dữ liệu liên quan để tránh rác database
+                                        supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
+                                        supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
+                                        
                                         st.cache_data.clear()
-                                        st.success("✅ Đã xóa hoàn tất dữ liệu!")
+                                        st.success("Đã xóa vĩnh viễn các dự án được chọn!")
                                         time.sleep(1)
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Lỗi khi xóa: {str(e)}")
                             else:
-                                st.error("Mật khẩu Admin không đúng!")
+                                st.error("Mật khẩu Admin không chính xác!")
+                else:
+                    st.info("Vui lòng tích chọn dự án trong bảng trên trước khi thực hiện xóa.")
 
         # --- 5. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
