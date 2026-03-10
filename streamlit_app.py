@@ -2660,13 +2660,13 @@ with t7:
         # Nút Phân quyền được tích hợp trực tiếp để Alex dễ thao tác
         with st.popover("🔑 PHÂN QUYỀN", use_container_width=True):
             if not st.session_state.get('is_admin', False):
-                pwd_input = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_v1")
+                pwd_input = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_v26")
                 if pwd_input == "admin123":
                     st.session_state.is_admin = True
                     st.success("Đã mở quyền!"); time.sleep(0.5); st.rerun()
             else:
                 st.info("🔓 Quyền Admin đang mở")
-                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_v1"):
+                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_v26"):
                     st.session_state.is_admin = False; st.rerun()
 
     # --- 2. BỨC TRANH TOÀN CẢNH (MACRO VIEW - BẢO MẬT) ---
@@ -2698,13 +2698,13 @@ with t7:
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
-            selected_cust = st.selectbox("Lọc khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].unique().tolist()), key="filter_cust_v7_final")
+            selected_cust = st.selectbox("Lọc khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].unique().tolist()), key="filter_cust_v7_final_del")
             df_filtered = df_dash_calc.copy()
             if selected_cust != "TẤT CẢ": df_filtered = df_filtered[df_filtered["customer_name"] == selected_cust]
             
             st.markdown("---")
             st.markdown("🎯 **CHỌN DỰ ÁN CHI TIẾT**")
-            sel_prj_id = st.selectbox("Xem GANTT & Chi phí:", df_filtered["project_code"].tolist(), key="sel_active_prj_v7_final")
+            sel_prj_id = st.selectbox("Xem GANTT & Chi phí:", df_filtered["project_code"].tolist(), key="sel_active_prj_v7_final_del")
 
         with c_right:
             col_t1, col_t2 = st.columns([4, 1])
@@ -2712,22 +2712,22 @@ with t7:
             with col_t2:
                 # --- PHẦN 1: NÂNG CẤP TẠO DỰ ÁN MỚI ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-                    p_code = st.text_input("Mã Dự Án (VD: HS-001)", key="new_p_code_v7")
-                    p_name = st.text_input("Tên Dự Án", key="new_p_name_v7")
-                    p_cust = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="new_p_cust_v7")
-                    p_bud = st.number_input("Ngân sách/Doanh thu (VND)", min_value=0.0, step=1000000.0, key="new_p_bud_v7")
+                    p_code = st.text_input("Mã Dự Án (VD: HS-001)", key="new_p_code_v7_26")
+                    p_name = st.text_input("Tên Dự Án", key="new_p_name_v7_26")
+                    p_cust = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="new_p_cust_v7_26")
+                    p_bud = st.number_input("Ngân sách/Doanh thu (VND)", min_value=0.0, step=1000000.0, key="new_p_bud_v7_26")
                     
                     c_date1, c_date2 = st.columns(2)
-                    p_start = c_date1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="new_p_start_v7")
-                    p_end = c_date2.date_input("Ngày Kết Thúc", value=datetime.now(), key="new_p_end_v7")
+                    p_start = c_date1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="new_p_start_v7_26")
+                    p_end = c_date2.date_input("Ngày Kết Thúc", value=datetime.now(), key="new_p_end_v7_26")
                     
-                    p_img = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="new_p_img_v7")
+                    p_img = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="new_p_img_v7_26")
                     
-                    if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary"):
+                    if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_26"):
                         if p_code and p_name:
                             img_url = ""
                             if p_img:
-                                # Thuật toán upload ảnh chuẩn
+                                # Áp dụng thuật toán upload của Tab Kho hàng
                                 img_url, _ = upload_to_drive_simple(p_img, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
                             
                             new_rec = {
@@ -2771,18 +2771,18 @@ with t7:
                     "total_cost_disp": "Chi Phí",
                     "profit_disp": "Lợi Nhuận"
                 }, 
-                use_container_width=True, hide_index=True, key="prj_editor_v7_with_del"
+                use_container_width=True, hide_index=True, key="prj_editor_v7_with_del_final"
             )
 
-            # Chức năng xóa dành cho Admin khi tick chọn
+            # Chức năng xóa dự án khi Admin tick chọn dòng
             selected_rows = edited_df_prj[edited_df_prj["Select"] == True]
             if not selected_rows.empty and st.session_state.get('is_admin', False):
                 st.warning(f"⚠️ Đang chọn xóa {len(selected_rows)} dự án.")
                 col_del1, col_del2 = st.columns([3, 1])
                 with col_del1:
-                    pass_conf = st.text_input("XÁC NHẬN MẬT KHẨU ADMIN ĐỂ XÓA:", type="password", key="pass_confirm_del_tab7")
+                    pass_conf = st.text_input("XÁC NHẬN MẬT KHẨU ADMIN ĐỂ XÓA:", type="password", key="pass_confirm_del_tab7_final")
                 with col_del2:
-                    if st.button("🔥 XÓA DỰ ÁN", type="primary", use_container_width=True):
+                    if st.button("🔥 XÓA DỰ ÁN ĐÃ CHỌN", type="primary", use_container_width=True, key="btn_del_prj_tab7_final"):
                         if pass_conf == "admin123":
                             target_codes = selected_rows["project_code"].tolist()
                             supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
@@ -2791,7 +2791,7 @@ with t7:
                             st.success("✅ Đã xóa hoàn tất!"); time.sleep(1); st.rerun()
                         else: st.error("Mật khẩu không đúng!")
 
-        # --- 4. QUẢN LÝ CHI TIẾT ---
+        # --- 4. QUẢN LÝ CHI TIẾT (AUTO-SAVE, GANTT & CÀI ĐẶT) ---
         if sel_prj_id:
             active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
             st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})**")
@@ -2808,7 +2808,7 @@ with t7:
             
             with tabs[0]: # TAB TIẾN ĐỘ
                 col_g1, col_g2 = st.columns([2, 3])
-                # Tính % tiến độ trung bình
+                # Tính % tiến độ tổng trung bình
                 avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
 
                 with col_g1:
@@ -2826,7 +2826,7 @@ with t7:
 
                 with col_g2:
                     st.markdown("📋 **BẢNG CÔNG VIỆC (AUTO-SAVE)**")
-                    # FIX DATE ĐỂ KHÔNG BỊ MÀN HÌNH ĐỎ
+                    # FIX DATE CHUẨN ĐỂ KHÔNG BỊ MÀN HÌNH ĐỎ
                     if not tasks_data.empty:
                         df_ed = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy()
                         df_ed['start_date'] = pd.to_datetime(df_ed['start_date'], errors='coerce').dt.date
@@ -2834,13 +2834,13 @@ with t7:
                     else:
                         df_ed = pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
 
-                    # 11 cấp độ màu sắc
+                    # Chỉnh sửa bảng trực tiếp với thang màu 11 cấp độ
                     ed_v7 = st.data_editor(df_ed, num_rows="dynamic", use_container_width=True, hide_index=True, 
                         column_config={
                             "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]),
                             "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"]),
                             "start_date": st.column_config.DateColumn("Bắt đầu"), "end_date": st.column_config.DateColumn("Kết thúc")
-                        }, key=f"ed_v7_final_del_{sel_prj_id}")
+                        }, key=f"ed_v7_final_fix_v26_{sel_prj_id}")
                     
                     if not df_ed.equals(ed_v7):
                         supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
@@ -2853,23 +2853,17 @@ with t7:
                     prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
                     df_c_disp = prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
                     df_c_disp['amount_vnd'] = df_c_disp['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 else "")
-                    ed_c = st.data_editor(df_c_disp, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"cs_ed_tab7_fix_{sel_prj_id}")
+                    ed_c = st.data_editor(df_c_disp, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"cs_ed_tab7_fix_v26_{sel_prj_id}")
                     
                     if not df_c_disp.equals(ed_c):
-                        def parse_v_v7(v):
-                            try:
-                                s = str(v).replace(",", "").strip()
-                                if s.startswith("="): s = s[1:]
-                                return float(eval(re.sub(r'[^0-9.+\-*/()]', '', s.replace('%','/100'))))
-                            except: return 0.0
                         supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
-                        new_cs = [{"project_code": sel_prj_id, "cost_type": r['cost_type'], "amount_vnd": parse_v_v7(r['amount_vnd']), "ref_po": r['ref_po'], "description": r['description']} for r in ed_c.to_dict('records')]
+                        new_cs = [{"project_code": sel_prj_id, "cost_type": r['cost_type'], "amount_vnd": to_float(r['amount_vnd']), "ref_po": r['ref_po'], "description": r['description']} for r in ed_c.to_dict('records')]
                         if new_cs: supabase.table("crm_project_costs").insert(new_cs).execute()
                         st.toast("💰 Cost saved!", icon="✅"); time.sleep(0.3); st.rerun()
 
                 with tabs[2]: # TAB CÀI ĐẶT
                     st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN DỰ ÁN")
-                    with st.form(key=f"edit_prj_form_{sel_prj_id}"):
+                    with st.form(key=f"edit_prj_form_v26_{sel_prj_id}"):
                         c_edit1, c_edit2 = st.columns(2)
                         up_code = c_edit1.text_input("Mã Dự Án (Project Code)", value=safe_str(active_prj['project_code']))
                         up_name = c_edit2.text_input("Tên Dự Án (Project Name)", value=safe_str(active_prj['project_name']))
@@ -2895,8 +2889,8 @@ with t7:
                             }
                             
                             if up_img_file:
-                                img_url_new, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code}.png")
-                                update_data["project_image"] = img_url_new
+                                img_url_up, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code.strip()}.png")
+                                update_data["project_image"] = img_url_up
                             
                             try:
                                 if up_code.strip().upper() != active_prj['project_code']:
