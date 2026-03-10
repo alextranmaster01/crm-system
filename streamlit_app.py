@@ -3144,5 +3144,4 @@ with t7:
                                 st.success("✅ Đã thay thế ảnh và cập nhật thành công!"); time.sleep(0.5); st.rerun()
 
                             except Exception as e: st.error(f"Lỗi: {e}")
-
     else: st.info("Chưa có dự án nào.")"
