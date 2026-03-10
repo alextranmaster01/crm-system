@@ -2729,7 +2729,7 @@ with t7:
                             if p_img_f:
                                 with st.spinner("Đang tải ảnh lên Drive..."):
                                     # LOGIC DUY NHẤT: Luôn đặt tên theo mã dự án để ghi đè vị trí cũ
-                                    img_url_init, _ = upload_to_drive_simple(p_img_f, "CRM_PROJECT_IMAGES", f"PRJ_NAME_{p_code.strip()}.png")
+                                    img_url_init, _ = upload_to_drive_simple(p_img_f, "CRM_PROJECT_IMAGES", f"PRJ_NAME_{p_code.strip().upper()}.png")
                             
                             new_rec = {
                                 "project_code": p_code.strip().upper(), 
@@ -2742,18 +2742,18 @@ with t7:
                                 "status": "In Progress"
                             }
                             supabase.table("crm_projects").insert([new_rec]).execute()
-                            st.cache_data.clear()
+                            st.cache_data.clear() # Làm mới cache
                             st.success("Tạo dự án thành công!"); time.sleep(0.5); st.rerun()
                         else:
                             st.error("Vui lòng nhập Mã và Tên dự án!")
 
             # --- PHẦN 2: HIỂN THỊ DANH SÁCH VỚI THUẬT TOÁN THAY THẾ ẢNH 100% ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
-            df_table.insert(0, "Select", False) # Thêm cột Tickbox để người dùng chọn dự án
+            df_table.insert(0, "Select", False) # Thêm cột Tickbox để người dùng chọn dự án xóa
 
             # THUẬT TOÁN QUAN TRỌNG: Thêm timestamp vào link hiển thị để trình duyệt xóa ảnh cũ trong cache ngay lập tức
-            t_now = int(time.time())
-            df_table['project_image'] = df_table['project_image'].apply(lambda x: f"{x}?t={t_now}" if x and "drive.google.com" in x else x)
+            t_now_final = int(time.time())
+            df_table['project_image'] = df_table['project_image'].apply(lambda x: f"{x}&t={t_now_final}" if x and "drive.google.com" in x else x)
 
             def mask_data_v7(v, is_money=True):
                 if st.session_state.get('is_admin', False):
@@ -2775,7 +2775,7 @@ with t7:
                     "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True),
                     "budget_vnd_disp": "Doanh Thu", "total_cost_disp": "Chi Phí", "profit_disp": "Lợi Nhuận"
                 }, 
-                use_container_width=True, hide_index=True, key="prj_editor_v7_final_fix_sync_tick"
+                use_container_width=True, hide_index=True, key="prj_editor_v7_final_fix_sync_tick_v100"
             )
 
             # --- CHỨC NĂNG XÓA DỰ ÁN (CHỈ HIỆN KHI TICK BOX ĐƯỢC CHỌN VÀ LÀ ADMIN) ---
@@ -2784,9 +2784,9 @@ with t7:
                 st.warning(f"⚠️ Bạn đang chọn xóa {len(selected_rows)} dự án. Thao tác này không thể hoàn tác!")
                 col_del_pwd, col_del_btn = st.columns([3, 1])
                 with col_del_pwd:
-                    confirm_pwd = st.text_input("XÁC NHẬN MẬT KHẨU ADMIN ĐỂ XÓA:", type="password", key="pass_confirm_del_v7_sync")
+                    confirm_pwd = st.text_input("XÁC NHẬN MẬT KHẨU ADMIN ĐỂ XÓA:", type="password", key="pass_confirm_del_v7_sync_final")
                 with col_del_btn:
-                    if st.button("🔥 XÓA DỰ ÁN ĐÃ CHỌN", type="primary", use_container_width=True):
+                    if st.button("🔥 XÓA DỰ ÁN ĐÃ CHỌN", type="primary", use_container_width=True, key="btn_del_prj_v7_final"):
                         if confirm_pwd == "admin123":
                             target_codes = selected_rows["project_code"].tolist()
                             # Xóa dữ liệu dự án, task và chi phí liên quan
@@ -2874,7 +2874,7 @@ with t7:
 
                 with tabs[2]: # TAB CÀI ĐẶT
                     st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN DỰ ÁN")
-                    with st.form(key=f"edit_prj_form_v26_{sel_prj_id}"):
+                    with st.form(key=f"edit_prj_form_v26_final_{sel_prj_id}"):
                         c_edit1, c_edit2 = st.columns(2)
                         up_code = c_edit1.text_input("Mã Dự Án (Project Code)", value=safe_str(active_prj['project_code']))
                         up_name = c_edit2.text_input("Tên Dự Án (Project Name)", value=safe_str(active_prj['project_name']))
@@ -2898,7 +2898,7 @@ with t7:
                             
                             try:
                                 supabase.table("crm_projects").update(update_data).eq("project_code", active_prj['project_code']).execute()
-                                st.cache_data.clear()
+                                st.cache_data.clear() # Xóa cache ứng dụng
                                 st.success("✅ Đã cập nhật thành công!"); time.sleep(0.5); st.rerun()
                             except Exception as e: st.error(f"Lỗi: {e}")
     else: st.info("Chưa có dự án nào.")
