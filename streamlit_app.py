@@ -2644,10 +2644,10 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - CHECKBOX KHÔNG NHẤP NHÁY + NÚT XÓA DỰ ÁN) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIX "CHƯA CHỌN" + CHECKBOX ỔN ĐỊNH) ---
 # =============================================================================
 with t7:
-    # --- 0. KHỞI TẠO BIẾN BẢO MẬT & SESSION STATE CHO CHECKBOX ---
+    # --- 0. KHỞI TẠO BIẾN BẢO MẬT & SESSION STATE ---
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
 
@@ -2758,11 +2758,11 @@ with t7:
                             time.sleep(0.5)
                             st.rerun()
 
-            # --- DANH SÁCH DỰ ÁN - CHECKBOX ỔN ĐỊNH TUYỆT ĐỐI ---
+            # --- DANH SÁCH DỰ ÁN - CHECKBOX ỔN ĐỊNH ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
-            df_table = df_table.sort_values("project_code")  # Giữ thứ tự ổn định để Streamlit không reset
+            df_table = df_table.sort_values("project_code")
 
-            # Khôi phục trạng thái checkbox từ session_state
+            # Khôi phục checkbox từ session_state
             df_table["Select"] = df_table["project_code"].apply(lambda x: x in st.session_state.selected_project_codes)
 
             current_timestamp = int(time.time() * 1000)
@@ -2803,39 +2803,45 @@ with t7:
                 },
                 use_container_width=True,
                 hide_index=True,
-                key="prj_editor_v7_no_rerun_checkbox"
+                key="prj_editor_v7_stable_no_rerun"
             )
 
-            # Cập nhật session_state mà KHÔNG rerun khi chỉ tick checkbox
+            # Cập nhật session_state (không rerun tự động)
             st.session_state.selected_project_codes = set(edited_df_p[edited_df_p["Select"] == True]["project_code"].tolist())
 
-            # --- NÚT XÓA DỰ ÁN (theo ý bạn: nút mũi tên dropdown) ---
+            # --- NÚT ÁP DỤNG LỰA CHỌN + XÓA DỰ ÁN ---
             if st.session_state.is_admin:
-                with st.popover("🗑️ Xóa dự án", help="Chọn dự án đã tick để xóa"):
-                    if st.session_state.selected_project_codes:
-                        st.markdown("**Dự án đang chọn để xóa:**")
-                        for code in st.session_state.selected_project_codes:
-                            st.markdown(f"- {code}")
+                col_apply, col_delete = st.columns([1, 3])
+                with col_apply:
+                    if st.button("Áp dụng lựa chọn", type="secondary", help="Nhấn để cập nhật danh sách đã tick"):
+                        st.rerun()  # Chỉ rerun khi nhấn nút này, tránh nhấp nháy tự động
 
-                        delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận:", type="password", key="pwd_delete_dropdown_v7")
+                with col_delete:
+                    with st.popover("🗑️ Xóa dự án", help="Chọn dự án đã tick để xóa"):
+                        if st.session_state.selected_project_codes:
+                            st.markdown("**Dự án đang chọn:**")
+                            for code in st.session_state.selected_project_codes:
+                                st.markdown(f"- {code}")
 
-                        if st.button("🔥 Xác nhận xóa", type="primary", use_container_width=True):
-                            if delete_pwd == "admin123":
-                                with st.spinner("Đang xóa..."):
-                                    target_codes = list(st.session_state.selected_project_codes)
-                                    supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
-                                    supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
-                                    supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
+                            delete_pwd = st.text_input("Mật khẩu Admin:", type="password", key="pwd_delete_dropdown_v7")
 
-                                st.session_state.selected_project_codes.clear()
-                                st.cache_data.clear()
-                                st.success(f"Đã xóa {len(target_codes)} dự án thành công!")
-                                time.sleep(1.2)
-                                st.rerun()
-                            else:
-                                st.error("Mật khẩu sai!")
-                    else:
-                        st.info("Chưa có dự án nào được chọn (tick checkbox trước).")
+                            if st.button("🔥 Xác nhận xóa", type="primary", use_container_width=True):
+                                if delete_pwd == "admin123":
+                                    with st.spinner("Đang xóa..."):
+                                        target_codes = list(st.session_state.selected_project_codes)
+                                        supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
+                                        supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
+                                        supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
+
+                                    st.session_state.selected_project_codes.clear()
+                                    st.cache_data.clear()
+                                    st.success(f"Đã xóa {len(target_codes)} dự án thành công!")
+                                    time.sleep(1.2)
+                                    st.rerun()
+                                else:
+                                    st.error("Mật khẩu sai!")
+                        else:
+                            st.info("Chưa có dự án nào được chọn (tick checkbox trước).")
 
         # --- 5. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
@@ -2924,7 +2930,7 @@ with t7:
                             }
 
                             if u_img:
-                                with st.spinner("Đang upload ảnh mới (tạo URL hoàn toàn mới)..."):
+                                with st.spinner("Đang upload ảnh mới..."):
                                     timestamp = int(time.time())
                                     filename = f"PRJ_ID_{active_prj['project_code'].strip().upper()}_{timestamp}.png"
                                     new_img_url, _ = upload_to_drive_simple(u_img, "CRM_PROJECT_IMAGES", filename)
@@ -2934,7 +2940,7 @@ with t7:
                                 supabase.table("crm_projects").update(up_payload).eq("project_code", active_prj['project_code']).execute()
                                 st.cache_data.clear()
                                 st.cache_resource.clear()
-                                st.success("✅ Cập nhật thành công! Ảnh mới đã thay đổi hoàn toàn.")
+                                st.success("✅ Cập nhật thành công!")
                                 time.sleep(1.5)
                                 st.rerun()
                             except Exception as e:
