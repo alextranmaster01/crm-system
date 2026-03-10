@@ -2214,7 +2214,7 @@ with t4:
 import re
 
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NÚT UPDATE THỦ CÔNG CHO TIẾN ĐỘ & CHI PHÍ + NÚT XÓA DỰ ÁN) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - LAYOUT GIỐNG HỆT ẢNH + NÚT XÓA DỰ ÁN) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
@@ -2350,14 +2350,12 @@ with t7:
                 hide_index=True,
                 key="prj_editor_v7_final_sync_tick"
             )
-            # --- PHẦN MỞ RỘNG: XÓA DỰ ÁN (MŨI TÊN TRỎ XUỐNG) ---
-            selected_rows = edited_df_p[edited_df_p["Select"] == True]
+            # --- PHẦN MỞ RỘNG: NÚT XÓA DỰ ÁN (MŨI TÊN TRỎ XUỐNG) ---
             if st.session_state.is_admin:
                 with st.popover("🗑️ Xóa dự án", help="Chọn dự án để xóa"):
                     st.markdown("**Chọn dự án cần xóa**")
-                    # Liệt kê tất cả dự án từ df_filtered (hoặc df_projects nếu muốn full)
-                    project_options = df_filtered["project_code"].tolist()
-                    selected_to_delete = st.selectbox("Danh sách dự án:", ["Chọn dự án..."] + project_options, key="select_delete_prj_v7")
+                    project_options = ["Chọn dự án..."] + df_filtered["project_code"].tolist()
+                    selected_to_delete = st.selectbox("Danh sách dự án:", project_options, key="select_delete_prj_v7")
                     if selected_to_delete != "Chọn dự án...":
                         st.warning(f"Bạn đang chọn xóa dự án: **{selected_to_delete}**")
                         delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_delete_select_v7")
@@ -2376,101 +2374,101 @@ with t7:
                                         st.error(f"Lỗi khi xóa: {str(e)}")
                             else:
                                 st.error("Mật khẩu Admin không đúng!")
-            # --- 5. QUẢN LÝ CHI TIẾT ---
-            if sel_prj_id:
-                active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
-                st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})**")
-                tasks_all = load_data("crm_project_tasks")
-                tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
-                tab_list = ["⏳ TIẾN ĐỘ & GANTT"]
-                if st.session_state.is_admin:
-                    tab_list.extend(["💸 CHI PHÍ", "⚙️ CÀI ĐẶT DỰ ÁN"])
-                tabs = st.tabs(tab_list)
-                with tabs[0]:
-                    col_g1, col_g2 = st.columns([2, 3])
+        # --- 5. QUẢN LÝ CHI TIẾT ---
+        if sel_prj_id:
+            active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
+            st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})**")
+            tasks_all = load_data("crm_project_tasks")
+            tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
+            tab_list = ["⏳ TIẾN ĐỘ & GANTT"]
+            if st.session_state.is_admin:
+                tab_list.extend(["💸 CHI PHÍ", "⚙️ CÀI ĐẶT DỰ ÁN"])
+            tabs = st.tabs(tab_list)
+            with tabs[0]:
+                col_g1, col_g2 = st.columns([2, 3])
+                
+                avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
+                
+                with col_g1:
+                    if not tasks_data.empty:
+                        df_g = tasks_data.copy()
+                        df_g['start_date'] = pd.to_datetime(df_g['start_date'], errors='coerce')
+                        df_g['end_date'] = pd.to_datetime(df_g['end_date'], errors='coerce')
+                        
+                        m_row = pd.DataFrame([{
+                            'task_name': f'⭐ TỔNG DỰ ÁN ({avg_p:.0f}%)',
+                            'start_date': pd.to_datetime(active_prj['start_date']),
+                            'end_date': pd.to_datetime(active_prj['end_date']),
+                            'status': 'Master'
+                        }])
+                        
+                        chart = alt.Chart(pd.concat([m_row, df_g])).mark_bar(cornerRadius=5, height=20).encode(
+                            x=alt.X('start_date', title='Thời gian'),
+                            x2='end_date',
+                            y=alt.Y('task_name', sort=None),
+                            color=alt.Color('status', scale=alt.Scale(
+                                domain=['Master', 'To-do', 'Doing', 'Review', 'Done'],
+                                range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
+                            ))
+                        ).properties(height=350)
+                        
+                        st.altair_chart(chart, use_container_width=True)
+                    else:
+                        st.info("Chưa có nhiệm vụ nào để hiển thị GANTT.")
+                with col_g2:
+                    df_ed_task = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() \
+                        if not tasks_data.empty \
+                        else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
                     
-                    avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
+                    df_ed_task['start_date'] = pd.to_datetime(df_ed_task['start_date'], errors='coerce').dt.date
+                    df_ed_task['end_date'] = pd.to_datetime(df_ed_task['end_date'], errors='coerce').dt.date
                     
-                    with col_g1:
-                        if not tasks_data.empty:
-                            df_g = tasks_data.copy()
-                            df_g['start_date'] = pd.to_datetime(df_g['start_date'], errors='coerce')
-                            df_g['end_date'] = pd.to_datetime(df_g['end_date'], errors='coerce')
-                            
-                            m_row = pd.DataFrame([{
-                                'task_name': f'⭐ TỔNG DỰ ÁN ({avg_p:.0f}%)',
-                                'start_date': pd.to_datetime(active_prj['start_date']),
-                                'end_date': pd.to_datetime(active_prj['end_date']),
-                                'status': 'Master'
-                            }])
-                            
-                            chart = alt.Chart(pd.concat([m_row, df_g])).mark_bar(cornerRadius=5, height=20).encode(
-                                x=alt.X('start_date', title='Thời gian'),
-                                x2='end_date',
-                                y=alt.Y('task_name', sort=None),
-                                color=alt.Color('status', scale=alt.Scale(
-                                    domain=['Master', 'To-do', 'Doing', 'Review', 'Done'],
-                                    range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
-                                ))
-                            ).properties(height=350)
-                            
-                            st.altair_chart(chart, use_container_width=True)
-                        else:
-                            st.info("Chưa có nhiệm vụ nào để hiển thị GANTT.")
-                    with col_g2:
-                        df_ed_task = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() \
-                            if not tasks_data.empty \
-                            else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
-                        
-                        df_ed_task['start_date'] = pd.to_datetime(df_ed_task['start_date'], errors='coerce').dt.date
-                        df_ed_task['end_date'] = pd.to_datetime(df_ed_task['end_date'], errors='coerce').dt.date
-                        
-                        edited_tasks = st.data_editor(
-                            df_ed_task,
-                            num_rows="dynamic",
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "progress_pct": st.column_config.SelectboxColumn(
-                                    "Tiến độ (%)",
-                                    options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]
-                                ),
-                                "status": st.column_config.SelectboxColumn(
-                                    "Trạng thái",
-                                    options=["To-do", "Doing", "Review", "Done"]
-                                ),
-                                "start_date": st.column_config.DateColumn("Bắt đầu"),
-                                "end_date": st.column_config.DateColumn("Kết thúc")
-                            },
-                            key=f"ed_v7_task_manual_{sel_prj_id}"
-                        )
-                        
-                        if st.button("💾 Cập nhật Tiến độ & Nhiệm vụ", type="primary", use_container_width=True, key=f"btn_update_tasks_{sel_prj_id}"):
-                            with st.spinner("Đang lưu tiến độ nhiệm vụ..."):
-                                try:
-                                    supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
-                                    
-                                    new_tasks = []
-                                    for row in edited_tasks.to_dict('records'):
-                                        if row.get('task_name'):
-                                            new_tasks.append({
-                                                "project_code": sel_prj_id,
-                                                "task_name": row['task_name'],
-                                                "assignee": row['assignee'],
-                                                "start_date": str(row['start_date']) if row['start_date'] else None,
-                                                "end_date": str(row['end_date']) if row['end_date'] else None,
-                                                "progress_pct": row['progress_pct'],
-                                                "status": row['status']
-                                            })
-                                    
-                                    if new_tasks:
-                                        supabase.table("crm_project_tasks").insert(new_tasks).execute()
-                                    
-                                    st.success("✅ Đã cập nhật tiến độ nhiệm vụ thành công!")
-                                    time.sleep(0.8)
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Lỗi khi cập nhật nhiệm vụ: {str(e)}")
+                    edited_tasks = st.data_editor(
+                        df_ed_task,
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "progress_pct": st.column_config.SelectboxColumn(
+                                "Tiến độ (%)",
+                                options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]
+                            ),
+                            "status": st.column_config.SelectboxColumn(
+                                "Trạng thái",
+                                options=["To-do", "Doing", "Review", "Done"]
+                            ),
+                            "start_date": st.column_config.DateColumn("Bắt đầu"),
+                            "end_date": st.column_config.DateColumn("Kết thúc")
+                        },
+                        key=f"ed_v7_task_manual_{sel_prj_id}"
+                    )
+                    
+                    if st.button("💾 Cập nhật Tiến độ & Nhiệm vụ", type="primary", use_container_width=True, key=f"btn_update_tasks_{sel_prj_id}"):
+                        with st.spinner("Đang lưu tiến độ nhiệm vụ..."):
+                            try:
+                                supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
+                                
+                                new_tasks = []
+                                for row in edited_tasks.to_dict('records'):
+                                    if row.get('task_name'):
+                                        new_tasks.append({
+                                            "project_code": sel_prj_id,
+                                            "task_name": row['task_name'],
+                                            "assignee": row['assignee'],
+                                            "start_date": str(row['start_date']) if row['start_date'] else None,
+                                            "end_date": str(row['end_date']) if row['end_date'] else None,
+                                            "progress_pct": row['progress_pct'],
+                                            "status": row['status']
+                                        })
+                                
+                                if new_tasks:
+                                    supabase.table("crm_project_tasks").insert(new_tasks).execute()
+                                
+                                st.success("✅ Đã cập nhật tiến độ nhiệm vụ thành công!")
+                                time.sleep(0.8)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Lỗi khi cập nhật nhiệm vụ: {str(e)}")
             if st.session_state.is_admin:
                 with tabs[1]:
                     prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
