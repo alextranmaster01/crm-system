@@ -2644,12 +2644,16 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NÚT UPDATE THỦ CÔNG + XÓA DỰ ÁN BẰNG ICON & PASSWORD) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIX NHẤP NHÁY CHECKBOX + XÓA BẰNG ICON TRÊN PHẢI) ---
 # =============================================================================
 with t7:
-    # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
+    # --- 0. KHỞI TẠO BIẾN BẢO MẬT & SESSION STATE CHO CHECKBOX ---
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
+
+    # Lưu danh sách project_code đang được chọn (để checkbox không tự bỏ tick khi rerun)
+    if 'selected_project_codes' not in st.session_state:
+        st.session_state.selected_project_codes = set()
 
     # --- 1. TẢI DỮ LIỆU ---
     df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
@@ -2757,7 +2761,9 @@ with t7:
 
             # --- HIỂN THỊ DANH SÁCH ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
-            df_table.insert(0, "Select", False)
+
+            # Khôi phục trạng thái checkbox từ session_state
+            df_table["Select"] = df_table["project_code"].apply(lambda code: code in st.session_state.selected_project_codes)
 
             current_timestamp = int(time.time() * 1000)
             def make_cache_busting_url(url):
@@ -2780,6 +2786,7 @@ with t7:
             df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
             df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
 
+            # Data editor với checkbox
             edited_df_p = st.data_editor(
                 df_table[[
                     'Select', 'project_image_display', 'project_code', 'project_name',
@@ -2797,36 +2804,43 @@ with t7:
                 },
                 use_container_width=True,
                 hide_index=True,
-                key="prj_editor_v7_final_sync_tick"
+                num_rows="fixed",  # Ngăn nhấp nháy do thay đổi số dòng
+                key="prj_editor_v7_fixed_checkbox"
             )
 
-            # --- PHẦN XÓA DỰ ÁN BẰNG ICON (HIỆN KHI CÓ DÒNG ĐƯỢC CHỌN) ---
+            # Cập nhật session_state khi checkbox thay đổi
+            new_selected = set(edited_df_p[edited_df_p["Select"] == True]["project_code"].tolist())
+            if new_selected != st.session_state.selected_project_codes:
+                st.session_state.selected_project_codes = new_selected
+                st.rerun()  # rerun để đồng bộ UI ngay lập tức mà không mất tick
+
+            # --- PHẦN XÓA DỰ ÁN BẰNG ICON THÙNG RÁC PHÍA TRÊN PHẢI ---
             selected_rows = edited_df_p[edited_df_p["Select"] == True]
 
             if not selected_rows.empty and st.session_state.is_admin:
-                st.markdown("### 🗑️ XÓA DỰ ÁN ĐÃ CHỌN")
-                st.warning(f"Đang chọn xóa **{len(selected_rows)}** dự án: {', '.join(selected_rows['project_code'].tolist())}")
+                with st.popover("🗑️", help="Xóa các dự án đã chọn", use_container_width=False):
+                    st.markdown(f"**XÓA {len(selected_rows)} DỰ ÁN ĐÃ CHỌN**")
+                    st.warning(f"Mã dự án: {', '.join(selected_rows['project_code'].tolist())}")
 
-                col_pwd, col_btn = st.columns([3, 1])
-                with col_pwd:
-                    delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_delete_icon_v7")
-                with col_btn:
-                    if st.button("🗑️ XÓA NGAY", type="primary", use_container_width=True, key="btn_delete_icon_v7"):
+                    delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận:", type="password", key="pwd_delete_popover_v7")
+
+                    if st.button("🗑️ Xác nhận xóa", type="primary", use_container_width=True, key="btn_confirm_delete_popover"):
                         if delete_pwd == "admin123":
                             with st.spinner("Đang xóa dự án..."):
                                 target_codes = selected_rows["project_code"].tolist()
 
-                                # Xóa dữ liệu liên quan
                                 supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
                                 supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
                                 supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
 
+                            # Clear trạng thái chọn sau khi xóa
+                            st.session_state.selected_project_codes.clear()
                             st.cache_data.clear()
-                            st.success(f"✅ Đã xóa thành công {len(target_codes)} dự án!")
+                            st.success(f"Đã xóa thành công {len(target_codes)} dự án!")
                             time.sleep(1.2)
                             st.rerun()
                         else:
-                            st.error("Mật khẩu sai! Không thể xóa.")
+                            st.error("Mật khẩu sai!")
 
         # --- 5. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
