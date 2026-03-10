@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - UPLOAD ẢNH & HIỂN THỊ ĐẸP) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - TÍNH NĂNG CÀI ĐẶT, XÓA & ẢNH ĐẸP) ---
 # =============================================================================
 with t7:
     # --- 1. TẢI DỮ LIỆU ---
@@ -2657,6 +2657,7 @@ with t7:
     with c_tab_head1:
         st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
     with c_tab_head2:
+        # Nút Phân quyền được tích hợp trực tiếp để Alex dễ thao tác
         with st.popover("🔑 PHÂN QUYỀN", use_container_width=True):
             if not st.session_state.get('is_admin', False):
                 pwd_input = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_v1")
@@ -2668,7 +2669,7 @@ with t7:
                 if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_v1"):
                     st.session_state.is_admin = False; st.rerun()
 
-    # --- 2. BỨC TRANH TOÀN CẢNH (MACRO VIEW) ---
+    # --- 2. BỨC TRANH TOÀN CẢNH (MACRO VIEW - BẢO MẬT) ---
     if not df_projects.empty:
         df_dash_calc = df_projects.copy()
         if not df_costs_master.empty:
@@ -2693,7 +2694,7 @@ with t7:
 
         st.divider()
 
-        # --- 3. BỘ LỌC & DANH SÁCH DỰ ÁN ---
+        # --- 3. BỘ LỌC & DANH SÁCH DỰ ÁN (CÓ CHỨC NĂNG XÓA) ---
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
@@ -2711,14 +2712,14 @@ with t7:
             with col_t2:
                 # --- PHẦN 1: NÂNG CẤP TẠO DỰ ÁN MỚI ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-                    p_code = st.text_input("Mã Dự Án (VD: DA-001)", key="new_p_code_v7")
+                    p_code = st.text_input("Mã Dự Án (VD: HS-001)", key="new_p_code_v7")
                     p_name = st.text_input("Tên Dự Án", key="new_p_name_v7")
                     p_cust = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="new_p_cust_v7")
                     p_bud = st.number_input("Ngân sách/Doanh thu (VND)", min_value=0.0, step=1000000.0, key="new_p_bud_v7")
                     
                     c_date1, c_date2 = st.columns(2)
-                    p_start = c_date1.date_input("Ngày Bắt Đầu", key="new_p_start_v7")
-                    p_end = c_date2.date_input("Ngày Kết Thúc", key="new_p_end_v7")
+                    p_start = c_date1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="new_p_start_v7")
+                    p_end = c_date2.date_input("Ngày Kết Thúc", value=datetime.now(), key="new_p_end_v7")
                     
                     p_img = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="new_p_img_v7")
                     
@@ -2726,7 +2727,7 @@ with t7:
                         if p_code and p_name:
                             img_url = ""
                             if p_img:
-                                # Áp dụng thuật toán upload của Tab Kho hàng
+                                # Thuật toán upload ảnh chuẩn
                                 img_url, _ = upload_to_drive_simple(p_img, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
                             
                             new_rec = {
@@ -2758,12 +2759,12 @@ with t7:
             df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
             df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
 
-            # Sử dụng ImageColumn để hiển thị ảnh từ URL Drive thumbnail
+            # Sử dụng ImageColumn để hiển thị ảnh thumbnail đẹp mắt
             edited_df_prj = st.data_editor(
                 df_table[['Select', 'project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit']], 
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="medium"), # Thuật toán hiển thị ảnh đẹp
+                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="medium"), # Thuật toán hiển thị ảnh
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
                     "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True),
                     "budget_vnd_disp": "Doanh Thu",
@@ -2773,7 +2774,7 @@ with t7:
                 use_container_width=True, hide_index=True, key="prj_editor_v7_with_del"
             )
 
-            # Chức năng xóa dành cho Admin
+            # Chức năng xóa dành cho Admin khi tick chọn
             selected_rows = edited_df_prj[edited_df_prj["Select"] == True]
             if not selected_rows.empty and st.session_state.get('is_admin', False):
                 st.warning(f"⚠️ Đang chọn xóa {len(selected_rows)} dự án.")
@@ -2807,6 +2808,7 @@ with t7:
             
             with tabs[0]: # TAB TIẾN ĐỘ
                 col_g1, col_g2 = st.columns([2, 3])
+                # Tính % tiến độ trung bình
                 avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
 
                 with col_g1:
@@ -2824,6 +2826,7 @@ with t7:
 
                 with col_g2:
                     st.markdown("📋 **BẢNG CÔNG VIỆC (AUTO-SAVE)**")
+                    # FIX DATE ĐỂ KHÔNG BỊ MÀN HÌNH ĐỎ
                     if not tasks_data.empty:
                         df_ed = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy()
                         df_ed['start_date'] = pd.to_datetime(df_ed['start_date'], errors='coerce').dt.date
@@ -2831,6 +2834,7 @@ with t7:
                     else:
                         df_ed = pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
 
+                    # 11 cấp độ màu sắc
                     ed_v7 = st.data_editor(df_ed, num_rows="dynamic", use_container_width=True, hide_index=True, 
                         column_config={
                             "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]),
@@ -2891,8 +2895,8 @@ with t7:
                             }
                             
                             if up_img_file:
-                                img_url, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code}.png")
-                                update_data["project_image"] = img_url
+                                img_url_new, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code}.png")
+                                update_data["project_image"] = img_url_new
                             
                             try:
                                 if up_code.strip().upper() != active_prj['project_code']:
