@@ -2800,37 +2800,41 @@ with t7:
                 key="prj_editor_v7_final_sync_tick"
             )
 
-            # --- CHỨC NĂNG XÓA DỰ ÁN (THÊM MỚI THEO YÊU CẦU) ---
-            selected_rows = edited_df_p[edited_df_p["Select"] == True]
-            with st.expander("Xóa dự án 🔽", expanded=False):
-                if not selected_rows.empty:
-                    st.warning(f"Bạn đang chọn xóa {len(selected_rows)} dự án.")
-                    c_del1, c_del2 = st.columns([3, 1])
-                    with c_del1:
-                        pwd_confirm = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_del_confirm_v7")
-                    with c_del2:
-                        st.write("##") # Căn lề nút bấm
-                        if st.button("Xác nhận xóa", type="primary", use_container_width=True):
-                            if pwd_confirm == "admin123":
-                                with st.spinner("Đang xóa dữ liệu..."):
+            # --- CHỨC NĂNG XÓA DỰ ÁN (THỰC THI THEO ẢNH YÊU CẦU) ---
+            st.write("##") # Spacing
+            with st.expander("🗑️ Xóa dự án", expanded=False):
+                st.info("Để xóa dự án, vui lòng chọn dự án trong bảng trên, sau đó nhập mật khẩu Admin.")
+                
+                # Lấy danh sách mã các dự án đang được tick chọn
+                selected_codes = edited_df_p[edited_df_p["Select"] == True]["project_code"].tolist()
+                
+                if not selected_codes:
+                    st.warning("⚠️ Vui lòng tick chọn (Checkbox) ít nhất một dự án trong danh sách ở trên để xóa.")
+                else:
+                    st.write(f"Đang chọn: **{', '.join(selected_codes)}**")
+                    col_p1, col_p2 = st.columns([2, 1])
+                    with col_p1:
+                        pwd_del = st.text_input("Mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_confirm_del_v7")
+                    with col_p2:
+                        st.write("##")
+                        if st.button("🔥 XÁC NHẬN XÓA", type="primary", use_container_width=True):
+                            if pwd_del == "admin123":
+                                with st.spinner("Đang thực hiện xóa vĩnh viễn..."):
                                     try:
-                                        target_codes = selected_rows["project_code"].tolist()
-                                        # Xóa chính dự án
-                                        supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
-                                        # Xóa các dữ liệu liên quan để tránh rác database
-                                        supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
-                                        supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
+                                        # Xóa dự án chính
+                                        supabase.table("crm_projects").delete().in_("project_code", selected_codes).execute()
+                                        # Xóa dữ liệu liên quan để tránh rác database
+                                        supabase.table("crm_project_tasks").delete().in_("project_code", selected_codes).execute()
+                                        supabase.table("crm_project_costs").delete().in_("project_code", selected_codes).execute()
                                         
                                         st.cache_data.clear()
-                                        st.success("Đã xóa vĩnh viễn các dự án được chọn!")
-                                        time.sleep(1)
+                                        st.success("✅ Đã xóa dự án thành công!")
+                                        time.sleep(0.8)
                                         st.rerun()
                                     except Exception as e:
-                                        st.error(f"Lỗi khi xóa: {str(e)}")
+                                        st.error(f"Lỗi hệ thống khi xóa: {str(e)}")
                             else:
-                                st.error("Mật khẩu Admin không chính xác!")
-                else:
-                    st.info("Vui lòng tích chọn dự án trong bảng trên trước khi thực hiện xóa.")
+                                st.error("❌ Mật khẩu Admin không chính xác!")
 
         # --- 5. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
