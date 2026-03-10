@@ -2710,7 +2710,7 @@ with t7:
             col_t1, col_t2 = st.columns([4, 1])
             col_t1.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
             with col_t2:
-                # --- PHẦN 1: NÂNG CẤP TẠO DỰ ÁN MỚI (FIX HIỂN THỊ ẢNH) ---
+                # --- PHẦN 1: TẠO DỰ ÁN MỚI ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
                     p_code = st.text_input("Mã Dự Án (VD: HS-001)", key="new_p_code_v7_26")
                     p_name = st.text_input("Tên Dự Án", key="new_p_name_v7_26")
@@ -2725,11 +2725,10 @@ with t7:
                     
                     if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_26"):
                         if p_code and p_name:
-                            # THUẬT TOÁN HIỂN THỊ ẢNH THÀNH CÔNG 100% (GIỐNG PHẦN CÀI ĐẶT)
-                            img_url_final = ""
+                            img_url_new = ""
                             if p_img_file:
                                 with st.spinner("Đang tải ảnh lên Drive..."):
-                                    img_url_final, _ = upload_to_drive_simple(p_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
+                                    img_url_new, _ = upload_to_drive_simple(p_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{p_code.strip()}.png")
                             
                             new_rec = {
                                 "project_code": p_code.strip().upper(), 
@@ -2738,7 +2737,7 @@ with t7:
                                 "budget_vnd": float(p_bud),
                                 "start_date": str(p_start),
                                 "end_date": str(p_end),
-                                "project_image": img_url_final, # Gán URL đã upload vào đây
+                                "project_image": img_url_new,
                                 "status": "In Progress"
                             }
                             supabase.table("crm_projects").insert([new_rec]).execute()
@@ -2746,7 +2745,7 @@ with t7:
                         else:
                             st.error("Vui lòng nhập Mã và Tên dự án!")
 
-            # --- PHẦN 2: HIỂN THỊ ẢNH ĐẸP NHƯ TAB KHO HÀNG ---
+            # --- PHẦN 2: HIỂN THỊ DANH SÁCH ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
             df_table.insert(0, "Select", False) 
 
@@ -2764,7 +2763,7 @@ with t7:
                 df_table[['Select', 'project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit']], 
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="medium"), # Thuật toán hiển thị ảnh
+                    "project_image": st.column_config.ImageColumn("Hình ảnh", width="medium"),
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
                     "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True),
                     "budget_vnd_disp": "Doanh Thu",
@@ -2832,7 +2831,7 @@ with t7:
                     else:
                         df_ed = pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
 
-                    ed_v7 = st.data_editor(df_ed, num_rows="dynamic", use_container_width=True, hide_index=True, 
+                    ed_v7 = st.data_editor(df_ed, num_rows="dynamic", use_container_width=True, hide_index=True, 
                         column_config={
                             "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]),
                             "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"]),
@@ -2864,15 +2863,13 @@ with t7:
                         if new_cs: supabase.table("crm_project_costs").insert(new_cs).execute()
                         st.toast("💰 Cost saved!", icon="✅"); time.sleep(0.3); st.rerun()
 
-                with tabs[2]: # TAB CÀI ĐẶT
+                with tabs[2]: # TAB CÀI ĐẶT (FIX LỖI HIỂN THỊ ẢNH MỚI)
                     st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN DỰ ÁN")
                     with st.form(key=f"edit_prj_form_v26_{sel_prj_id}"):
                         c_edit1, c_edit2 = st.columns(2)
                         up_code = c_edit1.text_input("Mã Dự Án (Project Code)", value=safe_str(active_prj['project_code']))
                         up_name = c_edit2.text_input("Tên Dự Án (Project Name)", value=safe_str(active_prj['project_name']))
-                        
-                        up_cust = c_edit1.selectbox("Khách Hàng", cust_db["short_name"].tolist(), index=cust_db["short_name"].tolist().index(active_prj['customer_name']) if active_prj['customer_name'] in cust_db["short_name"].tolist() else 0)
-                        up_budget = c_edit2.number_input("Doanh Thu/Ngân Sách (VND)", value=float(active_prj['budget_vnd']), step=1000000.0)
+                        up_bud = c_edit1.number_input("Ngân Sách (VND)", value=float(active_prj['budget_vnd']))
                         
                         d_start = c_edit1.date_input("Ngày Bắt Đầu", value=pd.to_datetime(active_prj['start_date']) if active_prj['start_date'] else datetime.now())
                         d_end = c_edit2.date_input("Ngày Kết Thúc", value=pd.to_datetime(active_prj['end_date']) if active_prj['end_date'] else datetime.now())
@@ -2881,10 +2878,10 @@ with t7:
                         up_img_file = st.file_uploader("Thay đổi ảnh dự án", type=["png", "jpg", "jpeg"])
                         
                         if st.form_submit_button("💾 CẬP NHẬT THÔNG TIN", use_container_width=True):
+                            # THUẬT TOÁN ĐẢM BẢO ẢNH MỚI ĐƯỢC HIỂN THỊ
                             update_data = {
                                 "project_code": up_code.strip().upper(),
                                 "project_name": up_name,
-                                "customer_name": up_cust,
                                 "budget_vnd": float(up_budget),
                                 "start_date": str(d_start),
                                 "end_date": str(d_end),
@@ -2892,15 +2889,19 @@ with t7:
                             }
                             
                             if up_img_file:
-                                with st.spinner("Đang tải ảnh lên Drive..."):
+                                with st.spinner("Đang tải ảnh mới lên Drive..."):
+                                    # Gọi hàm upload để lấy URL thumbnail mới từ Drive
                                     img_url_up, _ = upload_to_drive_simple(up_img_file, "CRM_PROJECT_IMAGES", f"PRJ_{up_code.strip()}.png")
+                                    # Gán URL mới vào dữ liệu cập nhật
                                     update_data["project_image"] = img_url_up
                             
                             try:
+                                # Nếu thay đổi mã dự án, đồng bộ các bảng liên quan
                                 if up_code.strip().upper() != active_prj['project_code']:
                                     supabase.table("crm_project_tasks").update({"project_code": up_code.strip().upper()}).eq("project_code", active_prj['project_code']).execute()
                                     supabase.table("crm_project_costs").update({"project_code": up_code.strip().upper()}).eq("project_code", active_prj['project_code']).execute()
                                 
+                                # Thực hiện cập nhật vào Supabase
                                 supabase.table("crm_projects").update(update_data).eq("project_code", active_prj['project_code']).execute()
                                 st.success("✅ Đã cập nhật thành công!"); time.sleep(0.5); st.rerun()
                             except Exception as e:
