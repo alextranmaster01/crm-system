@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN FIX TRIỆT ĐỂ LỖI RE-RUN & XÓA NHANH) ---
+# --- TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN THAY ĐỔI LOGIC XÓA TRIỆT ĐỂ) ---
 # =============================================================================
 with t7:
     # --- 1. TẢI DỮ LIỆU ---
@@ -2711,6 +2711,7 @@ with t7:
             col_t1, col_t2 = st.columns([4, 1.2])
             col_t1.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
             with col_t2:
+                # --- NÚT TẠO MỚI (GIỮ NGUYÊN) ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
                     p_code = st.text_input("Mã Dự Án (VD: HS-001)", key="new_p_code_v7_26")
                     p_name = st.text_input("Tên Dự Án", key="new_p_name_v7_26")
@@ -2735,16 +2736,35 @@ with t7:
                             st.cache_data.clear()
                             st.success("Tạo dự án thành công!"); time.sleep(0.5); st.rerun()
 
-            # --- PHẦN HIỂN THỊ DANH SÁCH VỚI LOGIC GIỮ TRẠNG THÁI TICK ---
+            # --- LOGIC XÓA MỚI (HOÀN TOÀN TRIỆT ĐỂ) ---
+            if st.session_state.get('is_admin', False):
+                with st.expander("🔴 HÀNH ĐỘNG QUẢN TRỊ: XÓA DỰ ÁN NHANH", expanded=False):
+                    st.markdown("Chọn một hoặc nhiều dự án bên dưới để xóa vĩnh viễn:")
+                    list_prj_codes = df_filtered["project_code"].tolist()
+                    to_delete_codes = st.multiselect("Chọn mã dự án cần xóa:", list_prj_codes, key="multiselect_del_prj")
+                    
+                    if to_delete_codes:
+                        st.error(f"⚠️ Bạn đang chọn xóa {len(to_delete_codes)} dự án: {', '.join(to_delete_codes)}")
+                        col_pw, col_btn = st.columns([2, 1])
+                        with col_pw:
+                            v_pass = st.text_input("Xác nhận mật khẩu Admin để xóa:", type="password", key="pwd_confirm_delete_v29")
+                        with col_btn:
+                            st.write("") # Căn lề
+                            if st.button("🔥 XÁC NHẬN XÓA NGAY", type="primary", use_container_width=True, key="btn_final_delete_v29"):
+                                if v_pass == "admin123":
+                                    try:
+                                        supabase.table("crm_projects").delete().in_("project_code", to_delete_codes).execute()
+                                        supabase.table("crm_project_tasks").delete().in_("project_code", to_delete_codes).execute()
+                                        supabase.table("crm_project_costs").delete().in_("project_code", to_delete_codes).execute()
+                                        st.cache_data.clear()
+                                        st.success("Đã xóa hoàn tất!"); time.sleep(1); st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Lỗi: {e}")
+                                else:
+                                    st.error("Mật khẩu sai!")
+
+            # --- HIỂN THỊ DANH SÁCH (CHỈ XEM - KHÔNG TICKBOX ĐỂ TRÁNH LỖI) ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
-            
-            # Khởi tạo hoặc lấy trạng thái chọn từ session_state
-            if "selected_projects_to_del" not in st.session_state:
-                st.session_state.selected_projects_to_del = []
-
-            # Thêm cột Select dựa trên danh sách đã lưu
-            df_table.insert(0, "Select", df_table["project_code"].isin(st.session_state.selected_projects_to_del))
-
             t_now = int(time.time())
             df_table['project_image'] = df_table['project_image'].apply(lambda x: f"{x}?t={t_now}" if x and "drive.google.com" in x else x)
 
@@ -2758,71 +2778,26 @@ with t7:
             df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
             df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
 
-            # Render bảng Data Editor
-            edited_prj_data = st.data_editor(
-                df_table[['Select', 'project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit']], 
+            st.dataframe(
+                df_table[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit']], 
                 column_config={
-                    "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
                     "project_image": st.column_config.ImageColumn("Hình ảnh", width="medium"), 
-                    "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
-                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True),
+                    "project_code": "Mã DA", "project_name": "Tên Dự Án",
                     "budget_vnd_disp": "Doanh Thu", "total_cost_disp": "Chi Phí", "profit_disp": "Lợi Nhuận"
                 }, 
-                use_container_width=True, hide_index=True, key="prj_editor_v28_final"
+                use_container_width=True, hide_index=True
             )
-
-            # Cập nhật session_state ngay lập tức khi có thay đổi trong bảng
-            current_selected = edited_prj_data[edited_prj_data["Select"] == True]["project_code"].tolist()
-            if current_selected != st.session_state.selected_projects_to_del:
-                st.session_state.selected_projects_to_del = current_selected
-                st.rerun() # Re-run để đồng bộ trạng thái nút xóa ngay lập tức
-
-            # --- LOGIC HIỂN THỊ NÚT XÓA (DỰA TRÊN SESSION STATE) ---
-            if st.session_state.selected_projects_to_del:
-                st.markdown("---")
-                # Tạo một vùng chứa nổi bật cho thao tác xóa
-                with st.container(border=True):
-                    st.warning(f"⚠️ **HÀNH ĐỘNG NGUY HIỂM:** Bạn đã chọn **{len(st.session_state.selected_projects_to_del)}** dự án để xóa vĩnh viễn.")
-                    
-                    if st.session_state.get('is_admin', False):
-                        col_pw, col_btn = st.columns([2, 1])
-                        with col_pw:
-                            del_pass = st.text_input("🔑 Nhập mật khẩu Admin để xác nhận:", type="password", key="pw_del_v28")
-                        with col_btn:
-                            st.write("") # Căn lề
-                            if st.button("🔥 XÓA CÁC DỰ ÁN ĐÃ CHỌN", type="primary", use_container_width=True):
-                                if del_pass == "admin123":
-                                    target_codes = st.session_state.selected_projects_to_del
-                                    try:
-                                        # Thực hiện xóa trên Database
-                                        supabase.table("crm_projects").delete().in_("project_code", target_codes).execute()
-                                        supabase.table("crm_project_tasks").delete().in_("project_code", target_codes).execute()
-                                        supabase.table("crm_project_costs").delete().in_("project_code", target_codes).execute()
-                                        
-                                        # Reset trạng thái
-                                        st.session_state.selected_projects_to_del = []
-                                        st.cache_data.clear()
-                                        st.success("✅ Đã xóa thành công!"); time.sleep(1); st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Lỗi hệ thống: {e}")
-                                else:
-                                    st.error("Mật khẩu sai!")
-                    else:
-                        st.info("💡 Bạn cần mở quyền Admin (nút 🔑 phía trên) để thực hiện thao tác xóa.")
 
         # --- 4. QUẢN LÝ CHI TIẾT ---
         if sel_prj_id:
             active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
             st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})**")
-            
             tasks_all = load_data("crm_project_tasks")
             tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
-            
             tab_list = ["⏳ TIẾN ĐỘ & GANTT"]
             if st.session_state.get('is_admin', False): 
                 tab_list.append("💸 CHI PHÍ (AUTO-CALC)")
                 tab_list.append("⚙️ CÀI ĐẶT DỰ ÁN") 
-            
             tabs = st.tabs(tab_list)
             
             with tabs[0]: # TAB TIẾN ĐỘ
