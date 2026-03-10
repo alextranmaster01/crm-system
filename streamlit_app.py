@@ -2214,7 +2214,7 @@ with t4:
 import re
 
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIX INDENTATION + TRÙNG MÃ DỰ ÁN) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - LAYOUT GIỐNG HỆT ẢNH + NÚT XÓA DỰ ÁN + CHECK TRÙNG MÃ) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
@@ -2289,7 +2289,7 @@ with t7:
             col_t1.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
 
             with col_t2:
-                # --- TẠO DỰ ÁN MỚI ---
+                # --- TẠO DỰ ÁN MỚI (ĐÃ SỬA CHECK TRÙNG MÃ + THỤT LỀ CHUẨN) ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
                     p_code_n = st.text_input("Mã Dự Án (VD: HS-001)", key="n_code_v7_fix")
                     p_name_n = st.text_input("Tên Dự Án", key="n_name_v7_fix")
@@ -2389,27 +2389,25 @@ with t7:
                 key="prj_editor_v7_final_sync_tick"
             )
 
-            # --- PHẦN MỞ RỘNG: XÓA DỰ ÁN (MŨI TÊN TRỎ XUỐNG) ---
-            selected_rows = edited_df_p[edited_df_p["Select"] == True]
-            if not selected_rows.empty:
-                with st.expander(f"🗑️ THÙNG RÁC - XÓA {len(selected_rows)} DỰ ÁN ĐÃ CHỌN"):
-                    st.error("CẢNH BÁO: Hành động này sẽ xóa vĩnh viễn dự án và các dữ liệu nhiệm vụ, chi phí liên quan.")
-                    col_del_1, col_del_2 = st.columns([3, 1])
-                    with col_del_1:
-                        pass_del = st.text_input("Xác nhận mật khẩu Admin để xóa:", type="password", key="pwd_delete_v7_final")
-                    with col_del_2:
-                        st.write("##")  # Tạo khoảng trống căn lề nút
-                        if st.button("🔥 XÓA NGAY", type="primary", use_container_width=True, key="btn_confirm_delete_v7"):
-                            if pass_del == "admin123":
-                                with st.spinner("Đang xóa dữ liệu..."):
+            # --- PHẦN MỞ RỘNG: NÚT XÓA DỰ ÁN (MŨI TÊN TRỎ XUỐNG) ---
+            if st.session_state.is_admin:
+                with st.popover("🗑️ Xóa dự án", help="Chọn dự án để xóa"):
+                    st.markdown("**Chọn dự án cần xóa**")
+                    project_options = ["Chọn dự án..."] + df_filtered["project_code"].tolist()
+                    selected_to_delete = st.selectbox("Danh sách dự án:", project_options, key="select_delete_prj_v7")
+                    if selected_to_delete != "Chọn dự án...":
+                        st.warning(f"Bạn đang chọn xóa dự án: **{selected_to_delete}**")
+                        delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_delete_select_v7")
+                        if st.button("🔥 Xác nhận xóa dự án", type="primary", use_container_width=True):
+                            if delete_pwd == "admin123":
+                                with st.spinner("Đang xóa dự án..."):
                                     try:
-                                        target_ids = selected_rows["project_code"].tolist()
-                                        supabase.table("crm_projects").delete().in_("project_code", target_ids).execute()
-                                        supabase.table("crm_project_tasks").delete().in_("project_code", target_ids).execute()
-                                        supabase.table("crm_project_costs").delete().in_("project_code", target_ids).execute()
+                                        supabase.table("crm_projects").delete().eq("project_code", selected_to_delete).execute()
+                                        supabase.table("crm_project_tasks").delete().eq("project_code", selected_to_delete).execute()
+                                        supabase.table("crm_project_costs").delete().eq("project_code", selected_to_delete).execute()
                                         st.cache_data.clear()
-                                        st.success("✅ Đã xóa hoàn tất dữ liệu!")
-                                        time.sleep(1)
+                                        st.success(f"✅ Đã xóa dự án {selected_to_delete} thành công!")
+                                        time.sleep(1.2)
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Lỗi khi xóa: {str(e)}")
