@@ -2644,30 +2644,33 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN FIX TRIỆT ĐỂ LỖI HIỂN THỊ NÚT XÓA) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - ĐẦY ĐỦ FUNCTION & FIX XÓA TICKBOX) ---
 # =============================================================================
 with t7:
-    # --- 1. TẢI DỮ LIỆU ---
-    df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
-    df_costs_master = load_data("crm_project_costs")
-    cust_db = load_data("crm_customers")
-    # --- 0. TIÊU ĐỀ & NÚT PHÂN QUYỀN (GÓC PHẢI) ---
-    c_tab_head1, c_tab_head2 = st.columns([8, 2])
-    with c_tab_head1:
-        st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
-    with c_tab_head2:
-        # Nút Phân quyền được tích hợp trực tiếp để Alex dễ thao tác
-        with st.popover("🔑 PHÂN QUYỀN", use_container_width=True):
-            if not st.session_state.get('is_admin', False):
-                pwd_v7 = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_v26_final_sync")
-                if pwd_v7 == "admin123":
-                    st.session_state.is_admin = True
-                    st.success("Đã mở quyền!"); time.sleep(0.5); st.rerun()
-            else:
-                st.info("🔓 Quyền Admin đang mở")
-                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_v26_final_sync"):
-                    st.session_state.is_admin = False; st.rerun()
+    # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
+    if 'is_admin' not in st.session_state:
+        st.session_state.is_admin = False
 
+    # --- 1. TẢI DỮ LIỆU ---
+    df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
+    df_costs_master = load_data("crm_project_costs")
+    cust_db = load_data("crm_customers")
+
+    # --- 2. TIÊU ĐỀ & NÚT PHÂN QUYỀN (GÓC PHẢI) ---
+    c_tab_head1, c_tab_head2 = st.columns([8, 2])
+    with c_tab_head1:
+        st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
+    with c_tab_head2:
+        with st.popover("🔑 PHÂN QUYỀN", use_container_width=True):
+            if not st.session_state.is_admin:
+                pwd_v7 = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_vfinal_fix")
+                if pwd_v7 == "admin123":
+                    st.session_state.is_admin = True
+                    st.success("Đã mở quyền!"); time.sleep(0.5); st.rerun()
+            else:
+                st.info("🔓 Quyền Admin đang mở")
+                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_vfinal_fix"):
+                    st.session_state.is_admin = False; st.rerun()
     # --- 2. BỨC TRANH TOÀN CẢNH (MACRO VIEW - BẢO MẬT) ---
     if not df_projects.empty:
         df_dash_calc = df_projects.copy()
