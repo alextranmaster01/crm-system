@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIX ẢNH + NÚT UPDATE TIẾN ĐỘ THỦ CÔNG) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NÚT UPDATE THỦ CÔNG CHO TIẾN ĐỘ & CHI PHÍ) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
@@ -2831,7 +2831,7 @@ with t7:
 
             tab_list = ["⏳ TIẾN ĐỘ & GANTT"]
             if st.session_state.is_admin:
-                tab_list.extend(["💸 CHI PHÍ (AUTO-CALC)", "⚙️ CÀI ĐẶT DỰ ÁN"])
+                tab_list.extend(["💸 CHI PHÍ", "⚙️ CÀI ĐẶT DỰ ÁN"])
 
             tabs = st.tabs(tab_list)
 
@@ -2926,30 +2926,47 @@ with t7:
                 with tabs[1]:
                     prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
                     df_c_disp = prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
-                    df_c_disp['amount_vnd'] = df_c_disp['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 else "")
+                    df_c_disp['amount_vnd'] = df_c_disp['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 and x is not None else "")
 
-                    ed_c_v7 = st.data_editor(
+                    edited_costs = st.data_editor(
                         df_c_disp,
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
-                        key=f"cs_ed_vfinal_{sel_prj_id}"
+                        column_config={
+                            "cost_type": st.column_config.TextColumn("Loại chi phí"),
+                            "amount_vnd": st.column_config.NumberColumn("Số tiền (VND)", format="%,.0f"),
+                            "ref_po": st.column_config.TextColumn("Ref PO / HĐ"),
+                            "description": st.column_config.TextColumn("Mô tả")
+                        },
+                        key=f"ed_v7_cost_manual_{sel_prj_id}"
                     )
 
-                    if not df_c_disp.equals(ed_c_v7):
-                        supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
-                        new_cs = [{
-                            "project_code": sel_prj_id,
-                            "cost_type": r['cost_type'],
-                            "amount_vnd": to_float(r['amount_vnd']),
-                            "ref_po": r['ref_po'],
-                            "description": r['description']
-                        } for r in ed_c_v7.to_dict('records')]
-                        if new_cs:
-                            supabase.table("crm_project_costs").insert(new_cs).execute()
-                        st.toast("💰 Cost saved!", icon="✅")
-                        time.sleep(0.3)
-                        st.rerun()
+                    if st.button("💾 Cập nhật Chi phí", type="primary", use_container_width=True, key=f"btn_update_costs_{sel_prj_id}"):
+                        with st.spinner("Đang lưu chi phí..."):
+                            try:
+                                supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
+                                
+                                new_costs = []
+                                for row in edited_costs.to_dict('records'):
+                                    amount = to_float(row['amount_vnd']) if row['amount_vnd'] else 0
+                                    if row.get('cost_type') and amount > 0:  # chỉ lưu nếu có loại chi phí và số tiền > 0
+                                        new_costs.append({
+                                            "project_code": sel_prj_id,
+                                            "cost_type": row['cost_type'],
+                                            "amount_vnd": amount,
+                                            "ref_po": row['ref_po'],
+                                            "description": row['description']
+                                        })
+                                
+                                if new_costs:
+                                    supabase.table("crm_project_costs").insert(new_costs).execute()
+                                
+                                st.success("✅ Đã cập nhật chi phí thành công!")
+                                time.sleep(0.8)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Lỗi khi cập nhật chi phí: {str(e)}")
 
                 with tabs[2]:
                     st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN DỰ ÁN")
