@@ -2644,7 +2644,7 @@ with t6:
             except Exception as e:
                 st.error(f"Lỗi Import: {e}")
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIX ẢNH TRIỆT ĐỂ 100%) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIX ẢNH + NÚT UPDATE TIẾN ĐỘ THỦ CÔNG) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
@@ -2759,7 +2759,6 @@ with t7:
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
             df_table.insert(0, "Select", False)
 
-            # Cache-busting layer 2
             current_timestamp = int(time.time() * 1000)
             def make_cache_busting_url(url):
                 if not url:
@@ -2835,109 +2834,119 @@ with t7:
                 tab_list.extend(["💸 CHI PHÍ (AUTO-CALC)", "⚙️ CÀI ĐẶT DỰ ÁN"])
 
             tabs = st.tabs(tab_list)
-    with tabs[0]:  # TAB TIẾN ĐỘ & GANTT
-    col_g1, col_g2 = st.columns([2, 3])
-    # Tính trung bình tiến độ để hiển thị trong chart
-    avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
-    
-    with col_g1:
-        if not tasks_data.empty:
-            df_g = tasks_data.copy()
-            df_g['start_date'] = pd.to_datetime(df_g['start_date'], errors='coerce')
-            df_g['end_date'] = pd.to_datetime(df_g['end_date'], errors='coerce')
-            
-            m_row = pd.DataFrame([{
-                'task_name': f'⭐ TỔNG DỰ ÁN ({avg_p:.0f}%)',
-                'start_date': pd.to_datetime(active_prj['start_date']),
-                'end_date': pd.to_datetime(active_prj['end_date']),
-                'status': 'Master'
-            }])
-            
-            chart = alt.Chart(pd.concat([m_row, df_g])).mark_bar(cornerRadius=5, height=20).encode(
-                x=alt.X('start_date', title='Thời gian'),
-                x2='end_date',
-                y=alt.Y('task_name', sort=None),
-                color=alt.Color('status', scale=alt.Scale(
-                    domain=['Master', 'To-do', 'Doing', 'Review', 'Done'],
-                    range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
-                ))
-            ).properties(height=350)
-            
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("Chưa có nhiệm vụ nào để hiển thị GANTT.")
 
-    with col_g2:
-        # Chuẩn bị dữ liệu cho data_editor (từ DB hiện tại)
-        df_ed_task = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() \
-            if not tasks_data.empty \
-            else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
-        
-        df_ed_task['start_date'] = pd.to_datetime(df_ed_task['start_date'], errors='coerce').dt.date
-        df_ed_task['end_date'] = pd.to_datetime(df_ed_task['end_date'], errors='coerce').dt.date
-        
-        # Data editor cho phép chỉnh sửa, nhưng không auto-save
-        edited_tasks = st.data_editor(
-            df_ed_task,
-            num_rows="dynamic",
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "progress_pct": st.column_config.SelectboxColumn(
-                    "Tiến độ (%)",
-                    options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]
-                ),
-                "status": st.column_config.SelectboxColumn(
-                    "Trạng thái",
-                    options=["To-do", "Doing", "Review", "Done"]
-                ),
-                "start_date": st.column_config.DateColumn("Bắt đầu"),
-                "end_date": st.column_config.DateColumn("Kết thúc")
-            },
-            key=f"ed_v7_task_manual_{sel_prj_id}"  # key khác để tránh conflict cache cũ
-        )
-        
-        # Nút cập nhật thủ công
-        if st.button("💾 Cập nhật Tiến độ & Nhiệm vụ", type="primary", use_container_width=True, key=f"btn_update_tasks_{sel_prj_id}"):
-            with st.spinner("Đang lưu tiến độ nhiệm vụ..."):
-                try:
-                    # Xóa toàn bộ nhiệm vụ cũ của dự án
-                    supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
+            with tabs[0]:
+                col_g1, col_g2 = st.columns([2, 3])
+                
+                avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
+                
+                with col_g1:
+                    if not tasks_data.empty:
+                        df_g = tasks_data.copy()
+                        df_g['start_date'] = pd.to_datetime(df_g['start_date'], errors='coerce')
+                        df_g['end_date'] = pd.to_datetime(df_g['end_date'], errors='coerce')
+                        
+                        m_row = pd.DataFrame([{
+                            'task_name': f'⭐ TỔNG DỰ ÁN ({avg_p:.0f}%)',
+                            'start_date': pd.to_datetime(active_prj['start_date']),
+                            'end_date': pd.to_datetime(active_prj['end_date']),
+                            'status': 'Master'
+                        }])
+                        
+                        chart = alt.Chart(pd.concat([m_row, df_g])).mark_bar(cornerRadius=5, height=20).encode(
+                            x=alt.X('start_date', title='Thời gian'),
+                            x2='end_date',
+                            y=alt.Y('task_name', sort=None),
+                            color=alt.Color('status', scale=alt.Scale(
+                                domain=['Master', 'To-do', 'Doing', 'Review', 'Done'],
+                                range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
+                            ))
+                        ).properties(height=350)
+                        
+                        st.altair_chart(chart, use_container_width=True)
+                    else:
+                        st.info("Chưa có nhiệm vụ nào để hiển thị GANTT.")
+
+                with col_g2:
+                    df_ed_task = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() \
+                        if not tasks_data.empty \
+                        else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
                     
-                    # Chuẩn bị dữ liệu mới để insert (lọc bỏ dòng rỗng nếu có)
-                    new_tasks = []
-                    for row in edited_tasks.to_dict('records'):
-                        if row.get('task_name'):  # chỉ lưu nếu có tên nhiệm vụ
-                            new_tasks.append({
-                                "project_code": sel_prj_id,
-                                "task_name": row['task_name'],
-                                "assignee": row['assignee'],
-                                "start_date": str(row['start_date']) if row['start_date'] else None,
-                                "end_date": str(row['end_date']) if row['end_date'] else None,
-                                "progress_pct": row['progress_pct'],
-                                "status": row['status']
-                            })
+                    df_ed_task['start_date'] = pd.to_datetime(df_ed_task['start_date'], errors='coerce').dt.date
+                    df_ed_task['end_date'] = pd.to_datetime(df_ed_task['end_date'], errors='coerce').dt.date
                     
-                    if new_tasks:
-                        supabase.table("crm_project_tasks").insert(new_tasks).execute()
+                    edited_tasks = st.data_editor(
+                        df_ed_task,
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "progress_pct": st.column_config.SelectboxColumn(
+                                "Tiến độ (%)",
+                                options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]
+                            ),
+                            "status": st.column_config.SelectboxColumn(
+                                "Trạng thái",
+                                options=["To-do", "Doing", "Review", "Done"]
+                            ),
+                            "start_date": st.column_config.DateColumn("Bắt đầu"),
+                            "end_date": st.column_config.DateColumn("Kết thúc")
+                        },
+                        key=f"ed_v7_task_manual_{sel_prj_id}"
+                    )
                     
-                    st.success("✅ Đã cập nhật tiến độ nhiệm vụ thành công!")
-                    time.sleep(0.8)
-                    st.rerun()  # reload để chart và dữ liệu đồng bộ
-                    
-                except Exception as e:
-                    st.error(f"Lỗi khi cập nhật nhiệm vụ: {str(e)}")
+                    if st.button("💾 Cập nhật Tiến độ & Nhiệm vụ", type="primary", use_container_width=True, key=f"btn_update_tasks_{sel_prj_id}"):
+                        with st.spinner("Đang lưu tiến độ nhiệm vụ..."):
+                            try:
+                                supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
+                                
+                                new_tasks = []
+                                for row in edited_tasks.to_dict('records'):
+                                    if row.get('task_name'):
+                                        new_tasks.append({
+                                            "project_code": sel_prj_id,
+                                            "task_name": row['task_name'],
+                                            "assignee": row['assignee'],
+                                            "start_date": str(row['start_date']) if row['start_date'] else None,
+                                            "end_date": str(row['end_date']) if row['end_date'] else None,
+                                            "progress_pct": row['progress_pct'],
+                                            "status": row['status']
+                                        })
+                                
+                                if new_tasks:
+                                    supabase.table("crm_project_tasks").insert(new_tasks).execute()
+                                
+                                st.success("✅ Đã cập nhật tiến độ nhiệm vụ thành công!")
+                                time.sleep(0.8)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Lỗi khi cập nhật nhiệm vụ: {str(e)}")
+
             if st.session_state.is_admin:
                 with tabs[1]:
-                    # (giữ nguyên phần CHI PHÍ như cũ)
                     prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
                     df_c_disp = prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
                     df_c_disp['amount_vnd'] = df_c_disp['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 else "")
-                    ed_c_v7 = st.data_editor(df_c_disp, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"cs_ed_vfinal_{sel_prj_id}")
+
+                    ed_c_v7 = st.data_editor(
+                        df_c_disp,
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        key=f"cs_ed_vfinal_{sel_prj_id}"
+                    )
+
                     if not df_c_disp.equals(ed_c_v7):
                         supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
-                        new_cs = [{"project_code": sel_prj_id, "cost_type": r['cost_type'], "amount_vnd": to_float(r['amount_vnd']), "ref_po": r['ref_po'], "description": r['description']} for r in ed_c_v7.to_dict('records')]
-                        if new_cs: supabase.table("crm_project_costs").insert(new_cs).execute()
+                        new_cs = [{
+                            "project_code": sel_prj_id,
+                            "cost_type": r['cost_type'],
+                            "amount_vnd": to_float(r['amount_vnd']),
+                            "ref_po": r['ref_po'],
+                            "description": r['description']
+                        } for r in ed_c_v7.to_dict('records')]
+                        if new_cs:
+                            supabase.table("crm_project_costs").insert(new_cs).execute()
                         st.toast("💰 Cost saved!", icon="✅")
                         time.sleep(0.3)
                         st.rerun()
