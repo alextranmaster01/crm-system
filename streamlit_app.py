@@ -2288,29 +2288,49 @@ with t7:
                     p_start_n = c_d1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="n_start_v7_fix")
                     p_end_n = c_d2.date_input("Ngày Kết Thúc", value=datetime.now(), key="n_end_v7_fix")
                     p_img_n = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="n_img_v7_fix")
-                    if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_fix"):
+                                        if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_fix"):
                         if p_code_n and p_name_n:
-                            img_url_init = ""
-                            if p_img_n:
-                                with st.spinner("Đang lưu ảnh..."):
-                                    timestamp = int(time.time())
-                                    filename = f"PRJ_ID_{p_code_n.strip().upper()}_{timestamp}.png"
-                                    img_url_init, _ = upload_to_drive_simple(p_img_n, "CRM_PROJECT_IMAGES", filename)
-                            new_rec = {
-                                "project_code": p_code_n.strip().upper(),
-                                "project_name": p_name_n,
-                                "customer_name": p_cust_n,
-                                "budget_vnd": float(p_bud_n),
-                                "start_date": str(p_start_n),
-                                "end_date": str(p_end_n),
-                                "project_image": img_url_init,
-                                "status": "In Progress"
-                            }
-                            supabase.table("crm_projects").insert([new_rec]).execute()
-                            st.cache_data.clear()
-                            st.success("Tạo dự án thành công!")
-                            time.sleep(0.5)
-                            st.rerun()
+                            p_code_clean = p_code_n.strip().upper()  # Chuẩn hóa mã dự án (uppercase, bỏ khoảng trắng)
+
+                            # KIỂM TRA TRÙNG MÃ DỰ ÁN TRƯỚC KHI INSERT
+                            existing = supabase.table("crm_projects").select("project_code").eq("project_code", p_code_clean).execute()
+                            if existing.data:
+                                st.error(f"Mã dự án **{p_code_clean}** đã tồn tại trong hệ thống! Vui lòng chọn mã khác (ví dụ: HS-004, JB04...).")
+                            else:
+                                img_url_init = ""
+                                if p_img_n:
+                                    with st.spinner("Đang lưu ảnh..."):
+                                        timestamp = int(time.time())
+                                        filename = f"PRJ_ID_{p_code_clean}_{timestamp}.png"
+                                        img_url_init, _ = upload_to_drive_simple(p_img_n, "CRM_PROJECT_IMAGES", filename)
+
+                                new_rec = {
+                                    "project_code": p_code_clean,
+                                    "project_name": p_name_n.strip(),
+                                    "customer_name": p_cust_n.strip() if p_cust_n else None,
+                                    "budget_vnd": float(p_bud_n) if p_bud_n is not None else 0.0,
+                                    "start_date": str(p_start_n) if p_start_n else None,
+                                    "end_date": str(p_end_n) if p_end_n else None,
+                                    "project_image": img_url_init,
+                                    "status": "In Progress"
+                                }
+
+                                try:
+                                    supabase.table("crm_projects").insert([new_rec]).execute()
+                                    st.cache_data.clear()
+                                    st.success("Tạo dự án thành công!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Lỗi khi tạo dự án: {str(e)}")
+                                    if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                                        st.error("Mã dự án bị trùng! Vui lòng đổi mã khác.")
+                                    elif "not null" in str(e).lower():
+                                        st.error("Một số trường bắt buộc bị thiếu (ví dụ: mã dự án, tên dự án).")
+                                    else:
+                                        st.error("Lỗi Supabase không xác định. Vui lòng kiểm tra log hoặc liên hệ admin.")
+                        else:
+                            st.error("Vui lòng nhập đầy đủ **Mã Dự Án** và **Tên Dự Án**!")
             # --- HIỂN THỊ DANH SÁCH ---
             df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
             df_table.insert(0, "Select", False)
