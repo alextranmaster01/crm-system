@@ -3077,7 +3077,12 @@ with t8:
     expected_cols = ['id', 'date_reported', 'date_resolved', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
     if not df_issues.empty:
         for c in expected_cols:
-            if c not in df_issues.columns: df_issues[c] = ""
+            if c not in df_issues.columns: 
+                df_issues[c] = None  # FIX QUAN TRỌNG: Dùng None thay vì "" để tránh lỗi DateColumn của Streamlit
+        
+        # BỌC THÉP ÉP KIỂU NGÀY THÁNG ĐỂ BẢNG KHÔNG BỊ CRASH
+        df_issues['date_reported'] = pd.to_datetime(df_issues['date_reported'], errors='coerce').dt.date
+        df_issues['date_resolved'] = pd.to_datetime(df_issues['date_resolved'], errors='coerce').dt.date
 
     # 2. BỨC TRANH TOÀN CẢNH (MINI DASHBOARD)
     if not df_issues.empty:
@@ -3108,7 +3113,7 @@ with t8:
                 if i_desc and i_assignee:
                     new_issue = {
                         "date_reported": str(i_date), 
-                        "date_resolved": None, # Mặc định để trống khi tạo mới
+                        "date_resolved": None, 
                         "customer_name": i_cust, 
                         "description": i_desc, 
                         "assignee": i_assignee, 
@@ -3161,11 +3166,11 @@ with t8:
             edited_issues = st.data_editor(
                 df_edit_issue, use_container_width=True, hide_index=True, height=450,
                 column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True, width=40), # Ép kích thước nhỏ nhất
+                    "id": st.column_config.NumberColumn("ID", disabled=True, width=40),
                     "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width=90),
                     "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
                     "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width=120),
-                    "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"), # Mở rộng tối đa
+                    "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
                     "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
                     "progress_pct": st.column_config.SelectboxColumn(
@@ -3173,7 +3178,7 @@ with t8:
                         options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
                         width=90
                     ),
-                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large") # Mở rộng tối đa
+                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large")
                 },
                 key=f"editor_issues_{tab_key}"
             )
@@ -3184,7 +3189,6 @@ with t8:
                     try:
                         changes_made = False
                         
-                        # --- HÀM LÀM SẠCH CHUỖI VÀ NGÀY THÁNG ĐỂ TRÁNH LỖI DATA ---
                         def clean_date_for_db(raw_val):
                             if pd.isna(raw_val): return None
                             s = str(raw_val).strip()
@@ -3200,36 +3204,38 @@ with t8:
                             return "" if s.lower() in ['none', 'nat', 'nan', 'null'] else s
 
                         for i, row in edited_issues.iterrows():
-                            orig_row = df_issues[df_issues['id'] == row['id']].iloc[0]
+                            # CHUYỂN ĐỔI SANG DICT ĐỂ BỌC THÉP CHỐNG LỖI KEYERROR
+                            row_dict = row.to_dict()
+                            orig_row_dict = df_issues[df_issues['id'] == row_dict['id']].iloc[0].to_dict()
                             
-                            new_date_res = clean_date_for_db(row.get('date_resolved'))
-                            old_date_res = clean_date_for_db(orig_row.get('date_resolved'))
+                            new_date_res = clean_date_for_db(row_dict.get('date_resolved'))
+                            old_date_res = clean_date_for_db(orig_row_dict.get('date_resolved'))
 
-                            # Chỉ gửi tín hiệu Update nếu thực sự có thay đổi
-                            if (safe_str(row['status']) != safe_str(orig_row['status']) or
-                                safe_str(row['progress_pct']) != safe_str(orig_row['progress_pct']) or
-                                safe_str(row['resolution_note']) != safe_str(orig_row['resolution_note']) or
-                                safe_str(row['assignee']) != safe_str(orig_row['assignee']) or
-                                safe_str(row['description']) != safe_str(orig_row['description']) or
+                            # SO SÁNH CHÍNH XÁC TRÁNH LƯU THỪA
+                            if (safe_str(row_dict.get('status')) != safe_str(orig_row_dict.get('status')) or
+                                safe_str(row_dict.get('progress_pct')) != safe_str(orig_row_dict.get('progress_pct')) or
+                                safe_str(row_dict.get('resolution_note')) != safe_str(orig_row_dict.get('resolution_note')) or
+                                safe_str(row_dict.get('assignee')) != safe_str(orig_row_dict.get('assignee')) or
+                                safe_str(row_dict.get('description')) != safe_str(orig_row_dict.get('description')) or
                                 new_date_res != old_date_res):
 
                                 payload = {
-                                    "status": row['status'], 
-                                    "progress_pct": row['progress_pct'],
-                                    "resolution_note": row['resolution_note'], 
-                                    "assignee": row['assignee'],
-                                    "description": row['description'],
+                                    "status": row_dict.get('status'), 
+                                    "progress_pct": row_dict.get('progress_pct'),
+                                    "resolution_note": row_dict.get('resolution_note'), 
+                                    "assignee": row_dict.get('assignee'),
+                                    "description": row_dict.get('description'),
                                     "date_resolved": new_date_res
                                 }
 
-                                supabase.table("crm_issues").update(payload).eq("id", row['id']).execute()
+                                supabase.table("crm_issues").update(payload).eq("id", row_dict['id']).execute()
                                 
                                 # --- GỌI HÀM GỬI TELEGRAM Ở ĐÂY ---
                                 send_telegram_notification(
-                                    assignee_name=row['assignee'], 
-                                    issue_desc=row['description'], 
-                                    new_status=row['status'], 
-                                    new_progress=row['progress_pct']
+                                    assignee_name=row_dict.get('assignee'), 
+                                    issue_desc=row_dict.get('description'), 
+                                    new_status=row_dict.get('status'), 
+                                    new_progress=row_dict.get('progress_pct')
                                 )
                                 # ----------------------------------
                                 
@@ -3241,7 +3247,7 @@ with t8:
                             time.sleep(1)
                             st.rerun()
                         else: st.info("Không có thay đổi nào.")
-                    except Exception as e: st.error(f"Lỗi: {e}")
+                    except Exception as e: st.error(f"Lỗi hệ thống: {e}")
             st.markdown('</div>', unsafe_allow_html=True)
 
         with tab_open:
