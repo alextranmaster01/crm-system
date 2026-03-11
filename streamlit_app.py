@@ -98,7 +98,33 @@ except Exception as e:
 # =============================================================================
 # 2. HÀM HỖ TRỢ (UTILS)
 # =============================================================================
+import requests
 
+# --- CẤU HÌNH TELEGRAM ---
+TELEGRAM_BOT_TOKEN = "ĐIỀN_TOKEN_CỦA_BẠN_VÀO_ĐÂY"
+
+TELEGRAM_PIC_MAPPING = {
+    "Alex Tran": "935413396",  # Điền ID Telegram thật của bạn vào đây
+    "Nhân viên A": "987654321"
+}
+def send_telegram_notification(assignee_name, issue_desc, new_status, new_progress):
+    chat_id = TELEGRAM_PIC_MAPPING.get(assignee_name)
+    if chat_id:
+        url = f"https://api.telegram.org/bot{7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw}/sendMessage"
+        message = (
+            f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
+            f"👤 <b>Phụ trách:</b> {assignee_name}\n"
+            f"📝 <b>Vấn đề:</b> {issue_desc}\n"
+            f"📊 <b>Tiến độ mới:</b> {new_progress}\n"
+            f"🏷 <b>Trạng thái:</b> {new_status}\n\n"
+            f"<i>Vui lòng kiểm tra lại phần mềm CRM để xem chi tiết!</i>"
+        )
+        payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+        try:
+            requests.post(url, json=payload)
+        except Exception as e:
+            print(f"Lỗi gửi Telegram: {e}")
+# -------------------------
 def get_drive_service():
     try:
         cred_info = OAUTH_INFO
@@ -3042,7 +3068,6 @@ with t8:
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    # Đảm bảo an toàn: Nếu DB thiếu cột, tạo tạm để không bị crash
     expected_cols = ['id', 'date_reported', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
     if not df_issues.empty:
         for c in expected_cols:
@@ -3075,7 +3100,6 @@ with t8:
 
             if st.button("💾 LƯU MỚI", type="primary", use_container_width=True, key="btn_save_issue"):
                 if i_desc and i_assignee:
-                    # UPDATE: Set mặc định tiến độ là 0% có biểu tượng màu trắng
                     new_issue = {
                         "date_reported": str(i_date), 
                         "customer_name": i_cust, 
@@ -3136,7 +3160,6 @@ with t8:
                     "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
                     "assignee": st.column_config.TextColumn("Người phụ trách", width="small"),
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width="small"),
-                    # UPDATE: Đã copy toàn bộ thuật toán màu sắc từ Tab 7 sang
                     "progress_pct": st.column_config.SelectboxColumn(
                         "Tiến độ", 
                         options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
@@ -3165,6 +3188,16 @@ with t8:
                                     "resolution_note": row['resolution_note'], "assignee": row['assignee'],
                                     "description": row['description']
                                 }).eq("id", row['id']).execute()
+                                
+                                # --- GỌI HÀM GỬI TELEGRAM Ở ĐÂY ---
+                                send_telegram_notification(
+                                    assignee_name=row['assignee'], 
+                                    issue_desc=row['description'], 
+                                    new_status=row['status'], 
+                                    new_progress=row['progress_pct']
+                                )
+                                # ----------------------------------
+                                
                                 changes_made = True
 
                         if changes_made:
