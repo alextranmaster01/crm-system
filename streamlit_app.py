@@ -101,16 +101,19 @@ except Exception as e:
 import requests
 
 # --- CẤU HÌNH TELEGRAM ---
-TELEGRAM_BOT_TOKEN = "ĐIỀN_TOKEN_CỦA_BẠN_VÀO_ĐÂY"
+TELEGRAM_BOT_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw"
 
 TELEGRAM_PIC_MAPPING = {
-    "Alex Tran": "935413396",  # Điền ID Telegram thật của bạn vào đây
+    "Alex Tran": "935413396",  # ID Telegram của bạn
     "Nhân viên A": "987654321"
 }
+
 def send_telegram_notification(assignee_name, issue_desc, new_status, new_progress):
+    import streamlit as st
     chat_id = TELEGRAM_PIC_MAPPING.get(assignee_name)
+    
     if chat_id:
-        url = f"https://api.telegram.org/bot{7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw}/sendMessage"
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         message = (
             f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
             f"👤 <b>Phụ trách:</b> {assignee_name}\n"
@@ -121,9 +124,16 @@ def send_telegram_notification(assignee_name, issue_desc, new_status, new_progre
         )
         payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
         try:
-            requests.post(url, json=payload)
+            response = requests.post(url, json=payload)
+            # Hiện lỗi thẳng lên màn hình nếu Telegram từ chối
+            if response.status_code != 200:
+                st.error(f"🛑 Telegram báo lỗi: {response.text}")
+            else:
+                st.toast("✅ Đã gửi tin nhắn Telegram thành công!", icon="🚀")
         except Exception as e:
-            print(f"Lỗi gửi Telegram: {e}")
+            st.error(f"🛑 Lỗi hệ thống khi gửi Telegram: {e}")
+    else:
+        st.warning(f"⚠️ Chưa có ID Telegram cho nhân viên: '{assignee_name}'")
 # -------------------------
 def get_drive_service():
     try:
