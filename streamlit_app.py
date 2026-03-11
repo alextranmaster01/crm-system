@@ -2690,7 +2690,7 @@ with t7:
     
     # FIX: Chuyển ID nhóm thành số nguyên (int) thay vì chuỗi (string)
     # ID nhóm Telegram thường là số âm và cần được gửi dưới dạng số nguyên
-    PRJ_INTERNAL_CHAT_ID = "-5133231764"  # <--- ĐÃ SỬA: BỎ DẤU NGOẶC KÉP, LÀ SỐ NGUYÊN
+    PRJ_INTERNAL_CHAT_ID = "-1003338498683"  # <--- ĐÃ SỬA: BỎ DẤU NGOẶC KÉP, LÀ SỐ NGUYÊN
 
     # --- 1. TẢI DỮ LIỆU TỪ CƠ SỞ DỮ LIỆU SUPABASE ---
     # Load bảng dự án, chi phí và khách hàng. Sắp xếp dự án mới nhất lên hàng đầu.
