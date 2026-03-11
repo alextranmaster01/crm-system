@@ -11,3 +11,4 @@ xlsxwriter
 openpyxl
 plotly
 requests
+altair
