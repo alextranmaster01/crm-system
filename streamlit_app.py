@@ -13,7 +13,7 @@ import altair as alt # Thêm thư viện vẽ biểu đồ
 # =============================================================================
 # 1. CẤU HÌNH & KHỞI TẠO
 # =============================================================================
-APP_VERSION = "APL CRM SYSTEM"
+APP_VERSION = "CRM SYSTEM"
 st.set_page_config(page_title=f"CRM {APP_VERSION}", layout="wide", page_icon="💎")
 
 # CSS UI
@@ -3074,7 +3074,8 @@ with t8:
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    expected_cols = ['id', 'date_reported', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
+    # Đã bổ sung cột 'date_resolved' (Ngày kết thúc)
+    expected_cols = ['id', 'date_reported', 'date_resolved', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
     if not df_issues.empty:
         for c in expected_cols:
             if c not in df_issues.columns: df_issues[c] = ""
@@ -3108,6 +3109,7 @@ with t8:
                 if i_desc and i_assignee:
                     new_issue = {
                         "date_reported": str(i_date), 
+                        "date_resolved": None, # Mặc định để trống khi tạo mới
                         "customer_name": i_cust, 
                         "description": i_desc, 
                         "assignee": i_assignee, 
@@ -3160,16 +3162,19 @@ with t8:
             edited_issues = st.data_editor(
                 df_edit_issue, use_container_width=True, hide_index=True, height=450,
                 column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-                    "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width="small"),
-                    "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width="small"),
+                    # Ép bề ngang ID cực nhỏ (khoảng 35 pixel)
+                    "id": st.column_config.NumberColumn("ID", disabled=True, width=35),
+                    "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width=90),
+                    "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
+                    "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width=120),
+                    # Cột text để width="large" để có tối đa không gian
                     "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
-                    "assignee": st.column_config.TextColumn("Người phụ trách", width="small"),
-                    "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width="small"),
+                    "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
+                    "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
                     "progress_pct": st.column_config.SelectboxColumn(
                         "Tiến độ", 
                         options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
-                        width="small"
+                        width=90
                     ),
                     "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="medium")
                 },
@@ -3183,16 +3188,30 @@ with t8:
                         changes_made = False
                         for i, row in edited_issues.iterrows():
                             orig_row = df_issues[df_issues['id'] == row['id']].iloc[0]
-                            if (str(row['status']) != str(orig_row['status']) or
-                                str(row['progress_pct']) != str(orig_row['progress_pct']) or
-                                str(row['resolution_note']) != str(orig_row['resolution_note']) or
-                                str(row['assignee']) != str(orig_row['assignee']) or
-                                str(row['description']) != str(orig_row['description'])):
+                            
+                            # Xử lý an toàn cho Ngày kết thúc
+                            date_res_val = None
+                            if pd.notna(row['date_resolved']) and str(row['date_resolved']).strip() not in ['', 'None', 'NaT']:
+                                date_res_val = str(row['date_resolved'])
+
+                            def safe_str(v): 
+                                s = str(v).strip()
+                                return "" if s in ['None', 'NaT', 'nan'] else s
+
+                            if (safe_str(row['status']) != safe_str(orig_row['status']) or
+                                safe_str(row['progress_pct']) != safe_str(orig_row['progress_pct']) or
+                                safe_str(row['resolution_note']) != safe_str(orig_row['resolution_note']) or
+                                safe_str(row['assignee']) != safe_str(orig_row['assignee']) or
+                                safe_str(row['description']) != safe_str(orig_row['description']) or
+                                safe_str(row['date_resolved']) != safe_str(orig_row.get('date_resolved', ''))):
 
                                 supabase.table("crm_issues").update({
-                                    "status": row['status'], "progress_pct": row['progress_pct'],
-                                    "resolution_note": row['resolution_note'], "assignee": row['assignee'],
-                                    "description": row['description']
+                                    "status": row['status'], 
+                                    "progress_pct": row['progress_pct'],
+                                    "resolution_note": row['resolution_note'], 
+                                    "assignee": row['assignee'],
+                                    "description": row['description'],
+                                    "date_resolved": date_res_val
                                 }).eq("id", row['id']).execute()
                                 
                                 # --- GỌI HÀM GỬI TELEGRAM Ở ĐÂY ---
