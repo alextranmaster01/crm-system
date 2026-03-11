@@ -102,38 +102,34 @@ import requests
 
 # --- CẤU HÌNH TELEGRAM ---
 TELEGRAM_BOT_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw"
-
-TELEGRAM_PIC_MAPPING = {
-    "Alex Tran": "935413396",  # ID Telegram của bạn
-    "Nhân viên A": "987654321"
-}
+TELEGRAM_GROUP_ID = "-5283852302"  # <--- BẠN THAY ID GROUP VỪA LẤY VÀO ĐÂY (Nhớ giữ nguyên dấu trừ)
 
 def send_telegram_notification(assignee_name, issue_desc, new_status, new_progress):
     import streamlit as st
-    chat_id = TELEGRAM_PIC_MAPPING.get(assignee_name)
+    import requests
     
-    if chat_id:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        message = (
-            f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
-            f"👤 <b>Phụ trách:</b> {assignee_name}\n"
-            f"📝 <b>Vấn đề:</b> {issue_desc}\n"
-            f"📊 <b>Tiến độ mới:</b> {new_progress}\n"
-            f"🏷 <b>Trạng thái:</b> {new_status}\n\n"
-            f"<i>Vui lòng kiểm tra lại phần mềm CRM để xem chi tiết!</i>"
-        )
-        payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-        try:
-            response = requests.post(url, json=payload)
-            # Hiện lỗi thẳng lên màn hình nếu Telegram từ chối
-            if response.status_code != 200:
-                st.error(f"🛑 Telegram báo lỗi: {response.text}")
-            else:
-                st.toast("✅ Đã gửi tin nhắn Telegram thành công!", icon="🚀")
-        except Exception as e:
-            st.error(f"🛑 Lỗi hệ thống khi gửi Telegram: {e}")
-    else:
-        st.warning(f"⚠️ Chưa có ID Telegram cho nhân viên: '{assignee_name}'")
+    # Mặc định gửi tất cả thông báo vào Group ID
+    chat_id = TELEGRAM_GROUP_ID
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    message = (
+        f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
+        f"👤 <b>Phụ trách:</b> {assignee_name}\n"
+        f"📝 <b>Vấn đề:</b> {issue_desc}\n"
+        f"📊 <b>Tiến độ mới:</b> {new_progress}\n"
+        f"🏷 <b>Trạng thái:</b> {new_status}\n\n"
+        f"<i>Vui lòng kiểm tra lại phần mềm CRM để xem chi tiết!</i>"
+    )
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+    try:
+        response = requests.post(url, json=payload)
+        # Bắt bệnh nếu có lỗi
+        if response.status_code != 200:
+            st.error(f"🛑 Telegram báo lỗi: {response.text}")
+        else:
+            st.toast("✅ Đã gửi thông báo vào Group Team!", icon="🚀")
+    except Exception as e:
+        st.error(f"🛑 Lỗi hệ thống khi gửi Telegram: {e}")
 # -------------------------
 def get_drive_service():
     try:
