@@ -3078,9 +3078,9 @@ with t8:
     if not df_issues.empty:
         for c in expected_cols:
             if c not in df_issues.columns: 
-                df_issues[c] = None  # FIX QUAN TRỌNG: Dùng None thay vì "" để tránh lỗi DateColumn của Streamlit
+                df_issues[c] = None  
         
-        # BỌC THÉP ÉP KIỂU NGÀY THÁNG ĐỂ BẢNG KHÔNG BỊ CRASH
+        # BỌC THÉP ÉP KIỂU NGÀY THÁNG
         df_issues['date_reported'] = pd.to_datetime(df_issues['date_reported'], errors='coerce').dt.date
         df_issues['date_resolved'] = pd.to_datetime(df_issues['date_resolved'], errors='coerce').dt.date
 
@@ -3204,38 +3204,46 @@ with t8:
                             return "" if s.lower() in ['none', 'nat', 'nan', 'null'] else s
 
                         for i, row in edited_issues.iterrows():
-                            # CHUYỂN ĐỔI SANG DICT ĐỂ BỌC THÉP CHỐNG LỖI KEYERROR
+                            # CHỐNG LỖI CACHE: Lấy dữ liệu ID và dữ liệu gốc trực tiếp từ Database thông qua index (i)
+                            orig_row_dict = df_issues.loc[i].to_dict()
                             row_dict = row.to_dict()
-                            orig_row_dict = df_issues[df_issues['id'] == row_dict['id']].iloc[0].to_dict()
                             
-                            new_date_res = clean_date_for_db(row_dict.get('date_resolved'))
+                            db_id = orig_row_dict.get('id')
+                            if pd.isna(db_id) or not db_id:
+                                continue # Bỏ qua nếu dòng bị lỗi mất ID thật trong Database
+                            
+                            # Hàm lấy giá trị an toàn: Nếu giao diện bị khuyết cột do cache, lấy dữ liệu gốc bù vào
+                            def get_val(k):
+                                return row_dict[k] if k in row_dict else orig_row_dict.get(k)
+
+                            new_date_res = clean_date_for_db(get_val('date_resolved'))
                             old_date_res = clean_date_for_db(orig_row_dict.get('date_resolved'))
 
-                            # SO SÁNH CHÍNH XÁC TRÁNH LƯU THỪA
-                            if (safe_str(row_dict.get('status')) != safe_str(orig_row_dict.get('status')) or
-                                safe_str(row_dict.get('progress_pct')) != safe_str(orig_row_dict.get('progress_pct')) or
-                                safe_str(row_dict.get('resolution_note')) != safe_str(orig_row_dict.get('resolution_note')) or
-                                safe_str(row_dict.get('assignee')) != safe_str(orig_row_dict.get('assignee')) or
-                                safe_str(row_dict.get('description')) != safe_str(orig_row_dict.get('description')) or
+                            # SO SÁNH CHÍNH XÁC
+                            if (safe_str(get_val('status')) != safe_str(orig_row_dict.get('status')) or
+                                safe_str(get_val('progress_pct')) != safe_str(orig_row_dict.get('progress_pct')) or
+                                safe_str(get_val('resolution_note')) != safe_str(orig_row_dict.get('resolution_note')) or
+                                safe_str(get_val('assignee')) != safe_str(orig_row_dict.get('assignee')) or
+                                safe_str(get_val('description')) != safe_str(orig_row_dict.get('description')) or
                                 new_date_res != old_date_res):
 
                                 payload = {
-                                    "status": row_dict.get('status'), 
-                                    "progress_pct": row_dict.get('progress_pct'),
-                                    "resolution_note": row_dict.get('resolution_note'), 
-                                    "assignee": row_dict.get('assignee'),
-                                    "description": row_dict.get('description'),
+                                    "status": get_val('status'), 
+                                    "progress_pct": get_val('progress_pct'),
+                                    "resolution_note": get_val('resolution_note'), 
+                                    "assignee": get_val('assignee'),
+                                    "description": get_val('description'),
                                     "date_resolved": new_date_res
                                 }
 
-                                supabase.table("crm_issues").update(payload).eq("id", row_dict['id']).execute()
+                                supabase.table("crm_issues").update(payload).eq("id", db_id).execute()
                                 
                                 # --- GỌI HÀM GỬI TELEGRAM Ở ĐÂY ---
                                 send_telegram_notification(
-                                    assignee_name=row_dict.get('assignee'), 
-                                    issue_desc=row_dict.get('description'), 
-                                    new_status=row_dict.get('status'), 
-                                    new_progress=row_dict.get('progress_pct')
+                                    assignee_name=payload['assignee'], 
+                                    issue_desc=payload['description'], 
+                                    new_status=payload['status'], 
+                                    new_progress=payload['progress_pct']
                                 )
                                 # ----------------------------------
                                 
