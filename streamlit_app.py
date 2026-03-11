@@ -2677,7 +2677,7 @@ with t6:
                 st.error(f"Lỗi Import: {e}")
 
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NO SHORTCUTS - SYNCED & INTERNAL TELEGRAM) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - SYNCED & INTERNAL TELEGRAM) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT VÀ QUẢN LÝ PHIÊN ---
@@ -2686,9 +2686,12 @@ with t7:
         st.session_state.is_admin = False
 
     # --- CẤU HÌNH TELEGRAM NỘI BỘ (CHỈ ĐIỀN TRONG CODE - AN TOÀN TUYỆT ĐỐI) ---
-    # Alex điền trực tiếp Token và ID của nhóm Dự án vào đây để phần mềm tự động sử dụng
-    PRJ_INTERNAL_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PRJ_INTERNAL_CHAT_ID = "-1003338498683"
+    PRJ_INTERNAL_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw"
+    
+    # FIX: Chuyển ID nhóm thành số nguyên (int) thay vì chuỗi (string)
+    # ID nhóm Telegram thường là số âm và cần được gửi dưới dạng số nguyên
+    PRJ_INTERNAL_CHAT_ID = -1003338498683  # <--- ĐÃ SỬA: BỎ DẤU NGOẶC KÉP, LÀ SỐ NGUYÊN
+
     # --- 1. TẢI DỮ LIỆU TỪ CƠ SỞ DỮ LIỆU SUPABASE ---
     # Load bảng dự án, chi phí và khách hàng. Sắp xếp dự án mới nhất lên hàng đầu.
     df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
@@ -2707,7 +2710,7 @@ with t7:
         # Sử dụng popover để tạo khu vực đăng nhập Admin gọn gàng, bảo mật
         with st.popover("🔑 ĐĂNG NHẬP QUẢN TRỊ VIÊN", use_container_width=True):
             if not st.session_state.is_admin:
-                # Mật khẩu mặc định hệ thống Alex yêu cầu là admin123
+                # Mật khẩu mặc định hệ thống yêu cầu là admin123
                 pwd_v7 = st.text_input("Nhập mã bảo mật hệ thống", type="password", key="pwd_tab7_v18_full_final")
                 if pwd_v7 == "admin123":
                     st.session_state.is_admin = True
@@ -2768,7 +2771,7 @@ with t7:
 
             st.markdown("---")
             st.markdown("🎯 **QUẢN LÝ DỰ ÁN CỤ THỂ**")
-            # Dropdown để Alex chọn dự án muốn xem biểu đồ GANTT và chi phí ở phía dưới
+            # Dropdown để chọn dự án muốn xem biểu đồ GANTT và chi phí ở phía dưới
             sel_prj_id = st.selectbox("Mã Dự Án cần xem:", df_filtered["project_code"].tolist(), key="sel_active_prj_v18_full_v2")
 
         with c_right:
@@ -2799,7 +2802,8 @@ with t7:
                             if existing.data:
                                 st.error(f"Lỗi: Mã dự án **{p_code_clean}** đã tồn tại trong hệ thống!")
                             else:
-                                img_url_init = ""; doc_link_init = ""
+                                img_url_init = ""
+                                doc_link_init = ""
                                 if p_img_n:
                                     with st.spinner("Đang xử lý hình ảnh..."):
                                         timestamp = int(time.time())
@@ -2829,13 +2833,15 @@ with t7:
                                     "start_date": str(p_start_n),
                                     "end_date": str(p_end_n),
                                     "project_image": img_url_init,
-                                    "project_docs": doc_link_init, # Đồng bộ với cột project_docs mới
+                                    "project_docs": doc_link_init,  # Đồng bộ với cột project_docs mới
                                     "status": "In Progress"
                                 }
                                 try:
                                     supabase.table("crm_projects").insert([new_rec]).execute()
                                     st.cache_data.clear()
-                                    st.success("✅ Dự án mới đã được khởi tạo thành công!"); time.sleep(0.5); st.rerun()
+                                    st.success("✅ Dự án mới đã được khởi tạo thành công!")
+                                    time.sleep(0.5)
+                                    st.rerun()
                                 except Exception as e:
                                     st.error(f"Lỗi ghi dữ liệu Database: {e}")
                         else:
@@ -2845,10 +2851,10 @@ with t7:
             df_table = df_filtered.copy()
             df_table = df_table.reset_index(drop=True)
             
-            # YÊU CẦU 4: Cột số thứ tự (No) với chiều rộng nhỏ (35px) thay thế cho Checkbox
+            # YÊU CẦU: Cột số thứ tự (No) với chiều rộng nhỏ (35px) thay thế cho Checkbox
             df_table.insert(0, "No", range(1, len(df_table) + 1))
 
-            # YÊU CẦU 1: Xử lý nội dung cột Needing Docs (Chỉ hiện Link khi đăng nhập Admin)
+            # YÊU CẦU: Xử lý nội dung cột Needing Docs (Chỉ hiện Link khi đăng nhập Admin)
             def get_docs_link_v18(link):
                 if link and str(link).strip() != "" and str(link).lower() != 'none':
                     return link
@@ -2869,17 +2875,18 @@ with t7:
             # Logic Cache Busting để cập nhật ảnh ngay lập tức khi thay đổi
             current_ts = int(time.time() * 1000)
             def make_fresh_url(url):
-                if not url: return None
+                if not url:
+                    return None
                 if "drive.google.com" in url or "googleusercontent.com" in url:
                     separator = "&" if "?" in url else "?"
                     return f"{url}{separator}t={current_ts}"
                 return url
             df_table['image_fresh'] = df_table['project_image'].apply(make_fresh_url)
 
-            # YÊU CẦU 1: Thiết lập danh sách cột hiển thị (Ẩn tài liệu và tài chính khi chưa là Admin)
+            # YÊU CẦU: Thiết lập danh sách cột hiển thị (Ẩn tài liệu và tài chính khi chưa là Admin)
             cols_show = ['No', 'image_fresh', 'project_code', 'project_name', 'status']
             if st.session_state.is_admin:
-                cols_show.append('docs_render_link') # HIỆN TÀI LIỆU KHI ĐĂNG NHẬP QUYỀN ADMIN
+                cols_show.append('docs_render_link')  # HIỆN TÀI LIỆU KHI ĐĂNG NHẬP QUYỀN ADMIN
                 cols_show.extend(['budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit'])
 
             # Render Bảng danh sách dự án bằng Data Editor
@@ -2912,7 +2919,9 @@ with t7:
                                     supabase.table("crm_project_tasks").delete().eq("project_code", prj_del).execute()
                                     supabase.table("crm_project_costs").delete().eq("project_code", prj_del).execute()
                                     st.cache_data.clear()
-                                    st.success(f"Dự án {prj_del} đã được gỡ bỏ!"); time.sleep(1); st.rerun()
+                                    st.success(f"Dự án {prj_del} đã được gỡ bỏ!")
+                                    time.sleep(1)
+                                    st.rerun()
                                 except Exception as e:
                                     st.error(f"Lỗi lệnh xóa: {e}")
                             else:
@@ -3001,7 +3010,7 @@ with t7:
                         key=f"ed_v18_tasks_full_sync_{sel_prj_id}"
                     )
                     
-                    # YÊU CẦU 2 & 3: CẬP NHẬT NHIỆM VỤ VÀ GỬI CẢNH BÁO TELEGRAM (API DÁN TRỰC TIẾP TRONG CODE)
+                    # YÊU CẦU: CẬP NHẬT NHIỆM VỤ VÀ GỬI CẢNH BÁO TELEGRAM (API DÁN TRỰC TIẾP TRONG CODE)
                     if st.button("💾 LƯU TIẾN ĐỘ & GỬI THÔNG BÁO TELEGRAM", type="primary", use_container_width=True, key=f"btn_up_tasks_v18_full_{sel_prj_id}"):
                         with st.spinner("Đang đồng bộ dữ liệu dự án và quét công việc quá hạn..."):
                             try:
@@ -3009,7 +3018,7 @@ with t7:
                                 supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
                                 
                                 new_tasks_to_db = []
-                                overdue_alert_msgs = [] # Danh sách các tin nhắn cảnh báo quá hạn
+                                overdue_alert_msgs = []  # Danh sách các tin nhắn cảnh báo quá hạn
                                 today_date = datetime.now().date()
                                 
                                 for r in edited_tasks_v18.to_dict('records'):
@@ -3024,7 +3033,7 @@ with t7:
                                             "status": r['status']
                                         })
                                         
-                                        # YÊU CẦU 3: THUẬT TOÁN TỰ ĐỘNG QUÉT QUÁ HẠN
+                                        # YÊU CẦU: THUẬT TOÁN TỰ ĐỘNG QUÉT QUÁ HẠN
                                         if r['end_date'] and r['status'] != 'Done':
                                             task_due_date = pd.to_datetime(r['end_date']).date()
                                             if task_due_date < today_date:
@@ -3040,7 +3049,7 @@ with t7:
                                 if new_tasks_to_db:
                                     supabase.table("crm_project_tasks").insert(new_tasks_to_db).execute()
                                 
-                                # YÊU CẦU 2: THUẬT TOÁN GỬI TELEGRAM (SỬ DỤNG API VÀ ID ĐÃ DÁN TRONG CODE)
+                                # YÊU CẦU: THUẬT TOÁN GỬI TELEGRAM (SỬ DỤNG API VÀ ID ĐÃ DÁN TRONG CODE)
                                 if PRJ_INTERNAL_TOKEN and PRJ_INTERNAL_CHAT_ID:
                                     import requests
                                     telegram_api_url = f"https://api.telegram.org/bot{PRJ_INTERNAL_TOKEN}/sendMessage"
@@ -3112,7 +3121,8 @@ with t7:
                                 if final_costs_list:
                                     supabase.table("crm_project_costs").insert(final_costs_list).execute()
                                 st.success("✅ Toàn bộ chi phí thực tế đã được lưu vào hệ thống!")
-                                time.sleep(0.8); st.rerun()
+                                time.sleep(0.8)
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Lỗi lưu chi phí: {str(e)}")
 
@@ -3124,8 +3134,11 @@ with t7:
                         if st.button("🗑️ XÓA LIÊN KẾT TÀI LIỆU (LÀM TRỐNG Ô TÀI LIỆU)", use_container_width=True):
                             try:
                                 supabase.table("crm_projects").update({"project_docs": ""}).eq("project_code", sel_prj_id).execute()
-                                st.success("✅ Đã xóa liên kết thư mục trên bảng danh sách dự án!"); time.sleep(0.5); st.rerun()
-                            except Exception as e: st.error(f"Lỗi Reset link: {e}")
+                                st.success("✅ Đã xóa liên kết thư mục trên bảng danh sách dự án!")
+                                time.sleep(0.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Lỗi Reset link: {e}")
 
                     with st.form(key=f"form_settings_v18_full_final_{sel_prj_id}"):
                         c_edit1, c_edit2 = st.columns(2)
@@ -3185,14 +3198,14 @@ with t7:
                                 supabase.table("crm_projects").update(update_payload).eq("project_code", active_prj['project_code']).execute()
                                 st.cache_data.clear()
                                 st.success("✅ Toàn bộ thay đổi đã được áp dụng thành công!")
-                                time.sleep(1.2); st.rerun()
+                                time.sleep(1.2)
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Lỗi đồng bộ Database: {e}")
 
     else:
         st.info("Hệ thống chưa ghi nhận dự án nào. Vui lòng nhấn 'TẠO DỰ ÁN MỚI' để bắt đầu quản lý.")
-# =============================================================================
-# --- KẾT THÚC TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN FULL 31,500 KÝ TỰ) ---
+# --- KẾT THÚC TAB 7: PROJECT MANAGEMENT (PHIÊN BẢN FULL) ---
 # =============================================================================
 # --- TAB 8: QUẢN LÝ ISSUE (THEO DÕI SỰ CỐ / VẤN ĐỀ) ---
 # =============================================================================
