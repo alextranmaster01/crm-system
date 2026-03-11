@@ -3092,6 +3092,16 @@ with t7:
                 # --- TAB 3: CÀI ĐẶT THÔNG TIN DỰ ÁN & UPLOAD TÀI LIỆU ---
                 with tabs[2]:
                     st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN VÀ TÀI LIỆU DỰ ÁN")
+                    # Nút xóa nhanh liên kết tài liệu
+                    if active_prj['project_docs']:
+                        if st.button("🗑️ XÓA LIÊN KẾT TÀI LIỆU (LÀM TRỐNG Ô)", use_container_width=True):
+                            try:
+                                supabase.table("crm_projects").update({"project_docs": ""}).eq("project_code", sel_prj_id).execute()
+                                st.success("Đã xóa liên kết tài liệu!")
+                                time.sleep(0.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Lỗi: {e}")
                     with st.form(key=f"form_settings_v14_{sel_prj_id}"):
                         c1, c2 = st.columns(2)
                         u_name = c1.text_input("Tên Dự Án", value=safe_str(active_prj['project_name']))
