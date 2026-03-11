@@ -3074,7 +3074,6 @@ with t8:
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    # Đã bổ sung cột 'date_resolved' (Ngày kết thúc)
     expected_cols = ['id', 'date_reported', 'date_resolved', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
     if not df_issues.empty:
         for c in expected_cols:
@@ -3162,13 +3161,11 @@ with t8:
             edited_issues = st.data_editor(
                 df_edit_issue, use_container_width=True, hide_index=True, height=450,
                 column_config={
-                    # Ép bề ngang ID cực nhỏ (khoảng 35 pixel)
-                    "id": st.column_config.NumberColumn("ID", disabled=True, width=35),
+                    "id": st.column_config.NumberColumn("ID", disabled=True, width=40), # Ép kích thước nhỏ nhất
                     "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width=90),
                     "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
                     "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width=120),
-                    # Cột text để width="large" để có tối đa không gian
-                    "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
+                    "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"), # Mở rộng tối đa
                     "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
                     "progress_pct": st.column_config.SelectboxColumn(
@@ -3176,7 +3173,7 @@ with t8:
                         options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
                         width=90
                     ),
-                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="medium")
+                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large") # Mở rộng tối đa
                 },
                 key=f"editor_issues_{tab_key}"
             )
@@ -3186,33 +3183,46 @@ with t8:
                 with st.spinner("Đang đồng bộ..."):
                     try:
                         changes_made = False
+                        
+                        # --- HÀM LÀM SẠCH CHUỖI VÀ NGÀY THÁNG ĐỂ TRÁNH LỖI DATA ---
+                        def clean_date_for_db(raw_val):
+                            if pd.isna(raw_val): return None
+                            s = str(raw_val).strip()
+                            if s.lower() in ['', 'none', 'nat', 'nan', 'null']: return None
+                            try:
+                                return pd.to_datetime(s).strftime('%Y-%m-%d')
+                            except:
+                                return None
+                                
+                        def safe_str(v): 
+                            if pd.isna(v): return ""
+                            s = str(v).strip()
+                            return "" if s.lower() in ['none', 'nat', 'nan', 'null'] else s
+
                         for i, row in edited_issues.iterrows():
                             orig_row = df_issues[df_issues['id'] == row['id']].iloc[0]
                             
-                            # Xử lý an toàn cho Ngày kết thúc
-                            date_res_val = None
-                            if pd.notna(row['date_resolved']) and str(row['date_resolved']).strip() not in ['', 'None', 'NaT']:
-                                date_res_val = str(row['date_resolved'])
+                            new_date_res = clean_date_for_db(row.get('date_resolved'))
+                            old_date_res = clean_date_for_db(orig_row.get('date_resolved'))
 
-                            def safe_str(v): 
-                                s = str(v).strip()
-                                return "" if s in ['None', 'NaT', 'nan'] else s
-
+                            # Chỉ gửi tín hiệu Update nếu thực sự có thay đổi
                             if (safe_str(row['status']) != safe_str(orig_row['status']) or
                                 safe_str(row['progress_pct']) != safe_str(orig_row['progress_pct']) or
                                 safe_str(row['resolution_note']) != safe_str(orig_row['resolution_note']) or
                                 safe_str(row['assignee']) != safe_str(orig_row['assignee']) or
                                 safe_str(row['description']) != safe_str(orig_row['description']) or
-                                safe_str(row['date_resolved']) != safe_str(orig_row.get('date_resolved', ''))):
+                                new_date_res != old_date_res):
 
-                                supabase.table("crm_issues").update({
+                                payload = {
                                     "status": row['status'], 
                                     "progress_pct": row['progress_pct'],
                                     "resolution_note": row['resolution_note'], 
                                     "assignee": row['assignee'],
                                     "description": row['description'],
-                                    "date_resolved": date_res_val
-                                }).eq("id", row['id']).execute()
+                                    "date_resolved": new_date_res
+                                }
+
+                                supabase.table("crm_issues").update(payload).eq("id", row['id']).execute()
                                 
                                 # --- GỌI HÀM GỬI TELEGRAM Ở ĐÂY ---
                                 send_telegram_notification(
