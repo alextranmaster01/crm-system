@@ -2689,7 +2689,6 @@ with t7:
     # Alex điền trực tiếp Token và ID của nhóm Dự án vào đây để phần mềm tự động sử dụng
     PRJ_INTERNAL_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
     PRJ_INTERNAL_CHAT_ID = "-5133231764"
-
     # --- 1. TẢI DỮ LIỆU TỪ CƠ SỞ DỮ LIỆU SUPABASE ---
     # Load bảng dự án, chi phí và khách hàng. Sắp xếp dự án mới nhất lên hàng đầu.
     df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
