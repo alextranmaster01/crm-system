@@ -252,8 +252,8 @@ def load_data(table, order_by="id", ascending=True):
         df = pd.DataFrame(res.data)
         
         if not df.empty:
-            # Drop cột 'id' nếu không cần thiết
-            if table != "crm_tracking" and table != "crm_payments" and 'id' in df.columns: 
+           # Giữ lại cột 'id' cho crm_issues để phục vụ việc Edit/Xóa
+            if table not in ["crm_tracking", "crm_payments", "crm_issues"] and 'id' in df.columns: 
                 df = df.drop(columns=['id'])
             
             # Sort bằng Pandas nếu có cột order_by
@@ -3038,10 +3038,15 @@ with t8:
     st.markdown("### ⚠️ TRUNG TÂM THEO DÕI SỰ CỐ (ISSUE TRACKING)")
 
     # 1. TẢI DỮ LIỆU
-    # Cần đảm bảo bạn đã tạo bảng 'crm_issues' trên Supabase
     df_issues = load_data("crm_issues", order_by="created_at", ascending=False)
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
+
+    # Đảm bảo an toàn: Nếu DB thiếu cột, tạo tạm để không bị crash
+    expected_cols = ['id', 'date_reported', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
+    if not df_issues.empty:
+        for c in expected_cols:
+            if c not in df_issues.columns: df_issues[c] = ""
 
     # 2. BỨC TRANH TOÀN CẢNH (MINI DASHBOARD)
     if not df_issues.empty:
@@ -3055,112 +3060,114 @@ with t8:
         i3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG SỰ CỐ (TOTAL)</h3><h1>{total_issues}</h1></div>", unsafe_allow_html=True)
         st.divider()
 
-    # 3. HEADER & TẠO ISSUE MỚI
-    c_i1, c_i2 = st.columns([4, 1])
+    # 3. HEADER, TẠO ISSUE & XÓA ISSUE
+    c_i1, c_i2, c_i3 = st.columns([5, 2, 2])
     with c_i1:
         st.markdown("📋 **DANH SÁCH SỰ CỐ & TIẾN ĐỘ XỬ LÝ**")
+    
     with c_i2:
-        with st.popover("➕ TẠO ISSUE MỚI", use_container_width=True):
+        with st.popover("➕ TẠO ISSUE", use_container_width=True):
             st.markdown("**Nhập thông tin sự cố phát sinh**")
             i_date = st.date_input("Ngày phát sinh", value=datetime.now())
             i_cust = st.selectbox("Khách hàng liên quan", cust_list, key="issue_new_cust")
-            i_desc = st.text_area("Mô tả vấn đề (Càng chi tiết càng tốt)")
+            i_desc = st.text_area("Mô tả vấn đề")
             i_assignee = st.text_input("Người phụ trách (PIC)")
 
-            if st.button("💾 LƯU ISSUE", type="primary", use_container_width=True, key="btn_save_issue"):
+            if st.button("💾 LƯU MỚI", type="primary", use_container_width=True, key="btn_save_issue"):
                 if i_desc and i_assignee:
-                    new_issue = {
-                        "date_reported": str(i_date),
-                        "customer_name": i_cust,
-                        "description": i_desc,
-                        "assignee": i_assignee,
-                        "status": "Open",
-                        "progress_pct": "0%",
-                        "resolution_note": ""
-                    }
+                    new_issue = {"date_reported": str(i_date), "customer_name": i_cust, "description": i_desc, "assignee": i_assignee, "status": "Open", "progress_pct": "0%", "resolution_note": ""}
                     try:
                         supabase.table("crm_issues").insert([new_issue]).execute()
+                        st.cache_data.clear()
                         st.success("✅ Đã ghi nhận sự cố mới!")
                         time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi khi lưu DB (Kiểm tra lại cấu trúc bảng crm_issues): {e}")
-                else:
-                    st.error("Vui lòng nhập 'Mô tả' và 'Người phụ trách'!")
+                    except Exception as e: st.error(f"Lỗi lưu DB: {e}")
+                else: st.error("Vui lòng nhập 'Mô tả' và 'Người phụ trách'!")
 
-    # 4. HIỂN THỊ & CẬP NHẬT TRỰC TIẾP (DATA EDITOR)
+    with c_i3:
+        if not df_issues.empty:
+            with st.popover("🗑️ XÓA ISSUE", use_container_width=True):
+                st.markdown("**Chọn sự cố cần xóa**")
+                issue_options = ["Chọn issue..."] + [f"[{r['id']}] - {r['customer_name']} - {str(r['description'])[:20]}..." for _, r in df_issues.iterrows()]
+                selected_issue_del = st.selectbox("Danh sách:", issue_options, key="del_issue_select")
+                
+                if selected_issue_del != "Chọn issue...":
+                    issue_id_to_del = int(selected_issue_del.split("]")[0].replace("[", ""))
+                    st.warning(f"Đang chuẩn bị xóa Issue ID: **{issue_id_to_del}**")
+                    del_pwd = st.text_input("Mật khẩu Admin", type="password", key="pwd_del_issue")
+                    
+                    if st.button("🔥 XÁC NHẬN XÓA", type="primary", use_container_width=True):
+                        if del_pwd == "admin": 
+                            try:
+                                supabase.table("crm_issues").delete().eq("id", issue_id_to_del).execute()
+                                st.cache_data.clear()
+                                st.success(f"✅ Đã xóa thành công!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e: st.error(f"Lỗi xóa: {e}")
+                        else: st.error("Sai mật khẩu!")
+
+    # 4. CHIA TAB: OPEN và RESOLVED
     if not df_issues.empty:
-        df_edit_issue = df_issues[['id', 'date_reported', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']].copy()
+        tab_open, tab_resolved = st.tabs(["🔴 SỰ CỐ ĐANG MỞ (OPEN / IN PROGRESS)", "🟢 ĐÃ GIẢI QUYẾT (RESOLVED / CLOSED)"])
+        
+        def render_issue_table(df_subset, tab_key):
+            if df_subset.empty:
+                st.info("Không có dữ liệu trong mục này.")
+                return
 
-        # Bộ lọc
-        f_col1, f_col2 = st.columns(2)
-        f_cust = f_col1.selectbox("🔍 Lọc theo khách hàng:", ["TẤT CẢ"] + [c for c in df_edit_issue['customer_name'].unique() if c], key="filter_issue_cust")
-        f_status = f_col2.selectbox("🔍 Lọc theo trạng thái:", ["TẤT CẢ", "Open", "In Progress", "Resolved", "Closed"], key="filter_issue_status")
+            df_edit_issue = df_subset[expected_cols].copy()
+            edited_issues = st.data_editor(
+                df_edit_issue, use_container_width=True, hide_index=True, height=450,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                    "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width="small"),
+                    "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width="small"),
+                    "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
+                    "assignee": st.column_config.TextColumn("Người phụ trách", width="small"),
+                    "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width="small"),
+                    "progress_pct": st.column_config.SelectboxColumn("Tiến độ", options=["0%", "25%", "50%", "75%", "90%", "100%"], width="small"),
+                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="medium")
+                },
+                key=f"editor_issues_{tab_key}"
+            )
 
-        if f_cust != "TẤT CẢ":
-            df_edit_issue = df_edit_issue[df_edit_issue['customer_name'] == f_cust]
-        if f_status != "TẤT CẢ":
-            df_edit_issue = df_edit_issue[df_edit_issue['status'] == f_status]
+            st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
+            if st.button("💾 LƯU CẬP NHẬT", type="primary", key=f"btn_update_issues_{tab_key}"):
+                with st.spinner("Đang đồng bộ..."):
+                    try:
+                        changes_made = False
+                        for i, row in edited_issues.iterrows():
+                            orig_row = df_issues[df_issues['id'] == row['id']].iloc[0]
+                            if (str(row['status']) != str(orig_row['status']) or
+                                str(row['progress_pct']) != str(orig_row['progress_pct']) or
+                                str(row['resolution_note']) != str(orig_row['resolution_note']) or
+                                str(row['assignee']) != str(orig_row['assignee']) or
+                                str(row['description']) != str(orig_row['description'])):
 
-        # Bảng Data Editor cho phép sửa trực tiếp tiến độ và trạng thái
-        edited_issues = st.data_editor(
-            df_edit_issue,
-            use_container_width=True,
-            hide_index=True,
-            height=500,
-            column_config={
-                "id": None, # Ẩn cột ID hệ thống
-                "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width="small"),
-                "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width="small"),
-                "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
-                "assignee": st.column_config.TextColumn("Người phụ trách", width="small"),
-                "status": st.column_config.SelectboxColumn(
-                    "Trạng thái",
-                    options=["Open", "In Progress", "Resolved", "Closed"],
-                    width="small"
-                ),
-                "progress_pct": st.column_config.SelectboxColumn(
-                    "Tiến độ",
-                    options=["0%", "25%", "50%", "75%", "90%", "100%"],
-                    width="small"
-                ),
-                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú sau XL", width="medium")
-            },
-            key="editor_issues_tab8"
-        )
+                                supabase.table("crm_issues").update({
+                                    "status": row['status'], "progress_pct": row['progress_pct'],
+                                    "resolution_note": row['resolution_note'], "assignee": row['assignee'],
+                                    "description": row['description']
+                                }).eq("id", row['id']).execute()
+                                changes_made = True
 
-        # Nút xác nhận lưu thay đổi (Tương tự logic tab Dự án)
-        st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
-        if st.button("💾 LƯU CÁC CẬP NHẬT (TRẠNG THÁI/TIẾN ĐỘ)", type="primary", key="btn_update_issues_db"):
-            with st.spinner("Đang đồng bộ thay đổi..."):
-                try:
-                    changes_made = False
-                    for i, row in edited_issues.iterrows():
-                        orig_row = df_issues[df_issues['id'] == row['id']].iloc[0]
-                        # Chỉ update nếu có dữ liệu khác biệt
-                        if (str(row['status']) != str(orig_row['status']) or
-                            str(row['progress_pct']) != str(orig_row['progress_pct']) or
-                            str(row['resolution_note']) != str(orig_row['resolution_note']) or
-                            str(row['assignee']) != str(orig_row['assignee']) or
-                            str(row['description']) != str(orig_row['description'])):
+                        if changes_made:
+                            st.cache_data.clear()
+                            st.success("✅ Đã cập nhật thành công! Trạng thái sẽ tự động được phân loại lại.")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.info("Không có thay đổi nào.")
+                    except Exception as e: st.error(f"Lỗi: {e}")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-                            supabase.table("crm_issues").update({
-                                "status": row['status'],
-                                "progress_pct": row['progress_pct'],
-                                "resolution_note": row['resolution_note'],
-                                "assignee": row['assignee'],
-                                "description": row['description']
-                            }).eq("id", row['id']).execute()
-                            changes_made = True
+        with tab_open:
+            df_open = df_issues[~df_issues['status'].isin(['Resolved', 'Closed'])]
+            render_issue_table(df_open, "open")
 
-                    if changes_made:
-                        st.success("✅ Đã cập nhật trạng thái các sự cố thành công!")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.info("Không có thay đổi nào để lưu.")
-                except Exception as e:
-                    st.error(f"Lỗi khi cập nhật lên Database: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with tab_resolved:
+            df_resolved = df_issues[df_issues['status'].isin(['Resolved', 'Closed'])]
+            render_issue_table(df_resolved, "resolved")
     else:
-        st.info("🎉 Tuyệt vời! Hiện tại không có sự cố (Issue) nào được ghi nhận.")
+        st.info("🎉 Tuyệt vời! Hiện tại không có sự cố nào được ghi nhận.")
