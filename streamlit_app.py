@@ -3075,7 +3075,16 @@ with t8:
 
             if st.button("💾 LƯU MỚI", type="primary", use_container_width=True, key="btn_save_issue"):
                 if i_desc and i_assignee:
-                    new_issue = {"date_reported": str(i_date), "customer_name": i_cust, "description": i_desc, "assignee": i_assignee, "status": "Open", "progress_pct": "0%", "resolution_note": ""}
+                    # UPDATE: Set mặc định tiến độ là 0% có biểu tượng màu trắng
+                    new_issue = {
+                        "date_reported": str(i_date), 
+                        "customer_name": i_cust, 
+                        "description": i_desc, 
+                        "assignee": i_assignee, 
+                        "status": "Open", 
+                        "progress_pct": "0% ⚪", 
+                        "resolution_note": ""
+                    }
                     try:
                         supabase.table("crm_issues").insert([new_issue]).execute()
                         st.cache_data.clear()
@@ -3127,7 +3136,12 @@ with t8:
                     "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
                     "assignee": st.column_config.TextColumn("Người phụ trách", width="small"),
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width="small"),
-                    "progress_pct": st.column_config.SelectboxColumn("Tiến độ", options=["0%", "25%", "50%", "75%", "90%", "100%"], width="small"),
+                    # UPDATE: Đã copy toàn bộ thuật toán màu sắc từ Tab 7 sang
+                    "progress_pct": st.column_config.SelectboxColumn(
+                        "Tiến độ", 
+                        options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
+                        width="small"
+                    ),
                     "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="medium")
                 },
                 key=f"editor_issues_{tab_key}"
