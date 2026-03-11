@@ -2677,7 +2677,7 @@ with t6:
                 st.error(f"Lỗi Import: {e}")
 
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL SECURE & FIXED LINKS) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - FIXED DUAL TABLE & LINKS) ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
@@ -2689,14 +2689,14 @@ with t7:
     df_costs_master = load_data("crm_project_costs")
     cust_db = load_data("crm_customers")
 
-    # --- 2. TIÊU ĐỀ & PHÂN QUYỀN ---
+    # --- 2. TIÊU ĐỀ & NÚT PHÂN QUYỀN ---
     c_tab_head1, c_tab_head2 = st.columns([8, 2])
     with c_tab_head1:
         st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
     with c_tab_head2:
         with st.popover("🔑 PHÂN QUYỀN", use_container_width=True):
             if not st.session_state.is_admin:
-                pwd_v7 = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_vfinal_fix_v3")
+                pwd_v7 = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_vfinal_fix_v4")
                 if pwd_v7 == "admin123":
                     st.session_state.is_admin = True
                     st.success("Đã mở quyền Admin!")
@@ -2704,15 +2704,13 @@ with t7:
                     st.rerun()
             else:
                 st.info("🔓 Quyền Admin đang mở")
-                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_vfinal_fix_v3"):
+                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_vfinal_fix_v4"):
                     st.session_state.is_admin = False
                     st.rerun()
 
-    # --- 3. DASHBOARD KPI ---
+    # --- 3. BỨC TRANH TOÀN CẢNH ---
     if not df_projects.empty:
         df_dash_calc = df_projects.copy()
-        
-        # Tính toán chi phí thực tế từ bảng costs
         if not df_costs_master.empty:
             df_costs_master['amount_vnd'] = pd.to_numeric(df_costs_master['amount_vnd'], errors='coerce').fillna(0)
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
@@ -2721,21 +2719,20 @@ with t7:
             df_dash_calc['total_cost'] = 0.0
 
         df_dash_calc['total_cost'] = df_dash_calc['total_cost'].fillna(0)
-        df_dash_calc['budget_val'] = df_dash_calc['budget_vnd'].apply(to_float)
-        df_dash_calc['profit'] = df_dash_calc['budget_val'] - df_dash_calc['total_cost']
-        df_dash_calc['profit_pct_raw'] = (df_dash_calc['profit'] / df_dash_calc['budget_val'] * 100).fillna(0)
+        df_dash_calc['profit'] = df_dash_calc['budget_vnd'].apply(to_float) - df_dash_calc['total_cost']
+        df_dash_calc['profit_pct_raw'] = (df_dash_calc['profit'] / df_dash_calc['budget_vnd'].apply(to_float) * 100).fillna(0)
 
-        # HIỂN THỊ KPI CARDS
         m1, m2, m3 = st.columns(3)
-        # YÊU CẦU 1: ẨN DOANH THU VÀ TÀI CHÍNH NẾU KHÔNG PHẢI ADMIN
+        
+        # PHẦN DOANH THU: ẨN NẾU KHÔNG PHẢI ADMIN
         if st.session_state.is_admin:
-            m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(df_dash_calc['budget_val'].sum())}</h1></div>", unsafe_allow_html=True)
+            m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(df_dash_calc['budget_vnd'].sum())}</h1></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>{fmt_num(df_dash_calc['total_cost'].sum())}</h1></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>{fmt_num(df_dash_calc['profit'].sum())}</h1></div>", unsafe_allow_html=True)
         else:
-            m1.markdown("<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>*******</h1></div>", unsafe_allow_html=True)
-            m2.markdown("<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>*******</h1></div>", unsafe_allow_html=True)
-            m3.markdown("<div class='card-3d bg-profit'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>*******</h1></div>", unsafe_allow_html=True)
+            m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>*******</h1></div>", unsafe_allow_html=True)
+            m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>*******</h1></div>", unsafe_allow_html=True)
+            m3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>*******</h1></div>", unsafe_allow_html=True)
 
         st.divider()
 
@@ -2743,14 +2740,14 @@ with t7:
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
-            selected_cust = st.selectbox("Lọc khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].dropna().unique().tolist()), key="filter_cust_v7_v3")
+            selected_cust = st.selectbox("Lọc khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].dropna().unique().tolist()), key="filter_cust_v7_v4")
             df_filtered = df_dash_calc.copy()
             if selected_cust != "TẤT CẢ":
                 df_filtered = df_filtered[df_filtered["customer_name"] == selected_cust]
 
             st.markdown("---")
             st.markdown("🎯 **CHỌN DỰ ÁN CHI TIẾT**")
-            sel_prj_id = st.selectbox("Xem GANTT & Cài đặt:", df_filtered["project_code"].tolist(), key="sel_active_prj_v7_v3")
+            sel_prj_id = st.selectbox("Xem GANTT & Chi phí:", df_filtered["project_code"].tolist(), key="sel_active_prj_v7_v4")
 
         with c_right:
             col_t1, col_t2 = st.columns([4, 1.5])
@@ -2759,15 +2756,15 @@ with t7:
             with col_t2:
                 # --- TẠO DỰ ÁN MỚI ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-                    p_code_n = st.text_input("Mã Dự Án (VD: HS-2024-01)", key="n_code_v7_v3")
-                    p_name_n = st.text_input("Tên Dự Án", key="n_name_v7_v3")
-                    p_cust_n = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="n_cust_v7_v3")
-                    p_bud_n = st.number_input("Ngân sách (VND)", min_value=0.0, step=1000000.0, key="n_bud_v7_v3")
+                    p_code_n = st.text_input("Mã Dự Án (VD: HS-001)", key="n_code_v7_v4")
+                    p_name_n = st.text_input("Tên Dự Án", key="n_name_v7_v4")
+                    p_cust_n = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="n_cust_v7_v4")
+                    p_bud_n = st.number_input("Ngân sách (VND)", min_value=0.0, step=1000000.0, key="n_bud_v7_v4")
                     c_d1, c_d2 = st.columns(2)
-                    p_start_n = c_d1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="n_start_v7_v3")
-                    p_end_n = c_d2.date_input("Ngày Kết Thúc", value=datetime.now(), key="n_end_v7_v3")
-                    p_img_n = st.file_uploader("🖼️ Ảnh đại diện", type=["png", "jpg", "jpeg"], key="n_img_v7_v3")
-                    p_docs_n = st.file_uploader("📂 Upload Tài liệu (Word, Excel, PDF, Video...)", accept_multiple_files=True, key="n_docs_v7_v3")
+                    p_start_n = c_d1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="n_start_v7_v4")
+                    p_end_n = c_d2.date_input("Ngày Kết Thúc", value=datetime.now(), key="n_end_v7_v4")
+                    p_img_n = st.file_uploader("🖼️ Upload ảnh", type=["png", "jpg", "jpeg"], key="n_img_v7_v4")
+                    p_docs_n = st.file_uploader("📂 Upload Needing docs", accept_multiple_files=True, key="n_docs_v7_v4")
 
                     if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary"):
                         if p_code_n and p_name_n:
@@ -2800,72 +2797,55 @@ with t7:
                                     supabase.table("crm_projects").insert([new_rec]).execute()
                                     st.success("Tạo thành công!"); time.sleep(0.5); st.rerun()
                                 except Exception as e: st.error(f"Lỗi: {e}")
-                        else: st.error("Vui lòng điền đủ Mã và Tên dự án!")
+                        else: st.error("Thiếu thông tin!")
 
-            # --- CHUẨN BỊ BẢNG HIỂN THỊ ---
+            # --- HIỂN THỊ DANH SÁCH ---
             df_table = df_filtered.copy()
+            # Reset Index để tạo STT chuẩn từ 1
+            df_table = df_table.reset_index(drop=True)
             df_table.insert(0, "No", range(1, len(df_table) + 1))
-            
-            # YÊU CẦU 2: SỬA LOGIC CỘT NEEDING DOCS
-            # Phân tách: Link thật cho ✅, và Text thuần cho ❌ để tránh bị reload web
-            def get_doc_link(link):
+
+            # Logic hiển thị cột Needing docs: Nếu có link thì hiện link, nếu không hiện X đỏ
+            def get_needing_docs_display(link):
                 if link and str(link).strip() != "" and str(link).lower() != 'none':
-                    return link # Trả về link Google Drive thật
-                return "" # Không trả về link nếu chưa có file
+                    return link # Trả về URL thật để LinkColumn bắt được
+                return "❌" # Trả về text thuần, LinkColumn sẽ không click được
 
-            def get_doc_icon(link):
-                if link and str(link).strip() != "" and str(link).lower() != 'none':
-                    return "✅ Xem tài liệu"
-                return "❌"
+            df_table['Needing docs'] = df_table['project_docs'].apply(get_needing_docs_display)
 
-            df_table['doc_url'] = df_table['project_docs'].apply(get_doc_link)
-            df_table['Needing docs'] = df_table['project_docs'].apply(get_doc_icon)
+            def mask_data_v7(v, is_money=True):
+                if st.session_state.is_admin:
+                    return "{:,.0f}".format(float(v)) if is_money else f"{v:.1f}%"
+                return "*******"
 
-            # Cấu hình danh sách cột theo quyền Admin
-            cols_show = ['No', 'project_image', 'project_code', 'project_name', 'status', 'Needing docs']
-            
-            # Phân quyền hiển thị tiền tệ
+            # Chuẩn bị cột hiển thị
+            df_table['Doanh Thu'] = df_table['budget_vnd'].apply(lambda x: mask_data_v7(x))
+            df_table['Chi Phí'] = df_table['total_cost'].apply(lambda x: mask_data_v7(x))
+            df_table['Lợi Nhuận'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
+            df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
+
+            # Cấu hình cột hiển thị dựa theo quyền Admin
+            cols_to_show = ['No', 'project_image', 'project_code', 'project_name', 'status', 'Needing docs']
             if st.session_state.is_admin:
-                df_table['Doanh Thu'] = df_table['budget_val'].apply(lambda x: "{:,.0f}".format(float(x)))
-                df_table['Chi Phí'] = df_table['total_cost'].apply(lambda x: "{:,.0f}".format(float(x)))
-                df_table['Lợi Nhuận'] = df_table['profit'].apply(lambda x: "{:,.0f}".format(float(x)))
-                df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: f"{x:.1f}%")
-                cols_show.extend(['Doanh Thu', 'Chi Phí', 'Lợi Nhuận', '% Profit'])
+                cols_to_show.extend(['Doanh Thu', 'Chi Phí', 'Lợi Nhuận', '% Profit'])
 
-            # HIỂN THỊ DATA EDITOR
+            # BẢNG DUY NHẤT VÀ FIX KÍCH THƯỚC CỘT NO
             st.data_editor(
-                df_table[cols_show],
+                df_table[cols_to_show],
                 column_config={
-                    "No": st.column_config.NumberColumn("No", width="small"),
+                    "No": st.column_config.NumberColumn("No", width=40, help="Số thứ tự"), # Fix kích thước nhỏ vừa 3 chữ số
                     "project_image": st.column_config.ImageColumn("Ảnh", width="small"),
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
+                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True, width="medium"),
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["In Progress", "Completed", "On Hold", "Cancelled"]),
-                    # LinkColumn chỉ gán cho url thật, nếu rỗng nó sẽ không clickable
-                    "Needing docs": st.column_config.LinkColumn("Needing docs", display_text=None, validate=None) if any(df_table['doc_url'] != "") else st.column_config.TextColumn("Needing docs")
+                    "Needing docs": st.column_config.LinkColumn("Needing docs", display_text="✅ Xem tài liệu") # Link chỉ hiện khi giá trị ô là một URL hợp lệ
                 },
-                use_container_width=True, hide_index=True, key="prj_editor_v7_v3"
+                use_container_width=True,
+                hide_index=True,
+                key="prj_master_table_vfinal"
             )
 
-            # Link ngầm để hỗ trợ cột Needing docs nếu dùng LinkColumn
-            # Lưu ý: Trong Streamlit, để cột 'Needing docs' dẫn tới Drive, ô dữ liệu đó phải chứa URL.
-            # Tôi sẽ cập nhật trực tiếp giá trị ô bằng URL nếu có tài liệu.
-            df_display = df_table[cols_show].copy()
-            for i, row in df_table.iterrows():
-                if row['doc_url'] != "":
-                    df_display.at[i, 'Needing docs'] = row['doc_url']
-
-            # Vẽ lại bảng với Link thật sự hoạt động
-            st.data_editor(
-                df_display,
-                column_config={
-                    "No": st.column_config.NumberColumn("No", width="small"),
-                    "project_image": st.column_config.ImageColumn("Ảnh", width="small"),
-                    "Needing docs": st.column_config.LinkColumn("Needing docs")
-                },
-                use_container_width=True, hide_index=True, key="prj_editor_final_secure"
-            )
-
-            # Nút xóa (Chỉ Admin)
+            # Nút xóa dự án (Chỉ Admin)
             if st.session_state.is_admin:
                 with st.popover("🗑️ XÓA DỰ ÁN", use_container_width=True):
                     sel_del = st.selectbox("Chọn dự án muốn xóa:", [""] + df_filtered["project_code"].tolist())
@@ -2877,12 +2857,11 @@ with t7:
         if sel_prj_id:
             active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
             st.divider()
-            st.markdown(f"#### 🛠️ CHI TIẾT DỰ ÁN: {active_prj['project_name']}")
+            st.markdown(f"#### 🛠️ QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})")
 
             tab_gantt, tab_finance, tab_settings = st.tabs(["⏳ TIẾN ĐỘ & GANTT", "💸 CHI PHÍ DỰ ÁN", "⚙️ CÀI ĐẶT DỰ ÁN"])
 
             with tab_gantt:
-                # Code GANTT giữ nguyên 100%
                 tasks_all = load_data("crm_project_tasks")
                 tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
                 c1, c2 = st.columns([2, 3])
@@ -2901,19 +2880,19 @@ with t7:
 
             with tab_finance:
                 if st.session_state.is_admin:
-                    st.write(f"**Tổng Chi Phí Thực Tế: {fmt_num(active_prj['total_cost'])} VND**")
-                    # Phần quản lý chi phí giữ nguyên...
+                    st.markdown(f"**Tổng Chi Phí: {fmt_num(active_prj['total_cost'])} VND**")
+                    # Code chi phí giữ nguyên...
                 else:
-                    st.warning("🔒 Vui lòng dùng quyền Admin để xem tài chính.")
+                    st.warning("🔒 Vui lòng đăng nhập Admin.")
 
             with tab_settings:
                 st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN & TÀI LIỆU")
-                with st.form(key=f"form_update_prj_{sel_prj_id}"):
+                with st.form(key=f"form_settings_v4_{sel_prj_id}"):
                     u_name = st.text_input("Tên Dự Án", value=active_prj['project_name'])
-                    u_bud = st.number_input("Ngân Sách (VND)", value=float(active_prj['budget_vnd']))
+                    u_bud = st.number_input("Ngân sách", value=float(active_prj['budget_vnd']))
                     u_docs = st.file_uploader("📂 Update thêm tài liệu (Ghi đè nếu trùng tên)", accept_multiple_files=True)
                     u_img = st.file_uploader("Thay đổi ảnh dự án", type=["png", "jpg", "jpeg"])
-                    
+
                     if st.form_submit_button("💾 CẬP NHẬT DỰ ÁN", use_container_width=True, type="primary"):
                         payload = {"project_name": u_name, "budget_vnd": u_bud}
                         if u_img:
