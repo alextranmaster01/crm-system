@@ -358,7 +358,7 @@ def parse_formula(formula, buying_price, ap_price):
 # =============================================================================
 # 4. GIAO DIỆN CHÍNH
 # =============================================================================
-t1, t2, t3, t4, t5, t7, t6 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "🚀 DỰ ÁN", "⚙️ MASTER DATA"])
+t1, t2, t3, t4, t5, t7, t6, t8 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "🚀 DỰ ÁN", "⚙️ MASTER DATA", "⚠️ QUẢN LÝ ISSUE"])
 # --- TAB 1: DASHBOARD (UPDATED - FIX METRICS LOGIC) ---
 # =============================================================================
 with t1:
@@ -3031,3 +3031,136 @@ with t7:
 
     else:
         st.info("Chưa có dự án nào.")
+# =============================================================================
+# --- TAB 8: QUẢN LÝ ISSUE (THEO DÕI SỰ CỐ / VẤN ĐỀ) ---
+# =============================================================================
+with t8:
+    st.markdown("### ⚠️ TRUNG TÂM THEO DÕI SỰ CỐ (ISSUE TRACKING)")
+
+    # 1. TẢI DỮ LIỆU
+    # Cần đảm bảo bạn đã tạo bảng 'crm_issues' trên Supabase
+    df_issues = load_data("crm_issues", order_by="created_at", ascending=False)
+    cust_db = load_data("crm_customers")
+    cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
+
+    # 2. BỨC TRANH TOÀN CẢNH (MINI DASHBOARD)
+    if not df_issues.empty:
+        total_issues = len(df_issues)
+        resolved_issues = len(df_issues[df_issues['status'].isin(['Resolved', 'Closed'])])
+        open_issues = total_issues - resolved_issues
+
+        i1, i2, i3 = st.columns(3)
+        i1.markdown(f"<div class='card-3d bg-cost'><h3>SỰ CỐ ĐANG MỞ (OPEN)</h3><h1>{open_issues}</h1></div>", unsafe_allow_html=True)
+        i2.markdown(f"<div class='card-3d bg-sales'><h3>ĐÃ GIẢI QUYẾT (RESOLVED)</h3><h1>{resolved_issues}</h1></div>", unsafe_allow_html=True)
+        i3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG SỰ CỐ (TOTAL)</h3><h1>{total_issues}</h1></div>", unsafe_allow_html=True)
+        st.divider()
+
+    # 3. HEADER & TẠO ISSUE MỚI
+    c_i1, c_i2 = st.columns([4, 1])
+    with c_i1:
+        st.markdown("📋 **DANH SÁCH SỰ CỐ & TIẾN ĐỘ XỬ LÝ**")
+    with c_i2:
+        with st.popover("➕ TẠO ISSUE MỚI", use_container_width=True):
+            st.markdown("**Nhập thông tin sự cố phát sinh**")
+            i_date = st.date_input("Ngày phát sinh", value=datetime.now())
+            i_cust = st.selectbox("Khách hàng liên quan", cust_list, key="issue_new_cust")
+            i_desc = st.text_area("Mô tả vấn đề (Càng chi tiết càng tốt)")
+            i_assignee = st.text_input("Người phụ trách (PIC)")
+
+            if st.button("💾 LƯU ISSUE", type="primary", use_container_width=True, key="btn_save_issue"):
+                if i_desc and i_assignee:
+                    new_issue = {
+                        "date_reported": str(i_date),
+                        "customer_name": i_cust,
+                        "description": i_desc,
+                        "assignee": i_assignee,
+                        "status": "Open",
+                        "progress_pct": "0%",
+                        "resolution_note": ""
+                    }
+                    try:
+                        supabase.table("crm_issues").insert([new_issue]).execute()
+                        st.success("✅ Đã ghi nhận sự cố mới!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi khi lưu DB (Kiểm tra lại cấu trúc bảng crm_issues): {e}")
+                else:
+                    st.error("Vui lòng nhập 'Mô tả' và 'Người phụ trách'!")
+
+    # 4. HIỂN THỊ & CẬP NHẬT TRỰC TIẾP (DATA EDITOR)
+    if not df_issues.empty:
+        df_edit_issue = df_issues[['id', 'date_reported', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']].copy()
+
+        # Bộ lọc
+        f_col1, f_col2 = st.columns(2)
+        f_cust = f_col1.selectbox("🔍 Lọc theo khách hàng:", ["TẤT CẢ"] + [c for c in df_edit_issue['customer_name'].unique() if c], key="filter_issue_cust")
+        f_status = f_col2.selectbox("🔍 Lọc theo trạng thái:", ["TẤT CẢ", "Open", "In Progress", "Resolved", "Closed"], key="filter_issue_status")
+
+        if f_cust != "TẤT CẢ":
+            df_edit_issue = df_edit_issue[df_edit_issue['customer_name'] == f_cust]
+        if f_status != "TẤT CẢ":
+            df_edit_issue = df_edit_issue[df_edit_issue['status'] == f_status]
+
+        # Bảng Data Editor cho phép sửa trực tiếp tiến độ và trạng thái
+        edited_issues = st.data_editor(
+            df_edit_issue,
+            use_container_width=True,
+            hide_index=True,
+            height=500,
+            column_config={
+                "id": None, # Ẩn cột ID hệ thống
+                "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width="small"),
+                "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width="small"),
+                "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
+                "assignee": st.column_config.TextColumn("Người phụ trách", width="small"),
+                "status": st.column_config.SelectboxColumn(
+                    "Trạng thái",
+                    options=["Open", "In Progress", "Resolved", "Closed"],
+                    width="small"
+                ),
+                "progress_pct": st.column_config.SelectboxColumn(
+                    "Tiến độ",
+                    options=["0%", "25%", "50%", "75%", "90%", "100%"],
+                    width="small"
+                ),
+                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú sau XL", width="medium")
+            },
+            key="editor_issues_tab8"
+        )
+
+        # Nút xác nhận lưu thay đổi (Tương tự logic tab Dự án)
+        st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
+        if st.button("💾 LƯU CÁC CẬP NHẬT (TRẠNG THÁI/TIẾN ĐỘ)", type="primary", key="btn_update_issues_db"):
+            with st.spinner("Đang đồng bộ thay đổi..."):
+                try:
+                    changes_made = False
+                    for i, row in edited_issues.iterrows():
+                        orig_row = df_issues[df_issues['id'] == row['id']].iloc[0]
+                        # Chỉ update nếu có dữ liệu khác biệt
+                        if (str(row['status']) != str(orig_row['status']) or
+                            str(row['progress_pct']) != str(orig_row['progress_pct']) or
+                            str(row['resolution_note']) != str(orig_row['resolution_note']) or
+                            str(row['assignee']) != str(orig_row['assignee']) or
+                            str(row['description']) != str(orig_row['description'])):
+
+                            supabase.table("crm_issues").update({
+                                "status": row['status'],
+                                "progress_pct": row['progress_pct'],
+                                "resolution_note": row['resolution_note'],
+                                "assignee": row['assignee'],
+                                "description": row['description']
+                            }).eq("id", row['id']).execute()
+                            changes_made = True
+
+                    if changes_made:
+                        st.success("✅ Đã cập nhật trạng thái các sự cố thành công!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.info("Không có thay đổi nào để lưu.")
+                except Exception as e:
+                    st.error(f"Lỗi khi cập nhật lên Database: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("🎉 Tuyệt vời! Hiện tại không có sự cố (Issue) nào được ghi nhận.")
