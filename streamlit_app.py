@@ -2677,10 +2677,10 @@ with t6:
                 st.error(f"Lỗi Import: {e}")
 
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - LAYOUT GIỐNG HỆT ẢNH + NÚT XÓA DỰ ÁN + CHECK TRÙNG MÃ) ---
+# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - SECURITY & DOCUMENT MANAGEMENT) ---
 # =============================================================================
 with t7:
-    # --- 0. KHỞI TẠO BIẾN BẢO MẬT ---
+    # --- 0. KHỞI TẠO BIẾN BẢO MẬT & TRẠNG THÁI ---
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
 
@@ -2696,21 +2696,23 @@ with t7:
     with c_tab_head2:
         with st.popover("🔑 PHÂN QUYỀN", use_container_width=True):
             if not st.session_state.is_admin:
-                pwd_v7 = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_vfinal_fix")
+                pwd_v7 = st.text_input("Mật khẩu Admin", type="password", key="pwd_tab7_vfinal_secure")
                 if pwd_v7 == "admin123":
                     st.session_state.is_admin = True
-                    st.success("Đã mở quyền!")
+                    st.success("Đã mở quyền Admin!")
                     time.sleep(0.5)
                     st.rerun()
             else:
                 st.info("🔓 Quyền Admin đang mở")
-                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_vfinal_fix"):
+                if st.button("🔴 KHÓA QUYỀN", use_container_width=True, key="lock_tab7_vfinal_secure"):
                     st.session_state.is_admin = False
                     st.rerun()
 
-    # --- 3. BỨC TRANH TOÀN CẢNH ---
+    # --- 3. BỨC TRANH TOÀN CẢNH (DASHBOARD) ---
     if not df_projects.empty:
         df_dash_calc = df_projects.copy()
+        
+        # Tính toán chi phí từ bảng costs
         if not df_costs_master.empty:
             df_costs_master['amount_vnd'] = pd.to_numeric(df_costs_master['amount_vnd'], errors='coerce').fillna(0)
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
@@ -2719,16 +2721,20 @@ with t7:
             df_dash_calc['total_cost'] = 0.0
 
         df_dash_calc['total_cost'] = df_dash_calc['total_cost'].fillna(0)
-        df_dash_calc['profit'] = df_dash_calc['budget_vnd'].apply(to_float) - df_dash_calc['total_cost']
-        df_dash_calc['profit_pct_raw'] = (df_dash_calc['profit'] / df_dash_calc['budget_vnd'].apply(to_float) * 100).fillna(0)
+        df_dash_calc['budget_val'] = df_dash_calc['budget_vnd'].apply(to_float)
+        df_dash_calc['profit'] = df_dash_calc['budget_val'] - df_dash_calc['total_cost']
+        df_dash_calc['profit_pct_raw'] = (df_dash_calc['profit'] / df_dash_calc['budget_val'] * 100).fillna(0)
 
+        # Hiển thị KPI Cards
         m1, m2, m3 = st.columns(3)
-        m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(df_dash_calc['budget_vnd'].sum())}</h1></div>", unsafe_allow_html=True)
-
+        
+        # LOGIC ẨN THÔNG TIN NẾU KHÔNG PHẢI ADMIN (Yêu cầu 1)
         if st.session_state.is_admin:
+            m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(df_dash_calc['budget_val'].sum())}</h1></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>{fmt_num(df_dash_calc['total_cost'].sum())}</h1></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>{fmt_num(df_dash_calc['profit'].sum())}</h1></div>", unsafe_allow_html=True)
         else:
+            m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>*******</h1><p>Quyền Admin để xem</p></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>*******</h1></div>", unsafe_allow_html=True)
             m3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG LỢI NHUẬN DỰ KIẾN</h3><h1>*******</h1></div>", unsafe_allow_html=True)
 
@@ -2738,331 +2744,226 @@ with t7:
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **TÊN KHÁCH HÀNG**")
-            selected_cust = st.selectbox("Lọc khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].unique().tolist()), key="filter_cust_v7_vfinal")
+            selected_cust = st.selectbox("Lọc khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].dropna().unique().tolist()), key="filter_cust_v7_final")
             df_filtered = df_dash_calc.copy()
             if selected_cust != "TẤT CẢ":
                 df_filtered = df_filtered[df_filtered["customer_name"] == selected_cust]
 
             st.markdown("---")
             st.markdown("🎯 **CHỌN DỰ ÁN CHI TIẾT**")
-            sel_prj_id = st.selectbox("Xem GANTT & Chi phí:", df_filtered["project_code"].tolist(), key="sel_active_prj_v7_vfinal")
+            sel_prj_id = st.selectbox("Xem GANTT & Chi phí:", df_filtered["project_code"].tolist(), key="sel_active_prj_v7_final")
 
         with c_right:
             col_t1, col_t2 = st.columns([4, 1])
             col_t1.markdown("📋 **DANH SÁCH CÁC DỰ ÁN ĐANG TRIỂN KHAI**")
 
             with col_t2:
-                # --- TẠO DỰ ÁN MỚI (ĐÃ SỬA CHECK TRÙNG MÃ + THỤT LỀ CHUẨN) ---
+                # --- TẠO DỰ ÁN MỚI ---
                 with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-                    p_code_n = st.text_input("Mã Dự Án (VD: HS-001)", key="n_code_v7_fix")
-                    p_name_n = st.text_input("Tên Dự Án", key="n_name_v7_fix")
-                    p_cust_n = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="n_cust_v7_fix")
-                    p_bud_n = st.number_input("Ngân sách (VND)", min_value=0.0, step=1000000.0, key="n_bud_v7_fix")
+                    p_code_n = st.text_input("Mã Dự Án (VD: HS-2024-01)", key="n_code_v7_new")
+                    p_name_n = st.text_input("Tên Dự Án", key="n_name_v7_new")
+                    p_cust_n = st.selectbox("Khách Hàng", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="n_cust_v7_new")
+                    p_bud_n = st.number_input("Ngân sách (VND)", min_value=0.0, step=1000000.0, key="n_bud_v7_new")
                     c_d1, c_d2 = st.columns(2)
-                    p_start_n = c_d1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="n_start_v7_fix")
-                    p_end_n = c_d2.date_input("Ngày Kết Thúc", value=datetime.now(), key="n_end_v7_fix")
-                    p_img_n = st.file_uploader("🖼️ Upload ảnh dự án", type=["png", "jpg", "jpeg"], key="n_img_v7_fix")
+                    p_start_n = c_d1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="n_start_v7_new")
+                    p_end_n = c_d2.date_input("Ngày Kết Thúc", value=datetime.now(), key="n_end_v7_new")
+                    p_img_n = st.file_uploader("🖼️ Ảnh đại diện", type=["png", "jpg", "jpeg"], key="n_img_v7_new")
 
-                    if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_fix"):
+                    if st.button("💾 LƯU DỰ ÁN", use_container_width=True, type="primary", key="btn_save_v7_new"):
                         if p_code_n and p_name_n:
                             p_code_clean = p_code_n.strip().upper()
-
-                            # KIỂM TRA TRÙNG MÃ DỰ ÁN TRƯỚC KHI INSERT
+                            # Check trùng mã
                             existing = supabase.table("crm_projects").select("project_code").eq("project_code", p_code_clean).execute()
                             if existing.data:
-                                st.error(f"Mã dự án **{p_code_clean}** đã tồn tại! Vui lòng chọn mã khác.")
+                                st.error(f"Mã dự án **{p_code_clean}** đã tồn tại!")
                             else:
-                                img_url_init = ""
+                                img_url = ""
                                 if p_img_n:
-                                    with st.spinner("Đang lưu ảnh..."):
-                                        timestamp = int(time.time())
-                                        filename = f"PRJ_ID_{p_code_clean}_{timestamp}.png"
-                                        img_url_init, _ = upload_to_drive_simple(p_img_n, "CRM_PROJECT_IMAGES", filename)
+                                    img_url, _ = upload_to_drive_simple(p_img_n, "CRM_PROJECT_IMAGES", f"PRJ_{p_code_clean}.png")
 
                                 new_rec = {
                                     "project_code": p_code_clean,
                                     "project_name": p_name_n.strip(),
                                     "customer_name": p_cust_n.strip() if p_cust_n else None,
-                                    "budget_vnd": float(p_bud_n) if p_bud_n is not None else 0.0,
-                                    "start_date": str(p_start_n) if p_start_n else None,
-                                    "end_date": str(p_end_n) if p_end_n else None,
-                                    "project_image": img_url_init,
+                                    "budget_vnd": float(p_bud_n),
+                                    "start_date": str(p_start_n),
+                                    "end_date": str(p_end_n),
+                                    "project_image": img_url,
                                     "status": "In Progress"
                                 }
-
                                 try:
                                     supabase.table("crm_projects").insert([new_rec]).execute()
-                                    st.cache_data.clear()
                                     st.success("Tạo dự án thành công!")
                                     time.sleep(0.5)
                                     st.rerun()
-                                except Exception as e:
-                                    st.error(f"Lỗi khi tạo dự án: {str(e)}")
-                                    if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
-                                        st.error("Mã dự án bị trùng! Vui lòng đổi mã khác.")
-                                    elif "not null" in str(e).lower():
-                                        st.error("Một số trường bắt buộc bị thiếu.")
-                                    else:
-                                        st.error("Lỗi Supabase khác. Kiểm tra log.")
-                        else:
-                            st.error("Vui lòng nhập đầy đủ **Mã Dự Án** và **Tên Dự Án**!")
+                                except Exception as e: st.error(f"Lỗi: {e}")
+                        else: st.error("Thiếu mã hoặc tên dự án!")
 
-            # --- HIỂN THỊ DANH SÁCH ---
-            df_table = df_filtered[['project_image', 'project_code', 'project_name', 'start_date', 'end_date', 'status', 'budget_vnd', 'total_cost', 'profit', 'profit_pct_raw']].copy()
+            # --- HIỂN THỊ DANH SÁCH DỰ ÁN (DATA EDITOR) ---
+            df_table = df_filtered.copy()
             df_table.insert(0, "Select", False)
 
-            current_timestamp = int(time.time() * 1000)
-            def make_cache_busting_url(url):
-                if not url:
-                    return None
-                if "drive.google.com" in url or "googleusercontent.com" in url:
-                    separator = "&" if "?" in url else "?"
-                    return f"{url}{separator}t={current_timestamp}"
-                return url
-
-            df_table['project_image_display'] = df_table['project_image'].apply(make_cache_busting_url)
-
-            def mask_data_v7(v, is_money=True):
+            # Hàm xử lý hiển thị tiền tệ/ẩn dữ liệu
+            def mask_money(val):
                 if st.session_state.is_admin:
-                    return "{:,.0f}".format(float(v)) if is_money else f"{v:.1f}%"
+                    return "{:,.0f}".format(float(val))
                 return "*******"
 
-            df_table['budget_vnd_disp'] = df_table['budget_vnd'].apply(lambda x: "{:,.0f}".format(float(x)))
-            df_table['total_cost_disp'] = df_table['total_cost'].apply(lambda x: mask_data_v7(x))
-            df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v7(x))
-            df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v7(x, False))
+            # Chuẩn bị cột hiển thị
+            df_table['Doanh Thu'] = df_table['budget_val'].apply(mask_money)
+            df_table['Chi Phí'] = df_table['total_cost'].apply(mask_money)
+            df_table['Lợi Nhuận'] = df_table['profit'].apply(mask_money)
+            df_table['% LN'] = df_table['profit_pct_raw'].apply(lambda x: f"{x:.1f}%" if st.session_state.is_admin else "***")
+            
+            # Cột Tài liệu (Link Drive) - Yêu cầu 2
+            df_table['Tài liệu kỹ thuật'] = df_table['project_docs'].apply(lambda x: "📄 Xem tài liệu" if x else "➕ Thêm")
+
+            # Danh sách cột hiển thị tùy theo quyền
+            cols_to_show = ['Select', 'project_image', 'project_code', 'project_name', 'customer_name', 'start_date', 'end_date', 'status', 'Tài liệu kỹ thuật']
+            if st.session_state.is_admin:
+                cols_to_show.extend(['Doanh Thu', 'Chi Phí', 'Lợi Nhuận', '% LN'])
 
             edited_df_p = st.data_editor(
-                df_table[[
-                    'Select', 'project_image_display', 'project_code', 'project_name',
-                    'start_date', 'end_date', 'status', 'budget_vnd_disp',
-                    'total_cost_disp', 'profit_disp', '% Profit'
-                ]],
+                df_table[cols_to_show],
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-                    "project_image_display": st.column_config.ImageColumn("Hình ảnh", width="medium", help="Ảnh đại diện dự án"),
+                    "project_image": st.column_config.ImageColumn("Ảnh", width="small"),
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
-                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True),
-                    "budget_vnd_disp": "Doanh Thu",
-                    "total_cost_disp": "Chi Phí",
-                    "profit_disp": "Lợi Nhuận"
+                    "project_name": st.column_config.TextColumn("Tên Dự Án", width="medium"),
+                    "status": st.column_config.SelectboxColumn("Trạng thái", options=["In Progress", "Completed", "On Hold", "Cancelled"]),
+                    "Tài liệu kỹ thuật": st.column_config.LinkColumn("Tài liệu", width="medium", help="Bấm để mở folder Drive chứa tài liệu kỹ thuật")
                 },
                 use_container_width=True,
                 hide_index=True,
-                key="prj_editor_v7_final_sync_tick"
+                key="prj_master_editor_secure"
             )
 
-            # --- PHẦN MỞ RỘNG: NÚT XÓA DỰ ÁN (MŨI TÊN TRỎ XUỐNG) ---
+            # --- NÚT XÓA DỰ ÁN (CHỈ ADMIN) ---
             if st.session_state.is_admin:
-                with st.popover("🗑️ Xóa dự án", help="Chọn dự án để xóa"):
-                    st.markdown("**Chọn dự án cần xóa**")
-                    project_options = ["Chọn dự án..."] + df_filtered["project_code"].tolist()
-                    selected_to_delete = st.selectbox("Danh sách dự án:", project_options, key="select_delete_prj_v7")
-                    if selected_to_delete != "Chọn dự án...":
-                        st.warning(f"Bạn đang chọn xóa dự án: **{selected_to_delete}**")
-                        delete_pwd = st.text_input("Nhập mật khẩu Admin để xác nhận xóa:", type="password", key="pwd_delete_select_v7")
-                        if st.button("🔥 Xác nhận xóa dự án", type="primary", use_container_width=True):
-                            if delete_pwd == "admin123":
-                                with st.spinner("Đang xóa dự án..."):
-                                    try:
-                                        supabase.table("crm_projects").delete().eq("project_code", selected_to_delete).execute()
-                                        supabase.table("crm_project_tasks").delete().eq("project_code", selected_to_delete).execute()
-                                        supabase.table("crm_project_costs").delete().eq("project_code", selected_to_delete).execute()
-                                        st.cache_data.clear()
-                                        st.success(f"✅ Đã xóa dự án {selected_to_delete} thành công!")
-                                        time.sleep(1.2)
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Lỗi khi xóa: {str(e)}")
-                            else:
-                                st.error("Mật khẩu Admin không đúng!")
+                with st.popover("🗑️ XÓA DỰ ÁN", use_container_width=True):
+                    st.warning("Hành động này sẽ xóa toàn bộ Nhiệm vụ và Chi phí liên quan!")
+                    sel_del = st.selectbox("Chọn dự án muốn xóa:", [""] + df_filtered["project_code"].tolist(), key="del_prj_sel_v7")
+                    if sel_del and st.button(f"🔥 XÁC NHẬN XÓA {sel_del}", type="primary"):
+                        try:
+                            supabase.table("crm_projects").delete().eq("project_code", sel_del).execute()
+                            supabase.table("crm_project_tasks").delete().eq("project_code", sel_del).execute()
+                            supabase.table("crm_project_costs").delete().eq("project_code", sel_del).execute()
+                            st.success("Đã xóa hoàn toàn!"); time.sleep(1); st.rerun()
+                        except Exception as e: st.error(f"Lỗi: {e}")
 
-        # --- 5. QUẢN LÝ CHI TIẾT ---
+        # --- 5. CHI TIẾT DỰ ÁN (GANTT, COST, DOCUMENTS) ---
         if sel_prj_id:
             active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
-            st.markdown(f"🛠️ **QUẢN LÝ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})**")
+            st.divider()
+            st.markdown(f"#### 🛠️ CHI TIẾT: {active_prj['project_name']} ({sel_prj_id})")
 
-            tasks_all = load_data("crm_project_tasks")
-            tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
+            # Khởi tạo Tabs chi tiết
+            t_progress, t_docs, t_finance = st.tabs(["⏳ TIẾN ĐỘ & GANTT", "📁 TÀI LIỆU KỸ THUẬT", "💸 TÀI CHÍNH DỰ ÁN"])
 
-            tab_list = ["⏳ TIẾN ĐỘ & GANTT"]
-            if st.session_state.is_admin:
-                tab_list.extend(["💸 CHI PHÍ", "⚙️ CÀI ĐẶT DỰ ÁN"])
-
-            tabs = st.tabs(tab_list)
-
-            with tabs[0]:
-                col_g1, col_g2 = st.columns([2, 3])
+            # --- TAB TIẾN ĐỘ ---
+            with t_progress:
+                tasks_all = load_data("crm_project_tasks")
+                tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
                 
-                avg_p = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
-                
-                with col_g1:
+                c_g1, c_g2 = st.columns([2, 3])
+                with c_g1:
                     if not tasks_data.empty:
                         df_g = tasks_data.copy()
-                        df_g['start_date'] = pd.to_datetime(df_g['start_date'], errors='coerce')
-                        df_g['end_date'] = pd.to_datetime(df_g['end_date'], errors='coerce')
-                        
-                        m_row = pd.DataFrame([{
-                            'task_name': f'⭐ TỔNG DỰ ÁN ({avg_p:.0f}%)',
-                            'start_date': pd.to_datetime(active_prj['start_date']),
-                            'end_date': pd.to_datetime(active_prj['end_date']),
-                            'status': 'Master'
-                        }])
-                        
-                        chart = alt.Chart(pd.concat([m_row, df_g])).mark_bar(cornerRadius=5, height=20).encode(
-                            x=alt.X('start_date', title='Thời gian'),
-                            x2='end_date',
-                            y=alt.Y('task_name', sort=None),
-                            color=alt.Color('status', scale=alt.Scale(
-                                domain=['Master', 'To-do', 'Doing', 'Review', 'Done'],
-                                range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
-                            ))
-                        ).properties(height=350)
-                        
+                        df_g['start_date'] = pd.to_datetime(df_g['start_date'])
+                        df_g['end_date'] = pd.to_datetime(df_g['end_date'])
+                        chart = alt.Chart(df_g).mark_bar(cornerRadius=5).encode(
+                            x='start_date', x2='end_date', y=alt.Y('task_name', sort=None),
+                            color=alt.Color('status', scale=alt.Scale(domain=['To-do', 'Doing', 'Review', 'Done'], range=['#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']))
+                        ).properties(height=300)
                         st.altair_chart(chart, use_container_width=True)
-                    else:
-                        st.info("Chưa có nhiệm vụ nào để hiển thị GANTT.")
+                    else: st.info("Chưa có nhiệm vụ.")
 
-                with col_g2:
-                    df_ed_task = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() \
-                        if not tasks_data.empty \
-                        else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
-                    
-                    df_ed_task['start_date'] = pd.to_datetime(df_ed_task['start_date'], errors='coerce').dt.date
-                    df_ed_task['end_date'] = pd.to_datetime(df_ed_task['end_date'], errors='coerce').dt.date
-                    
+                with c_g2:
                     edited_tasks = st.data_editor(
-                        df_ed_task,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True,
+                        tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]] if not tasks_data.empty else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]),
+                        num_rows="dynamic", use_container_width=True, hide_index=True,
                         column_config={
-                            "progress_pct": st.column_config.SelectboxColumn(
-                                "Tiến độ (%)",
-                                options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]
-                            ),
-                            "status": st.column_config.SelectboxColumn(
-                                "Trạng thái",
-                                options=["To-do", "Doing", "Review", "Done"]
-                            ),
-                            "start_date": st.column_config.DateColumn("Bắt đầu"),
-                            "end_date": st.column_config.DateColumn("Kết thúc")
+                            "progress_pct": st.column_config.SelectboxColumn("Tiến độ", options=["0% ⚪", "50% 🟡", "100% 🟢"]),
+                            "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"])
                         },
-                        key=f"ed_v7_task_manual_{sel_prj_id}"
+                        key=f"task_ed_{sel_prj_id}"
                     )
+                    if st.button("💾 Lưu Tiến Độ", key=f"btn_sv_task_{sel_prj_id}"):
+                        supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
+                        new_tasks = []
+                        for r in edited_tasks.to_dict('records'):
+                            if r.get('task_name'):
+                                r['project_code'] = sel_prj_id
+                                new_tasks.append(r)
+                        if new_tasks: supabase.table("crm_project_tasks").insert(new_tasks).execute()
+                        st.success("Đã cập nhật!"); st.rerun()
+
+            # --- TAB TÀI LIỆU (YÊU CẦU 2: UPLOAD & QUẢN LÝ FILE) ---
+            with t_docs:
+                st.markdown("##### 📄 TÀI LIỆU KỸ THUẬT & GIẢI PHÁP")
+                st.caption("Hỗ trợ: Excel (.xlsx), PDF, Word (.docx), Ảnh. File sẽ được lưu vào Folder riêng của dự án trên Drive.")
+                
+                # Hiển thị Link Folder hiện tại (nếu có)
+                doc_link = active_prj.get('project_docs', "")
+                if doc_link:
+                    st.success(f"📂 [BẤM VÀO ĐÂY ĐỂ MỞ FOLDER DỰ ÁN TRÊN DRIVE]({doc_link})")
+                
+                # Form Upload Tài Liệu
+                with st.form(key=f"form_upload_docs_{sel_prj_id}", clear_on_submit=True):
+                    up_files = st.file_uploader("Chọn file tài liệu (Có thể chọn nhiều file)", type=["xlsx", "xls", "pdf", "docx", "doc", "png", "jpg"], accept_multiple_files=True)
+                    submit_docs = st.form_submit_button("🚀 UPLOAD LÊN DRIVE & CẬP NHẬT")
                     
-                    if st.button("💾 Cập nhật Tiến độ & Nhiệm vụ", type="primary", use_container_width=True, key=f"btn_update_tasks_{sel_prj_id}"):
-                        with st.spinner("Đang lưu tiến độ nhiệm vụ..."):
+                    if submit_docs and up_files:
+                        with st.spinner("Đang tải tài liệu lên Google Drive..."):
                             try:
-                                supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
+                                # Tạo/Lấy đường dẫn: PROJECT_DOCUMENTS / [Mã Dự Án]
+                                path_list = ["PROJECT_DOCUMENTS", str(sel_prj_id)]
+                                folder_url = ""
                                 
-                                new_tasks = []
-                                for row in edited_tasks.to_dict('records'):
-                                    if row.get('task_name'):
-                                        new_tasks.append({
-                                            "project_code": sel_prj_id,
-                                            "task_name": row['task_name'],
-                                            "assignee": row['assignee'],
-                                            "start_date": str(row['start_date']) if row['start_date'] else None,
-                                            "end_date": str(row['end_date']) if row['end_date'] else None,
-                                            "progress_pct": row['progress_pct'],
-                                            "status": row['status']
-                                        })
+                                for f in up_files:
+                                    # Sử dụng hàm có sẵn upload_to_drive_structured
+                                    lnk, _ = upload_to_drive_structured(f, path_list, f.name)
+                                    folder_url = lnk # Link trả về là link folder
                                 
-                                if new_tasks:
-                                    supabase.table("crm_project_tasks").insert(new_tasks).execute()
-                                
-                                st.success("✅ Đã cập nhật tiến độ nhiệm vụ thành công!")
-                                time.sleep(0.8)
-                                st.rerun()
+                                # Cập nhật link folder vào database dự án
+                                if folder_url:
+                                    supabase.table("crm_projects").update({"project_docs": folder_url}).eq("project_code", sel_prj_id).execute()
+                                    st.success(f"✅ Đã tải lên thành công {len(up_files)} file!")
+                                    time.sleep(1)
+                                    st.rerun()
                             except Exception as e:
-                                st.error(f"Lỗi khi cập nhật nhiệm vụ: {str(e)}")
+                                st.error(f"Lỗi khi upload: {e}")
 
-            if st.session_state.is_admin:
-                with tabs[1]:
-                    prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
-                    df_c_disp = prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
-                    df_c_disp['amount_vnd'] = df_c_disp['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 and x is not None else "")
+                st.info("💡 Lưu ý: Khi upload file mới, hệ thống sẽ tự động gộp vào Folder Drive cũ của dự án này.")
 
+            # --- TAB TÀI CHÍNH (CHỈ ADMIN) ---
+            with t_finance:
+                if st.session_state.is_admin:
+                    prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame()
+                    st.markdown(f"**Tổng Chi Phí Thực Tế: {fmt_num(active_prj['total_cost'])} VND**")
+                    
                     edited_costs = st.data_editor(
-                        df_c_disp,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "cost_type": st.column_config.TextColumn("Loại chi phí"),
-                            "amount_vnd": st.column_config.NumberColumn("Số tiền (VND)", format="%,.0f"),
-                            "ref_po": st.column_config.TextColumn("Ref PO / HĐ"),
-                            "description": st.column_config.TextColumn("Mô tả")
-                        },
-                        key=f"ed_v7_cost_manual_{sel_prj_id}"
+                        prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]] if not prj_costs.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"]),
+                        num_rows="dynamic", use_container_width=True, hide_index=True,
+                        column_config={"amount_vnd": st.column_config.NumberColumn("Số tiền (VND)", format="%,.0f")},
+                        key=f"cost_ed_{sel_prj_id}"
                     )
-
-                    if st.button("💾 Cập nhật Chi phí", type="primary", use_container_width=True, key=f"btn_update_costs_{sel_prj_id}"):
-                        with st.spinner("Đang lưu chi phí..."):
-                            try:
-                                supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
-                                
-                                new_costs = []
-                                for row in edited_costs.to_dict('records'):
-                                    amount = to_float(row['amount_vnd']) if row['amount_vnd'] else 0
-                                    if row.get('cost_type') and amount > 0:
-                                        new_costs.append({
-                                            "project_code": sel_prj_id,
-                                            "cost_type": row['cost_type'],
-                                            "amount_vnd": amount,
-                                            "ref_po": row['ref_po'],
-                                            "description": row['description']
-                                        })
-                                
-                                if new_costs:
-                                    supabase.table("crm_project_costs").insert(new_costs).execute()
-                                
-                                st.success("✅ Đã cập nhật chi phí thành công!")
-                                time.sleep(0.8)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Lỗi khi cập nhật chi phí: {str(e)}")
-
-                with tabs[2]:
-                    st.markdown("### ⚙️ CÀI ĐẶT THÔNG TIN DỰ ÁN")
-                    with st.form(key=f"edit_f_vfinal_{sel_prj_id}"):
-                        c_e1, c_e2 = st.columns(2)
-                        u_name = c_e1.text_input("Tên Dự Án", value=safe_str(active_prj['project_name']))
-                        u_bud = c_e2.number_input("Ngân Sách (VND)", value=float(active_prj['budget_vnd']))
-                        u_s = c_e1.date_input("Bắt Đầu", value=pd.to_datetime(active_prj['start_date']) if active_prj['start_date'] else datetime.now())
-                        u_e = c_e2.date_input("Kết Thúc", value=pd.to_datetime(active_prj['end_date']) if active_prj['end_date'] else datetime.now())
-                        u_st = c_e1.selectbox("Trạng Thái", ["In Progress", "Completed", "On Hold", "Cancelled"], index=0)
-                        u_img = st.file_uploader("Thay đổi ảnh dự án (ảnh cũ sẽ bị thay bằng ảnh mới hoàn toàn)", type=["png", "jpg", "jpeg"])
-
-                        if st.form_submit_button("💾 CẬP NHẬT & THAY THẾ ẢNH", use_container_width=True, type="primary"):
-                            up_payload = {
-                                "project_name": u_name,
-                                "budget_vnd": float(u_bud),
-                                "start_date": str(u_s),
-                                "end_date": str(u_e),
-                                "status": u_st
-                            }
-
-                            if u_img:
-                                with st.spinner("Đang upload ảnh mới (tạo URL hoàn toàn mới)..."):
-                                    timestamp = int(time.time())
-                                    filename = f"PRJ_ID_{active_prj['project_code'].strip().upper()}_{timestamp}.png"
-                                    new_img_url, _ = upload_to_drive_simple(u_img, "CRM_PROJECT_IMAGES", filename)
-                                    up_payload["project_image"] = new_img_url
-
-                            try:
-                                supabase.table("crm_projects").update(up_payload).eq("project_code", active_prj['project_code']).execute()
-                                st.cache_data.clear()
-                                st.cache_resource.clear()
-                                st.success("✅ Cập nhật thành công! Ảnh mới đã thay đổi hoàn toàn.")
-                                time.sleep(1.5)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Lỗi: {e}")
+                    if st.button("💾 Lưu Chi Phí", key=f"btn_sv_cost_{sel_prj_id}"):
+                        supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
+                        new_costs = []
+                        for r in edited_costs.to_dict('records'):
+                            if r.get('cost_type'):
+                                r['project_code'] = sel_prj_id
+                                new_costs.append(r)
+                        if new_costs: supabase.table("crm_project_costs").insert(new_costs).execute()
+                        st.success("Đã lưu chi phí!"); st.rerun()
+                else:
+                    st.warning("🔒 Vui lòng đăng nhập quyền Admin để xem dữ liệu Tài chính dự án.")
 
     else:
-        st.info("Chưa có dự án nào.")
+        st.info("Chưa có dự án nào. Vui lòng bấm 'TẠO DỰ ÁN MỚI'.")
+
+# --- KẾT THÚC TAB 7 ---
 # =============================================================================
 # --- TAB 8: QUẢN LÝ ISSUE (THEO DÕI SỰ CỐ / VẤN ĐỀ) ---
 # =============================================================================
