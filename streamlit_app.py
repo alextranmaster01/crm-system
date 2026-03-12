@@ -3282,7 +3282,7 @@ with t8:
     c_i1, c_i2 = st.columns([7, 3])
     with c_i1:
         st.markdown("📋 **DANH SÁCH SỰ CỐ & TIẾN ĐỘ XỬ LÝ**")
-        st.caption("💡 Mẹo: Bấm vào dòng trống ở dưới cùng của bảng để thêm mới. Mẹo 2: Để nhập hoặc đọc hết mô tả dài, hãy **Nhấp đúp chuột (Double-Click)** vào ô đó.")
+        st.caption("💡 Mẹo: Bấm vào dòng trống ở dưới cùng của bảng để thêm mới sự cố giống như Excel.")
 
     with c_i2:
         if not df_issues.empty:
@@ -3315,12 +3315,7 @@ with t8:
     tab_open, tab_resolved = st.tabs(["🔴 SỰ CỐ ĐANG MỞ (OPEN / IN PROGRESS)", "🟢 ĐÃ GIẢI QUYẾT (RESOLVED / CLOSED)"])
     
     def render_issue_table(df_subset, tab_key):
-        # FIX LỖI MẤT DÒNG: Reset index để đảm bảo Pandas đếm số thứ tự chính xác khi thêm nhiều dòng
-        df_subset = df_subset.reset_index(drop=True)
         df_edit_issue = df_subset[expected_cols].copy()
-        
-        # TẠO CỘT SỐ THỨ TỰ (NO) VÀO VỊ TRÍ ĐẦU TIÊN
-        df_edit_issue.insert(0, "No", range(1, len(df_edit_issue) + 1))
         
         edited_issues = st.data_editor(
             df_edit_issue, 
@@ -3329,12 +3324,11 @@ with t8:
             height=450,
             num_rows="dynamic", # KÍCH HOẠT NHẬP DỮ LIỆU NHƯ EXCEL
             column_config={
-                "No": st.column_config.NumberColumn("No.", disabled=True, width=50), # Hiện cột Số thứ tự
-                "id": None, # ẨN HOÀN TOÀN CỘT ID
-                "date_reported": st.column_config.DateColumn("Ngày PS", width=90),
+                "id": st.column_config.NumberColumn("ID", disabled=True, width=40),
+                "date_reported": st.column_config.DateColumn("Ngày PS", width=90), # Mở khóa cho phép chọn ngày
                 "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
-                "customer_name": st.column_config.SelectboxColumn("Khách hàng", options=cust_list, width=120),
-                "description": st.column_config.TextColumn("Mô tả vấn đề (Nhấp đúp để xem hết)", width="large"),
+                "customer_name": st.column_config.SelectboxColumn("Khách hàng", options=cust_list, width=120), # Dạng Dropdown chọn KH
+                "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
                 "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
                 "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
                 "progress_pct": st.column_config.SelectboxColumn(
@@ -3342,8 +3336,8 @@ with t8:
                     options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
                     width=90
                 ),
-                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú (Nhấp đúp)", width="large"),
-                "last_updated": None # Ẩn cột này
+                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large"),
+                "last_updated": None # Ẩn cột này không cho user sửa
             },
             key=f"editor_issues_{tab_key}"
         )
@@ -3357,8 +3351,8 @@ with t8:
                     for i, row in edited_issues.iterrows():
                         def get_str(val): return str(val).strip() if pd.notna(val) else ""
                         
-                        # LOGIC THÊM MỚI: NẾU THỨ TỰ INDEX LỚN HƠN BẢNG GỐC CHẮC CHẮN LÀ DÒNG MỚI
-                        if i >= len(df_subset):
+                        # KIỂM TRA ĐÂY LÀ DÒNG THÊM MỚI HAY DÒNG CŨ CẬP NHẬT
+                        if i not in df_subset.index:
                             # ==========================================
                             # LOGIC 1: DÒNG THÊM MỚI (INSERT)
                             # ==========================================
@@ -3411,7 +3405,7 @@ with t8:
                             # ==========================================
                             # LOGIC 2: DÒNG CŨ BỊ CHỈNH SỬA (UPDATE)
                             # ==========================================
-                            orig_row = df_subset.iloc[i] # Lấy chính xác dòng bằng i_loc
+                            orig_row = df_subset.loc[i]
                             db_id = orig_row['id']
                             
                             new_dr = str(row['date_resolved']) if pd.notna(row['date_resolved']) else None
@@ -3487,4 +3481,3 @@ with t8:
             render_issue_table(df_resolved, "resolved")
         else:
             st.info("Chưa có sự cố nào được giải quyết.")
-
