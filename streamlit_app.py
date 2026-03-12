@@ -2908,10 +2908,10 @@ with t7:
                 column_config={
                     "No": st.column_config.NumberColumn("No", width=35, help="Số thứ tự"),
                     "image_fresh": st.column_config.ImageColumn("Ảnh Dự Án", width="small"),
-                    "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
-                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True, width="large"),
                     # NEW: Cột Tên Khách Hàng
                     "customer_name": st.column_config.TextColumn("Tên Khách Hàng", width="medium", disabled=True),
+                    "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
+                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True, width="large"),                 
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["In Progress", "Completed", "On Hold", "Cancelled"]),
                     "docs_render_link": st.column_config.LinkColumn("📄 Needing Docs", display_text="📂 Mở tài liệu")
                 },
