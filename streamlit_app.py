@@ -3382,24 +3382,25 @@ with t8:
                             new_dr = str(row['date_resolved']) if pd.notna(row['date_resolved']) else None
                             old_dr = str(orig_row['date_resolved']) if pd.notna(orig_row['date_resolved']) else None
 
-                            # --- TÍNH NĂNG 1: TỰ ĐỘNG RESOLVED NẾU TIẾN ĐỘ LÀ 100% ---
-                            current_status = row['status']
-                            if row['progress_pct'] == "100% 🟢" and current_status not in ["Resolved", "Closed"]:
-                                current_status = "Resolved"
-                                if not new_dr: # Tự động chốt ngày kết thúc nếu chưa có
-                                    new_dr = datetime.now().strftime('%Y-%m-%d')
-
                             def get_str(val): return str(val).strip() if pd.notna(val) else ""
 
-                            if (get_str(current_status) != get_str(orig_row['status']) or
+                            if (get_str(row['status']) != get_str(orig_row['status']) or
                                 get_str(row['progress_pct']) != get_str(orig_row['progress_pct']) or
                                 get_str(row['resolution_note']) != get_str(orig_row['resolution_note']) or
                                 get_str(row['assignee']) != get_str(orig_row['assignee']) or
                                 get_str(row['description']) != get_str(orig_row['description']) or
                                 new_dr != old_dr):
 
+                                # --- 1. TỰ ĐỘNG CHUYỂN RESOLVED KHI TIẾN ĐỘ 100% ---
+                                status_to_save = row['status']
+                                if "100%" in str(row['progress_pct']) and status_to_save not in ["Resolved", "Closed"]:
+                                    status_to_save = "Resolved"
+                                    # Tự động chốt ngày kết thúc là hôm nay nếu user chưa nhập
+                                    if not new_dr:
+                                        new_dr = datetime.now().strftime('%Y-%m-%d')
+
                                 payload = {
-                                    "status": current_status, 
+                                    "status": status_to_save, 
                                     "progress_pct": row['progress_pct'],
                                     "resolution_note": row['resolution_note'], 
                                     "assignee": row['assignee'],
@@ -3410,14 +3411,23 @@ with t8:
 
                                 supabase.table("crm_issues").update(payload).eq("id", db_id).execute()
                                 
-                                # --- TÍNH NĂNG 2: THÊM TÊN KHÁCH HÀNG VÀO TELEGRAM ---
-                                khach_hang_info = orig_row.get('customer_name', 'Không rõ')
-                                send_telegram_notification(
-                                    assignee_name=payload['assignee'], 
-                                    issue_desc=f"[Khách hàng: {khach_hang_info}] - {payload['description']}", 
-                                    new_status=payload['status'], 
-                                    new_progress=payload['progress_pct']
-                                )
+                                # --- 2. GỬI TELEGRAM ĐẦY ĐỦ CHI TIẾT THÔNG TIN ---
+                                try:
+                                    msg = (
+                                        f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
+                                        f"🏢 <b>Khách hàng:</b> {orig_row['customer_name']}\n"
+                                        f"📝 <b>Vấn đề:</b> {payload['description']}\n"
+                                        f"👤 <b>Phụ trách:</b> {payload['assignee']}\n"
+                                        f"📊 <b>Tiến độ mới:</b> {payload['progress_pct']}\n"
+                                        f"🏷 <b>Trạng thái:</b> {payload['status']}\n"
+                                        f"💡 <b>Ghi chú:</b> {payload['resolution_note']}\n\n"
+                                        f"<i>👉 Vui lòng kiểm tra lại phần mềm CRM để xem chi tiết!</i>"
+                                    )
+                                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                    requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                                except Exception as e_tel:
+                                    print(f"Lỗi gửi Telegram: {e_tel}")
+                                
                                 changes_made = True
 
                         if changes_made:
@@ -3438,4 +3448,3 @@ with t8:
             render_issue_table(df_resolved, "resolved")
     else:
         st.info("🎉 Tuyệt vời! Hiện tại không có sự cố nào được ghi nhận.")
-        
