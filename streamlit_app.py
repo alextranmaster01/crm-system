@@ -3197,6 +3197,58 @@ with t7:
 # --- TAB 8: QUẢN LÝ ISSUE (THEO DÕI SỰ CỐ / VẤN ĐỀ) ---
 # =============================================================================
 with t8:
+    # -------------------------------------------------------------------------
+    # 🤖 HỆ THỐNG AUTO-BOT NHẮC NHỞ TELEGRAM TRỰC TIẾP TRONG STREAMLIT
+    # -------------------------------------------------------------------------
+    if 'last_telegram_reminder' not in st.session_state:
+        st.session_state.last_telegram_reminder = None
+
+    now = datetime.now()
+    # Xác định khung giờ quét (9h00-10h00 sáng và 16h30-17h30 chiều)
+    is_9am_window = (now.hour == 9)
+    is_430pm_window = (now.hour == 16 and now.minute >= 30) or (now.hour == 17 and now.minute <= 30)
+    
+    current_window = None
+    if is_9am_window: current_window = f"{now.strftime('%Y-%m-%d')}_MORNING"
+    elif is_430pm_window: current_window = f"{now.strftime('%Y-%m-%d')}_AFTERNOON"
+
+    # Nếu đang trong khung giờ và chưa gửi cảnh báo trong buổi này
+    if current_window and st.session_state.last_telegram_reminder != current_window:
+        try:
+            # Lấy các issue đang Mở
+            res_remind = supabase.table("crm_issues").select("*").in_("status", ["Open", "In Progress"]).execute()
+            if res_remind and res_remind.data:
+                count_alerts = 0
+                for iss in res_remind.data:
+                    last_upd_str = iss.get("last_updated")
+                    if last_upd_str:
+                        try:
+                            # Tính toán thời gian trễ
+                            last_upd = datetime.fromisoformat(last_upd_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                            diff_hours = (now - last_upd).total_seconds() / 3600
+                            
+                            if diff_hours >= 24: # Nếu quá 24 giờ chưa cập nhật
+                                msg = (
+                                    f"🚨 <b>CẢNH BÁO: SỰ CỐ BỊ BỎ QUÊN QUÁ 24H</b>\n\n"
+                                    f"📝 <b>Vấn đề:</b> {iss.get('description')}\n"
+                                    f"👤 <b>Người phụ trách:</b> {iss.get('assignee')}\n"
+                                    f"🏢 <b>Khách hàng:</b> {iss.get('customer_name')}\n"
+                                    f"⏳ <b>Đã treo:</b> {int(diff_hours)} giờ chưa có cập nhật tiến độ\n\n"
+                                    f"<i>👉 Yêu cầu PIC vào CRM xử lý ngay!</i>"
+                                )
+                                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                                count_alerts += 1
+                        except Exception: pass
+                
+                if count_alerts > 0:
+                    st.toast(f"🤖 Hệ thống đã tự động gửi {count_alerts} nhắc nhở quá hạn 24h lên Telegram!", icon="🚨")
+        except Exception: pass
+        
+        # Đánh dấu là đã quét xong trong buổi này để không gửi lặp
+        st.session_state.last_telegram_reminder = current_window
+    # -------------------------------------------------------------------------
+
     st.markdown("### ⚠️ TRUNG TÂM THEO DÕI SỰ CỐ (ISSUE TRACKING)")
 
     # 1. TẢI DỮ LIỆU
@@ -3204,7 +3256,7 @@ with t8:
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    expected_cols = ['id', 'date_reported', 'date_resolved', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note']
+    expected_cols = ['id', 'date_reported', 'date_resolved', 'customer_name', 'description', 'assignee', 'status', 'progress_pct', 'resolution_note', 'last_updated']
     if not df_issues.empty:
         for c in expected_cols:
             if c not in df_issues.columns: 
@@ -3249,7 +3301,8 @@ with t8:
                         "assignee": i_assignee, 
                         "status": "Open", 
                         "progress_pct": "0% ⚪", 
-                        "resolution_note": ""
+                        "resolution_note": "",
+                        "last_updated": datetime.now().isoformat() # TỰ ĐỘNG LƯU GIỜ
                     }
                     try:
                         supabase.table("crm_issues").insert([new_issue]).execute()
@@ -3308,7 +3361,8 @@ with t8:
                         options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
                         width=90
                     ),
-                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large")
+                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large"),
+                    "last_updated": None # Ẩn cột này không cho user sửa
                 },
                 key=f"editor_issues_{tab_key}"
             )
@@ -3343,7 +3397,8 @@ with t8:
                                     "resolution_note": row['resolution_note'], 
                                     "assignee": row['assignee'],
                                     "description": row['description'],
-                                    "date_resolved": new_dr
+                                    "date_resolved": new_dr,
+                                    "last_updated": datetime.now().isoformat() # TỰ ĐỘNG CHỐT GIỜ MỚI KHI SỬA
                                 }
 
                                 supabase.table("crm_issues").update(payload).eq("id", db_id).execute()
