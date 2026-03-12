@@ -3382,9 +3382,16 @@ with t8:
                             new_dr = str(row['date_resolved']) if pd.notna(row['date_resolved']) else None
                             old_dr = str(orig_row['date_resolved']) if pd.notna(orig_row['date_resolved']) else None
 
+                            # --- TÍNH NĂNG 1: TỰ ĐỘNG RESOLVED NẾU TIẾN ĐỘ LÀ 100% ---
+                            current_status = row['status']
+                            if row['progress_pct'] == "100% 🟢" and current_status not in ["Resolved", "Closed"]:
+                                current_status = "Resolved"
+                                if not new_dr: # Tự động chốt ngày kết thúc nếu chưa có
+                                    new_dr = datetime.now().strftime('%Y-%m-%d')
+
                             def get_str(val): return str(val).strip() if pd.notna(val) else ""
 
-                            if (get_str(row['status']) != get_str(orig_row['status']) or
+                            if (get_str(current_status) != get_str(orig_row['status']) or
                                 get_str(row['progress_pct']) != get_str(orig_row['progress_pct']) or
                                 get_str(row['resolution_note']) != get_str(orig_row['resolution_note']) or
                                 get_str(row['assignee']) != get_str(orig_row['assignee']) or
@@ -3392,7 +3399,7 @@ with t8:
                                 new_dr != old_dr):
 
                                 payload = {
-                                    "status": row['status'], 
+                                    "status": current_status, 
                                     "progress_pct": row['progress_pct'],
                                     "resolution_note": row['resolution_note'], 
                                     "assignee": row['assignee'],
@@ -3403,10 +3410,11 @@ with t8:
 
                                 supabase.table("crm_issues").update(payload).eq("id", db_id).execute()
                                 
-                                # GỌI HÀM GỬI TELEGRAM
+                                # --- TÍNH NĂNG 2: THÊM TÊN KHÁCH HÀNG VÀO TELEGRAM ---
+                                khach_hang_info = orig_row.get('customer_name', 'Không rõ')
                                 send_telegram_notification(
                                     assignee_name=payload['assignee'], 
-                                    issue_desc=payload['description'], 
+                                    issue_desc=f"[Khách hàng: {khach_hang_info}] - {payload['description']}", 
                                     new_status=payload['status'], 
                                     new_progress=payload['progress_pct']
                                 )
