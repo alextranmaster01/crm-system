@@ -2908,7 +2908,6 @@ with t7:
                 column_config={
                     "No": st.column_config.NumberColumn("No", width=35, help="Số thứ tự"),
                     "image_fresh": st.column_config.ImageColumn("Ảnh Dự Án", width="small"),
-                    # NEW: Cột Tên Khách Hàng
                     "customer_name": st.column_config.TextColumn("Tên Khách Hàng", width="medium", disabled=True),
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
                     "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True, width="large"),                 
