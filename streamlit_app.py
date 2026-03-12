@@ -3274,7 +3274,7 @@ with t8:
 
         i1, i2, i3 = st.columns(3)
         i1.markdown(f"<div class='card-3d bg-cost'><h3>SỰ CỐ ĐANG MỞ (OPEN)</h3><h1>{open_issues}</h1></div>", unsafe_allow_html=True)
-        i2.markdown(f"<div class='card-3d bg-sales'><h3>ĐÃ GIẢI QUYẾT (RESOLVED)</h3><h1>{resolved_issues}</h1></div>", unsafe_allow_html=True)
+        i2.markdown(f"<div class='card-3d bg-sales'><h3>ĐĐÃ GIẢI QUYẾT (RESOLVED)</h3><h1>{resolved_issues}</h1></div>", unsafe_allow_html=True)
         i3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG SỰ CỐ (TOTAL)</h3><h1>{total_issues}</h1></div>", unsafe_allow_html=True)
         st.divider()
 
@@ -3431,39 +3431,43 @@ with t8:
                             supabase.table("crm_issues").insert(inserts[k:k+chunk_size]).execute()
                         changes_made = True
                         
-                        # Bắn Telegram cho dòng mới nhất
-                        try:
-                            msg = (
-                                f"🆕 <b>PHÁT SINH {len(inserts)} SỰ CỐ MỚI</b>\n\n"
-                                f"🏢 <b>Khách hàng:</b> {inserts[0]['customer_name']}\n"
-                                f"📝 <b>Vấn đề:</b> {inserts[0]['description']}...\n"
-                                f"👤 <b>Phụ trách:</b> {inserts[0]['assignee']}\n"
-                                f"<i>👉 Yêu cầu PIC tiếp nhận và xử lý!</i>"
-                            )
-                            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                            requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
-                        except: pass
+                        # ========================================================
+                        # GỬI TELEGRAM CHO TỪNG SỰ CỐ MỚI PHÁT SINH
+                        # ========================================================
+                        for ins in inserts:
+                            try:
+                                msg = (
+                                    f"🆕 <b>PHÁT SINH SỰ CỐ MỚI</b>\n\n"
+                                    f"🏢 <b>Khách hàng:</b> {ins['customer_name']}\n"
+                                    f"📝 <b>Vấn đề:</b> {ins['description']}\n"
+                                    f"👤 <b>Phụ trách:</b> {ins['assignee']}\n"
+                                    f"<i>👉 Yêu cầu PIC tiếp nhận và xử lý!</i>"
+                                )
+                                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                            except: pass
 
                     if updates:
                         for u in updates:
                             upd_id = u.pop("id_upd")
                             supabase.table("crm_issues").update(u).eq("id", upd_id).execute()
                             
-                            # Gửi telegram cập nhật (gửi 1 cái nếu update nhiều)
-                            if u == updates[0]:
-                                try:
-                                    msg = (
-                                        f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
-                                        f"🏢 <b>Khách hàng:</b> {u['customer_name']}\n"
-                                        f"📝 <b>Vấn đề:</b> {u['description']}\n"
-                                        f"👤 <b>Phụ trách:</b> {u['assignee']}\n"
-                                        f"📊 <b>Tiến độ mới:</b> {u['progress_pct']}\n"
-                                        f"🏷 <b>Trạng thái:</b> {u['status']}\n"
-                                        f"<i>👉 Vui lòng kiểm tra CRM để xem chi tiết!</i>"
-                                    )
-                                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                                    requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
-                                except: pass
+                            # ========================================================
+                            # GỬI TELEGRAM CHO TỪNG SỰ CỐ ĐƯỢC CẬP NHẬT
+                            # ========================================================
+                            try:
+                                msg = (
+                                    f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
+                                    f"🏢 <b>Khách hàng:</b> {u['customer_name']}\n"
+                                    f"📝 <b>Vấn đề:</b> {u['description']}\n"
+                                    f"👤 <b>Phụ trách:</b> {u['assignee']}\n"
+                                    f"📊 <b>Tiến độ mới:</b> {u['progress_pct']}\n"
+                                    f"🏷 <b>Trạng thái:</b> {u['status']}\n"
+                                    f"<i>👉 Vui lòng kiểm tra CRM để xem chi tiết!</i>"
+                                )
+                                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                            except: pass
                         changes_made = True
 
                     if changes_made:
