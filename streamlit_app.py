@@ -3278,42 +3278,13 @@ with t8:
         i3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG SỰ CỐ (TOTAL)</h3><h1>{total_issues}</h1></div>", unsafe_allow_html=True)
         st.divider()
 
-    # 3. HEADER & TẠO ISSUE 
-    c_i1, c_i2, c_i3 = st.columns([5, 2, 2])
+    # 3. HEADER & XÓA ISSUE 
+    c_i1, c_i2 = st.columns([7, 3])
     with c_i1:
         st.markdown("📋 **DANH SÁCH SỰ CỐ & TIẾN ĐỘ XỬ LÝ**")
-    
+        st.caption("💡 Mẹo: Bấm vào dòng trống ở dưới cùng của bảng để thêm mới sự cố giống như Excel.")
+
     with c_i2:
-        with st.popover("➕ TẠO ISSUE", use_container_width=True):
-            st.markdown("**Nhập thông tin sự cố phát sinh**")
-            i_date = st.date_input("Ngày phát sinh", value=datetime.now())
-            i_cust = st.selectbox("Khách hàng liên quan", cust_list, key="issue_new_cust")
-            i_desc = st.text_area("Mô tả vấn đề")
-            i_assignee = st.text_input("Người phụ trách (PIC)")
-
-            if st.button("💾 LƯU MỚI", type="primary", use_container_width=True, key="btn_save_issue"):
-                if i_desc and i_assignee:
-                    new_issue = {
-                        "date_reported": str(i_date) if i_date else None, 
-                        "date_resolved": None, 
-                        "customer_name": i_cust, 
-                        "description": i_desc, 
-                        "assignee": i_assignee, 
-                        "status": "Open", 
-                        "progress_pct": "0% ⚪", 
-                        "resolution_note": "",
-                        "last_updated": datetime.now().isoformat() # TỰ ĐỘNG LƯU GIỜ
-                    }
-                    try:
-                        supabase.table("crm_issues").insert([new_issue]).execute()
-                        st.cache_data.clear()
-                        st.success("✅ Đã ghi nhận sự cố mới!")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e: st.error(f"Lỗi lưu DB: {e}")
-                else: st.error("Vui lòng nhập 'Mô tả' và 'Người phụ trách'!")
-
-    with c_i3:
         if not df_issues.empty:
             with st.popover("🗑️ XÓA ISSUE", use_container_width=True):
                 st.markdown("**Chọn sự cố cần xóa**")
@@ -3337,90 +3308,148 @@ with t8:
                         else: st.error("Sai mật khẩu!")
 
     # 4. CHIA TAB VÀ HIỂN THỊ
-    if not df_issues.empty:
-        tab_open, tab_resolved = st.tabs(["🔴 SỰ CỐ ĐANG MỞ (OPEN / IN PROGRESS)", "🟢 ĐÃ GIẢI QUYẾT (RESOLVED / CLOSED)"])
+    # Nếu bảng trống, khởi tạo 1 DataFrame rỗng để user có thể nhập mới luôn
+    if df_issues.empty:
+        df_issues = pd.DataFrame(columns=expected_cols)
+
+    tab_open, tab_resolved = st.tabs(["🔴 SỰ CỐ ĐANG MỞ (OPEN / IN PROGRESS)", "🟢 ĐÃ GIẢI QUYẾT (RESOLVED / CLOSED)"])
+    
+    def render_issue_table(df_subset, tab_key):
+        df_edit_issue = df_subset[expected_cols].copy()
         
-        def render_issue_table(df_subset, tab_key):
-            if df_subset.empty:
-                st.info("Không có dữ liệu trong mục này.")
-                return
+        edited_issues = st.data_editor(
+            df_edit_issue, 
+            use_container_width=True, 
+            hide_index=True, 
+            height=450,
+            num_rows="dynamic", # KÍCH HOẠT NHẬP DỮ LIỆU NHƯ EXCEL
+            column_config={
+                "id": st.column_config.NumberColumn("ID", disabled=True, width=40),
+                "date_reported": st.column_config.DateColumn("Ngày PS", width=90), # Mở khóa cho phép chọn ngày
+                "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
+                "customer_name": st.column_config.SelectboxColumn("Khách hàng", options=cust_list, width=120), # Dạng Dropdown chọn KH
+                "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
+                "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
+                "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
+                "progress_pct": st.column_config.SelectboxColumn(
+                    "Tiến độ", 
+                    options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
+                    width=90
+                ),
+                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large"),
+                "last_updated": None # Ẩn cột này không cho user sửa
+            },
+            key=f"editor_issues_{tab_key}"
+        )
 
-            df_edit_issue = df_subset[expected_cols].copy()
-            edited_issues = st.data_editor(
-                df_edit_issue, use_container_width=True, hide_index=True, height=450,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True, width=40),
-                    "date_reported": st.column_config.DateColumn("Ngày PS", disabled=True, width=90),
-                    "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
-                    "customer_name": st.column_config.TextColumn("Khách hàng", disabled=True, width=120),
-                    "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"),
-                    "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
-                    "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
-                    "progress_pct": st.column_config.SelectboxColumn(
-                        "Tiến độ", 
-                        options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
-                        width=90
-                    ),
-                    "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large"),
-                    "last_updated": None # Ẩn cột này không cho user sửa
-                },
-                key=f"editor_issues_{tab_key}"
-            )
-
-            st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
-            if st.button("💾 LƯU CẬP NHẬT", type="primary", key=f"btn_update_issues_{tab_key}"):
-                with st.spinner("Đang đồng bộ..."):
-                    try:
-                        changes_made = False
+        st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
+        if st.button("💾 LƯU TẤT CẢ (THÊM MỚI & CẬP NHẬT)", type="primary", key=f"btn_update_issues_{tab_key}"):
+            with st.spinner("Đang đồng bộ..."):
+                try:
+                    changes_made = False
+                    
+                    for i, row in edited_issues.iterrows():
+                        def get_str(val): return str(val).strip() if pd.notna(val) else ""
                         
-                        for i, row in edited_issues.iterrows():
-                            # Lấy ID và dữ liệu gốc
-                            orig_row = df_issues.loc[i]
+                        # KIỂM TRA ĐÂY LÀ DÒNG THÊM MỚI HAY DÒNG CŨ CẬP NHẬT
+                        if i not in df_subset.index:
+                            # ==========================================
+                            # LOGIC 1: DÒNG THÊM MỚI (INSERT)
+                            # ==========================================
+                            desc = get_str(row.get('description'))
+                            if not desc or desc.lower() == 'nan': 
+                                continue # Bỏ qua nếu dòng trống không có mô tả
+                                
+                            # Xử lý các giá trị mặc định cho dòng mới
+                            dr_new = str(row['date_reported']) if pd.notna(row.get('date_reported')) else datetime.now().strftime('%Y-%m-%d')
+                            dres_new = str(row['date_resolved']) if pd.notna(row.get('date_resolved')) else None
+                            status_new = row.get('status') if pd.notna(row.get('status')) else "Open"
+                            prog_new = row.get('progress_pct') if pd.notna(row.get('progress_pct')) else "0% ⚪"
+                            
+                            # Tự động Resolved nếu 100%
+                            if "100%" in str(prog_new) and status_new not in ["Resolved", "Closed"]:
+                                status_new = "Resolved"
+                                if not dres_new:
+                                    dres_new = datetime.now().strftime('%Y-%m-%d')
+                                    
+                            payload_insert = {
+                                "date_reported": dr_new,
+                                "date_resolved": dres_new,
+                                "customer_name": row.get('customer_name', ''),
+                                "description": desc,
+                                "assignee": row.get('assignee', ''),
+                                "status": status_new,
+                                "progress_pct": prog_new,
+                                "resolution_note": get_str(row.get('resolution_note')),
+                                "last_updated": datetime.now().isoformat()
+                            }
+                            
+                            supabase.table("crm_issues").insert([payload_insert]).execute()
+                            
+                            # Bắn Telegram cho dòng mới
+                            try:
+                                msg = (
+                                    f"🆕 <b>PHÁT SINH SỰ CỐ MỚI</b>\n\n"
+                                    f"🏢 <b>Khách hàng:</b> {payload_insert['customer_name']}\n"
+                                    f"📝 <b>Vấn đề:</b> {payload_insert['description']}\n"
+                                    f"👤 <b>Phụ trách:</b> {payload_insert['assignee']}\n"
+                                    f"🏷 <b>Trạng thái:</b> {payload_insert['status']}\n\n"
+                                    f"<i>👉 Yêu cầu PIC tiếp nhận và xử lý!</i>"
+                                )
+                                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                            except: pass
+                            
+                            changes_made = True
+                        else:
+                            # ==========================================
+                            # LOGIC 2: DÒNG CŨ BỊ CHỈNH SỬA (UPDATE)
+                            # ==========================================
+                            orig_row = df_subset.loc[i]
                             db_id = orig_row['id']
                             
-                            # LOGIC TAB 7: Chuyển ngày thành chuỗi, bỏ qua nếu trống
                             new_dr = str(row['date_resolved']) if pd.notna(row['date_resolved']) else None
                             old_dr = str(orig_row['date_resolved']) if pd.notna(orig_row['date_resolved']) else None
-
-                            def get_str(val): return str(val).strip() if pd.notna(val) else ""
 
                             if (get_str(row['status']) != get_str(orig_row['status']) or
                                 get_str(row['progress_pct']) != get_str(orig_row['progress_pct']) or
                                 get_str(row['resolution_note']) != get_str(orig_row['resolution_note']) or
                                 get_str(row['assignee']) != get_str(orig_row['assignee']) or
                                 get_str(row['description']) != get_str(orig_row['description']) or
+                                get_str(row['customer_name']) != get_str(orig_row['customer_name']) or
                                 new_dr != old_dr):
 
-                                # --- 1. TỰ ĐỘNG CHUYỂN RESOLVED KHI TIẾN ĐỘ 100% ---
+                                # TỰ ĐỘNG CHUYỂN RESOLVED KHI TIẾN ĐỘ 100%
                                 status_to_save = row['status']
                                 if "100%" in str(row['progress_pct']) and status_to_save not in ["Resolved", "Closed"]:
                                     status_to_save = "Resolved"
-                                    # Tự động chốt ngày kết thúc là hôm nay nếu user chưa nhập
                                     if not new_dr:
                                         new_dr = datetime.now().strftime('%Y-%m-%d')
 
-                                payload = {
+                                payload_update = {
                                     "status": status_to_save, 
                                     "progress_pct": row['progress_pct'],
                                     "resolution_note": row['resolution_note'], 
                                     "assignee": row['assignee'],
                                     "description": row['description'],
+                                    "customer_name": row['customer_name'],
                                     "date_resolved": new_dr,
-                                    "last_updated": datetime.now().isoformat() # TỰ ĐỘNG CHỐT GIỜ MỚI KHI SỬA
+                                    "date_reported": str(row['date_reported']) if pd.notna(row['date_reported']) else None,
+                                    "last_updated": datetime.now().isoformat()
                                 }
 
-                                supabase.table("crm_issues").update(payload).eq("id", db_id).execute()
+                                supabase.table("crm_issues").update(payload_update).eq("id", db_id).execute()
                                 
-                                # --- 2. GỬI TELEGRAM ĐẦY ĐỦ CHI TIẾT THÔNG TIN ---
+                                # GỬI TELEGRAM CHO DÒNG ĐƯỢC CẬP NHẬT
                                 try:
                                     msg = (
                                         f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
-                                        f"🏢 <b>Khách hàng:</b> {orig_row['customer_name']}\n"
-                                        f"📝 <b>Vấn đề:</b> {payload['description']}\n"
-                                        f"👤 <b>Phụ trách:</b> {payload['assignee']}\n"
-                                        f"📊 <b>Tiến độ mới:</b> {payload['progress_pct']}\n"
-                                        f"🏷 <b>Trạng thái:</b> {payload['status']}\n"
-                                        f"💡 <b>Ghi chú:</b> {payload['resolution_note']}\n\n"
+                                        f"🏢 <b>Khách hàng:</b> {payload_update['customer_name']}\n"
+                                        f"📝 <b>Vấn đề:</b> {payload_update['description']}\n"
+                                        f"👤 <b>Phụ trách:</b> {payload_update['assignee']}\n"
+                                        f"📊 <b>Tiến độ mới:</b> {payload_update['progress_pct']}\n"
+                                        f"🏷 <b>Trạng thái:</b> {payload_update['status']}\n"
+                                        f"💡 <b>Ghi chú:</b> {payload_update['resolution_note']}\n\n"
                                         f"<i>👉 Vui lòng kiểm tra lại phần mềm CRM để xem chi tiết!</i>"
                                     )
                                     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -3430,21 +3459,25 @@ with t8:
                                 
                                 changes_made = True
 
-                        if changes_made:
-                            st.cache_data.clear()
-                            st.success("✅ Đã cập nhật thành công!")
-                            time.sleep(1)
-                            st.rerun()
-                        else: st.info("Không có thay đổi nào.")
-                    except Exception as e: st.error(f"Lỗi: {e}")
-            st.markdown('</div>', unsafe_allow_html=True)
+                    if changes_made:
+                        st.cache_data.clear()
+                        st.success("✅ Đã Lưu tất cả thay đổi & Thêm mới thành công!")
+                        time.sleep(1)
+                        st.rerun()
+                    else: st.info("Không có thay đổi nào được ghi nhận.")
+                except Exception as e: st.error(f"Lỗi: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        with tab_open:
+    with tab_open:
+        if not df_issues.empty:
             df_open = df_issues[~df_issues['status'].isin(['Resolved', 'Closed'])]
-            render_issue_table(df_open, "open")
+        else:
+            df_open = df_issues.copy() # Truyền bảng rỗng để nhập liệu
+        render_issue_table(df_open, "open")
 
-        with tab_resolved:
+    with tab_resolved:
+        if not df_issues.empty:
             df_resolved = df_issues[df_issues['status'].isin(['Resolved', 'Closed'])]
             render_issue_table(df_resolved, "resolved")
-    else:
-        st.info("🎉 Tuyệt vời! Hiện tại không có sự cố nào được ghi nhận.")
+        else:
+            st.info("Chưa có sự cố nào được giải quyết.")
