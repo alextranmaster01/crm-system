@@ -3274,7 +3274,7 @@ with t8:
 
         i1, i2, i3 = st.columns(3)
         i1.markdown(f"<div class='card-3d bg-cost'><h3>SỰ CỐ ĐANG MỞ (OPEN)</h3><h1>{open_issues}</h1></div>", unsafe_allow_html=True)
-        i2.markdown(f"<div class='card-3d bg-sales'><h3>ĐĐÃ GIẢI QUYẾT (RESOLVED)</h3><h1>{resolved_issues}</h1></div>", unsafe_allow_html=True)
+        i2.markdown(f"<div class='card-3d bg-sales'><h3>ĐÃ GIẢI QUYẾT (RESOLVED)</h3><h1>{resolved_issues}</h1></div>", unsafe_allow_html=True)
         i3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG SỰ CỐ (TOTAL)</h3><h1>{total_issues}</h1></div>", unsafe_allow_html=True)
         st.divider()
 
