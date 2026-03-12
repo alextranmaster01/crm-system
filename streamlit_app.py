@@ -3438,3 +3438,4 @@ with t8:
             render_issue_table(df_resolved, "resolved")
     else:
         st.info("🎉 Tuyệt vời! Hiện tại không có sự cố nào được ghi nhận.")
+        
