@@ -2677,38 +2677,33 @@ with t6:
                 st.error(f"Lỗi Import: {e}")
 
 # =============================================================================
-# --- TAB 7: PROJECT MANAGEMENT (FULL VERSION - NO SHORTCUTS - SYNCED & INTERNAL TELEGRAM) ---
+# --- TAB 7: DỰ ÁN (PROJECT MANAGEMENT) - FULL UPDATED VERSION ---
 # =============================================================================
 with t7:
     # --- 0. KHỞI TẠO BIẾN BẢO MẬT VÀ QUẢN LÝ PHIÊN ---
-    # Duy trì trạng thái đăng nhập để bảo vệ các dữ liệu tài chính nhạy cảm
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
 
-    # --- CẤU HÌNH TELEGRAM NỘI BỘ (CHỈ ĐIỀN TRONG CODE - AN TOÀN TUYỆT ĐỐI) ---
-    # Alex điền trực tiếp Token và ID của nhóm Dự án vào đây để phần mềm tự động sử dụng
-    PRJ_INTERNAL_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
+    # --- CẤU HÌNH TELEGRAM NỘI BỘ (CHỈ ĐIỀN TRONG CODE - AN TOÀN) ---
+    PRJ_INTERNAL_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw"
     PRJ_INTERNAL_CHAT_ID = "-1003338498683"
-    # --- 1. TẢI DỮ LIỆU TỪ CƠ SỞ DỮ LIỆU SUPABASE ---
-    # Load bảng dự án, chi phí và khách hàng. Sắp xếp dự án mới nhất lên hàng đầu.
+
+    # --- 1. TẢI DỮ LIỆU ---
     df_projects = load_data("crm_projects", order_by="created_at", ascending=False)
     df_costs_master = load_data("crm_project_costs")
     cust_db = load_data("crm_customers")
 
-    # Đảm bảo cột project_docs luôn tồn tại trong DataFrame để tránh lỗi hiển thị khi Database chưa có dữ liệu
     if not df_projects.empty and 'project_docs' not in df_projects.columns:
         df_projects['project_docs'] = ""
 
-    # --- 2. GIAO DIỆN TIÊU ĐỀ VÀ PHẦN XÁC THỰC QUYỀN ADMIN ---
+    # --- 2. HEADER & ĐĂNG NHẬP ADMIN ---
     c_tab_head1, c_tab_head2 = st.columns([7, 3])
     with c_tab_head1:
         st.markdown("### 🚀 TRUNG TÂM QUẢN LÝ DỰ ÁN (PROJECT COMMAND CENTER)")
     with c_tab_head2:
-        # Sử dụng popover để tạo khu vực đăng nhập Admin gọn gàng, bảo mật
         with st.popover("🔑 ĐĂNG NHẬP QUẢN TRỊ VIÊN", use_container_width=True):
             if not st.session_state.is_admin:
-                # Mật khẩu mặc định hệ thống Alex yêu cầu là admin123
-                pwd_v7 = st.text_input("Nhập mã bảo mật hệ thống", type="password", key="pwd_tab7_v18_full_final")
+                pwd_v7 = st.text_input("Nhập mã bảo mật hệ thống", type="password", key="pwd_tab7_v20")
                 if pwd_v7 == "admin123":
                     st.session_state.is_admin = True
                     st.success("Xác thực quyền Admin thành công!")
@@ -2716,15 +2711,14 @@ with t7:
                     st.rerun()
             else:
                 st.info("🔓 Bạn đang truy cập dưới quyền Quản trị viên")
-                if st.button("🔴 ĐĂNG XUẤT KHỎI ADMIN", use_container_width=True, key="btn_logout_v18_full"):
+                if st.button("🔴 ĐĂNG XUẤT KHỎI ADMIN", use_container_width=True, key="btn_logout_v20"):
                     st.session_state.is_admin = False
                     st.rerun()
 
-    # --- 3. BỨC TRANH TOÀN CẢNH (KPI DASHBOARD TỔNG QUAN) ---
+    # --- 3. KPI DASHBOARD ---
     if not df_projects.empty:
         df_dash_calc = df_projects.copy()
-        
-        # Thuật toán tính toán chi phí thực tế: Merge dữ liệu từ bảng project_costs dựa trên mã dự án
+
         if not df_costs_master.empty:
             df_costs_master['amount_vnd'] = pd.to_numeric(df_costs_master['amount_vnd'], errors='coerce').fillna(0)
             cost_sum = df_costs_master.groupby('project_code')['amount_vnd'].sum().reset_index(name='total_cost')
@@ -2732,18 +2726,12 @@ with t7:
         else:
             df_dash_calc['total_cost'] = 0.0
 
-        # Điền giá trị 0 cho những dự án chưa phát sinh chi phí
         df_dash_calc['total_cost'] = df_dash_calc['total_cost'].fillna(0)
-        
-        # Tính toán ngân sách thực, lợi nhuận thực và phần trăm biên lợi nhuận
         df_dash_calc['budget_val'] = df_dash_calc['budget_vnd'].apply(to_float)
         df_dash_calc['profit'] = df_dash_calc['budget_val'] - df_dash_calc['total_cost']
         df_dash_calc['profit_pct_raw'] = (df_dash_calc['profit'] / df_dash_calc['budget_val'] * 100).fillna(0)
 
-        # Hiển thị bộ 3 thẻ Dashboard (Doanh thu, Chi phí, Lợi nhuận)
         m1, m2, m3 = st.columns(3)
-        
-        # LOGIC BẢO MẬT DỮ LIỆU: Chỉ Admin mới thấy các con số tài chính cụ thể
         if st.session_state.is_admin:
             m1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG DOANH THU ĐẦU TƯ</h3><h1>{fmt_num(df_dash_calc['budget_val'].sum())}</h1></div>", unsafe_allow_html=True)
             m2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG CHI PHÍ THỰC TẾ</h3><h1>{fmt_num(df_dash_calc['total_cost'].sum())}</h1></div>", unsafe_allow_html=True)
@@ -2755,103 +2743,24 @@ with t7:
 
         st.divider()
 
-        # --- 4. BỘ LỌC TÌM KIẾM VÀ DANH SÁCH DỰ ÁN CHI TIẾT ---
+        # --- 4. BỘ LỌC & DANH SÁCH DỰ ÁN ---
         c_left, c_right = st.columns([1, 4])
         with c_left:
             st.markdown("📂 **PHÂN LOẠI THEO KHÁCH HÀNG**")
-            # Tạo bộ lọc dự án theo khách hàng để thu hẹp phạm vi hiển thị
-            selected_cust = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].dropna().unique().tolist()), key="filter_cust_v18_full_v2")
-            
+            selected_cust = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_dash_calc["customer_name"].dropna().unique().tolist()), key="filter_cust_v20")
+
             df_filtered = df_dash_calc.copy()
             if selected_cust != "TẤT CẢ":
                 df_filtered = df_filtered[df_filtered["customer_name"] == selected_cust]
 
-            st.markdown("---")
-            st.markdown("🎯 **QUẢN LÝ DỰ ÁN CỤ THỂ**")
-            # Dropdown để Alex chọn dự án muốn xem biểu đồ GANTT và chi phí ở phía dưới
-            sel_prj_id = st.selectbox("Mã Dự Án cần xem:", df_filtered["project_code"].tolist(), key="sel_active_prj_v18_full_v2")
-
         with c_right:
-            col_t1, col_t2 = st.columns([4, 1.5])
-            col_t1.markdown("📋 **DANH SÁCH DỰ ÁN ĐANG TRIỂN KHAI TRÊN HỆ THỐNG**")
+            st.markdown("📋 **DANH SÁCH DỰ ÁN ĐANG TRIỂN KHAI TRÊN HỆ THỐNG**")
 
-            # =====================================================================
-            # NEW FEATURE 1: Ô TÌM KIẾM (tìm theo bất kỳ từ khóa liên quan đến tên dự án, mã, khách hàng)
-            # =====================================================================
-            search_keyword = st.text_input("🔍 Tìm kiếm dự án (tên dự án, mã dự án, khách hàng...)", "", key="prj_search_v18_full")
+            # Ô tìm kiếm
+            search_keyword = st.text_input("🔍 Tìm kiếm dự án (tên, mã, khách hàng...)", "", key="prj_search_v20")
 
-            with col_t2:
-                # --- CHỨC NĂNG TẠO DỰ ÁN MỚI ---
-                with st.popover("➕ TẠO DỰ ÁN MỚI", use_container_width=True):
-                    st.markdown("**Điền thông tin dự án khởi tạo**")
-                    p_code_n = st.text_input("Mã Dự Án (VD: HS-001-2024)", key="n_code_v18_full")
-                    p_name_n = st.text_input("Tên Dự Án Chi Tiết", key="n_name_v18_full")
-                    p_cust_n = st.selectbox("Khách Hàng Trực Thuộc", [""] + cust_db["short_name"].tolist() if not cust_db.empty else [], key="n_cust_v18_full")
-                    p_bud_n = st.number_input("Tổng ngân sách dự kiến (VND)", min_value=0.0, step=1000000.0, key="n_bud_v18_full")
-                    c_d1, c_d2 = st.columns(2)
-                    p_start_n = c_d1.date_input("Ngày Bắt Đầu", value=datetime.now(), key="n_start_v18_full")
-                    p_end_n = c_d2.date_input("Ngày Kết Thúc", value=datetime.now(), key="n_end_v18_full")
-                    p_img_n = st.file_uploader("🖼️ Hình ảnh đại diện dự án", type=["png", "jpg", "jpeg"], key="n_img_v18_full")
-                    
-                    # Ô upload tài liệu đa định dạng Needing Docs khi tạo mới dự án
-                    p_docs_n = st.file_uploader("📂 Hồ sơ kỹ thuật / Tài liệu kèm theo", accept_multiple_files=True, key="n_docs_v18_full")
-
-                    if st.button("💾 LƯU THÔNG TIN KHỞI TẠO", use_container_width=True, type="primary", key="btn_save_v18_full"):
-                        if p_code_n and p_name_n:
-                            p_code_clean = p_code_n.strip().upper()
-                            # Kiểm tra trùng mã dự án trước khi lưu vào Supabase
-                            existing = supabase.table("crm_projects").select("project_code").eq("project_code", p_code_clean).execute()
-                            if existing.data:
-                                st.error(f"Lỗi: Mã dự án **{p_code_clean}** đã tồn tại trong hệ thống!")
-                            else:
-                                img_url_init = ""; doc_link_init = ""
-                                if p_img_n:
-                                    with st.spinner("Đang xử lý hình ảnh..."):
-                                        timestamp = int(time.time())
-                                        filename = f"PRJ_IMAGE_{p_code_clean}_{timestamp}.png"
-                                        img_url_init, _ = upload_to_drive_simple(p_img_n, "CRM_PROJECT_IMAGES", filename)
-                                
-                                if p_docs_n:
-                                    try:
-                                        srv = get_drive_service()
-                                        if srv:
-                                            # Tạo cấu trúc thư mục phân cấp trên Drive: CRM_PROJECT_DOCS > Mã Dự Án
-                                            path_list = ["CRM_PROJECT_DOCS", p_code_clean]
-                                            folder_id = get_or_create_folder_hierarchy(srv, path_list, ROOT_FOLDER_ID)
-                                            doc_link_init = f"https://drive.google.com/drive/folders/{folder_id}"
-                                            for f in p_docs_n:
-                                                # Upload từng file vào thư mục vừa tạo
-                                                upload_to_drive_structured(f, path_list, f.name)
-                                            st.success("✅ Toàn bộ tài liệu đã được tải lên Google Drive thành công!")
-                                    except Exception as e_docs:
-                                        st.error(f"Lỗi khi upload hồ sơ kỹ thuật: {e_docs}")
-
-                                new_rec = {
-                                    "project_code": p_code_clean,
-                                    "project_name": p_name_n.strip(),
-                                    "customer_name": p_cust_n.strip() if p_cust_n else None,
-                                    "budget_vnd": float(p_bud_n),
-                                    "start_date": str(p_start_n),
-                                    "end_date": str(p_end_n),
-                                    "project_image": img_url_init,
-                                    "project_docs": doc_link_init, # Đồng bộ với cột project_docs mới
-                                    "status": "In Progress"
-                                }
-                                try:
-                                    supabase.table("crm_projects").insert([new_rec]).execute()
-                                    st.cache_data.clear()
-                                    st.success("✅ Dự án mới đã được khởi tạo thành công!"); time.sleep(0.5); st.rerun()
-                                except Exception as e:
-                                    st.error(f"Lỗi ghi dữ liệu Database: {e}")
-                        else:
-                            st.error("Vui lòng nhập đầy đủ Mã và Tên dự án!")
-
-            # --- CHUẨN BỊ DỮ LIỆU HIỂN THỊ BẢNG DANH SÁCH DỰ ÁN ---
+            # Áp dụng tìm kiếm
             df_table = df_filtered.copy()
-            
-            # =====================================================================
-            # NEW FEATURE 1: ÁP DỤNG BỘ LỌC TÌM KIẾM (tìm theo tên dự án, mã, khách hàng)
-            # =====================================================================
             if search_keyword.strip():
                 search_lower = search_keyword.lower()
                 mask = (
@@ -2860,183 +2769,175 @@ with t7:
                     df_table['customer_name'].astype(str).str.lower().str.contains(search_lower, na=False)
                 )
                 df_table = df_table[mask]
-            
+
             df_table = df_table.reset_index(drop=True)
-            
-            # YÊU CẦU 4: Cột số thứ tự (No) với chiều rộng nhỏ (35px) thay thế cho Checkbox
             df_table.insert(0, "No", range(1, len(df_table) + 1))
 
-            # YÊU CẦU 1: Xử lý nội dung cột Needing Docs (Chỉ hiện Link khi đăng nhập Admin)
-            def get_docs_link_v18(link):
+            # Link tài liệu
+            def get_docs_link(link):
                 if link and str(link).strip() != "" and str(link).lower() != 'none':
                     return link
                 return ""
-            df_table['docs_render_link'] = df_table['project_docs'].apply(get_docs_link_v18)
+            df_table['docs_render_link'] = df_table['project_docs'].apply(get_docs_link)
 
-            # Hàm Masking dữ liệu tiền tệ để bảo mật cho tài khoản thường
-            def mask_data_v18_full(v, is_money=True):
+            # Masking tài chính
+            def mask_data(v, is_money=True):
                 if st.session_state.is_admin:
                     return "{:,.0f}".format(float(v)) if is_money else f"{v:.1f}%"
                 return "*******"
 
             df_table['budget_vnd_disp'] = df_table['budget_vnd'].apply(lambda x: "{:,.0f}".format(float(x)))
-            df_table['total_cost_disp'] = df_table['total_cost'].apply(lambda x: mask_data_v18_full(x))
-            df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data_v18_full(x))
-            df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data_v18_full(x, False))
+            df_table['total_cost_disp'] = df_table['total_cost'].apply(lambda x: mask_data(x))
+            df_table['profit_disp'] = df_table['profit'].apply(lambda x: mask_data(x))
+            df_table['% Profit'] = df_table['profit_pct_raw'].apply(lambda x: mask_data(x, False))
 
-            # Logic Cache Busting để cập nhật ảnh ngay lập tức khi thay đổi
+            # Refresh ảnh
             current_ts = int(time.time() * 1000)
             def make_fresh_url(url):
                 if not url: return None
-                if "drive.google.com" in url or "googleusercontent.com" in url:
-                    separator = "&" if "?" in url else "?"
-                    return f"{url}{separator}t={current_ts}"
-                return url
+                separator = "&" if "?" in url else "?"
+                return f"{url}{separator}t={current_ts}" if "drive.google.com" in url or "googleusercontent.com" in url else url
             df_table['image_fresh'] = df_table['project_image'].apply(make_fresh_url)
 
-            # =====================================================================
-            # NEW FEATURE 2: THÊM CỘT “TÊN KHÁCH HÀNG” vào danh sách dự án
-            # =====================================================================
-            cols_show = ['No', 'image_fresh', 'project_code', 'project_name', 'customer_name', 'status']
-            if st.session_state.is_admin:
-                cols_show.append('docs_render_link') # HIỆN TÀI LIỆU KHI ĐĂNG NHẬP QUYỀN ADMIN
-                cols_show.extend(['budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit'])
+            # Thêm cột nút "👁️ Xem" ở cuối bảng
+            def view_button(project_code):
+                if st.button("👁️ Xem", key=f"view_prj_{project_code}", use_container_width=True):
+                    st.session_state['sel_prj_id'] = project_code
+                    st.rerun()
 
-            # Render Bảng danh sách dự án bằng Data Editor
+            df_table['action'] = df_table['project_code'].apply(lambda x: "Xem")
+
+            # Thứ tự cột: Tên Khách Hàng ngay trước Mã DA
+            cols_show = ['No', 'image_fresh', 'customer_name', 'project_code', 'project_name', 'status']
+            if st.session_state.is_admin:
+                cols_show.append('docs_render_link')
+                cols_show.extend(['budget_vnd_disp', 'total_cost_disp', 'profit_disp', '% Profit'])
+            cols_show.append('action')
+
+            # Render bảng với nút hành động
             st.data_editor(
                 df_table[cols_show],
                 column_config={
-                    "No": st.column_config.NumberColumn("No", width=35, help="Số thứ tự"),
-                    "image_fresh": st.column_config.ImageColumn("Ảnh Dự Án", width="small"),
-                    # NEW: Cột Tên Khách Hàng
-                    "customer_name": st.column_config.TextColumn("Tên Khách Hàng", width="medium", disabled=True),
+                    "No": st.column_config.NumberColumn("No", width=35),
+                    "image_fresh": st.column_config.ImageColumn("Ảnh", width="small"),
+                    "customer_name": st.column_config.TextColumn("Khách Hàng", width="medium", disabled=True),
                     "project_code": st.column_config.TextColumn("Mã DA", disabled=True),
-                    "project_name": st.column_config.TextColumn("Tên Dự Án", disabled=True, width="large"),                 
+                    "project_name": st.column_config.TextColumn("Tên Dự Án", width="large", disabled=True),
                     "status": st.column_config.SelectboxColumn("Trạng thái", options=["In Progress", "Completed", "On Hold", "Cancelled"]),
-                    "docs_render_link": st.column_config.LinkColumn("📄 Needing Docs", display_text="📂 Mở tài liệu")
+                    "docs_render_link": st.column_config.LinkColumn("📄 Docs", display_text="Mở"),
+                    "action": st.column_config.ButtonColumn(" ", help="Xem chi tiết dự án", use_container_width=True),
                 },
-                use_container_width=True,
                 hide_index=True,
-                key="prj_table_v18_full_v3"
+                use_container_width=True,
+                key="prj_table_v20"
             )
 
-            # --- NÚT XÓA DỰ ÁN (DÀNH CHO ADMIN) ---
+            # Lấy mã dự án được chọn từ nút Xem
+            sel_prj_id = st.session_state.get('sel_prj_id', None)
+
+            # Nút xóa dự án (admin only)
             if st.session_state.is_admin:
-                with st.popover("🗑️ XÓA DỰ ÁN KHỎI HỆ THỐNG", use_container_width=True):
-                    st.warning("Cảnh báo: Hành động này sẽ xóa vĩnh viễn toàn bộ Nhiệm vụ và Chi phí!")
-                    prj_del = st.selectbox("Chọn dự án muốn gỡ bỏ:", [""] + df_filtered["project_code"].tolist(), key="del_prj_v18_full")
+                with st.popover("🗑️ XÓA DỰ ÁN", use_container_width=True):
+                    st.warning("Xóa vĩnh viễn toàn bộ nhiệm vụ & chi phí!")
+                    prj_del = st.selectbox("Chọn dự án:", [""] + df_filtered["project_code"].tolist(), key="del_prj_v20")
                     if prj_del:
-                        confirm_pass = st.text_input("Nhập 'admin' để xác nhận:", type="password", key="pwd_cfm_v18_full")
-                        if st.button(f"🔥 XÁC NHẬN XÓA DỰ ÁN {prj_del}", type="primary", use_container_width=True):
+                        confirm_pass = st.text_input("Nhập 'admin' để xác nhận:", type="password", key="pwd_cfm_v20")
+                        if st.button(f"🔥 XÓA {prj_del}", type="primary"):
                             if confirm_pass == "admin":
                                 try:
                                     supabase.table("crm_projects").delete().eq("project_code", prj_del).execute()
                                     supabase.table("crm_project_tasks").delete().eq("project_code", prj_del).execute()
                                     supabase.table("crm_project_costs").delete().eq("project_code", prj_del).execute()
                                     st.cache_data.clear()
-                                    st.success(f"Dự án {prj_del} đã được gỡ bỏ!"); time.sleep(1); st.rerun()
+                                    st.success(f"Đã xóa {prj_del}!")
+                                    time.sleep(1)
+                                    st.rerun()
                                 except Exception as e:
-                                    st.error(f"Lỗi lệnh xóa: {e}")
+                                    st.error(f"Lỗi: {e}")
                             else:
-                                st.error("Mật khẩu xác nhận không chính xác!")
+                                st.error("Sai mật khẩu!")
 
-        # --- 5. QUẢN LÝ CHI TIẾT DỰ ÁN (TIẾN ĐỘ, CHI PHÍ, CÀI ĐẶT) ---
+        # --- 5. CHI TIẾT DỰ ÁN (hiển thị khi nhấn nút Xem) ---
         if sel_prj_id:
             active_prj = df_dash_calc[df_dash_calc['project_code'] == sel_prj_id].iloc[0]
             st.divider()
             st.markdown(f"#### 🛠️ CHI TIẾT QUẢN LÝ: {active_prj['project_name']} ({sel_prj_id})")
 
-            # Tải danh sách các công việc con (Tasks)
             tasks_all = load_data("crm_project_tasks")
             tasks_data = tasks_all[tasks_all["project_code"] == sel_prj_id] if not tasks_all.empty else pd.DataFrame()
 
-            # Phân tách chức năng bằng các Tab phụ
-            tab_names_v18 = ["⏳ TIẾN ĐỘ & GANTT"]
+            tab_names = ["⏳ TIẾN ĐỘ & GANTT"]
             if st.session_state.is_admin:
-                tab_names_v18.extend(["💸 CHI PHÍ PHÁT SINH", "⚙️ CÀI ĐẶT DỰ ÁN"])
+                tab_names.extend(["💸 CHI PHÍ PHÁT SINH", "⚙️ CÀI ĐẶT DỰ ÁN"])
 
-            sub_tabs = st.tabs(tab_names_v18)
+            sub_tabs = st.tabs(tab_names)
 
-            # --- TAB 5.1: BIỂU ĐỒ GANTT VÀ CẬP NHẬT NHIỆM VỤ (TÍCH HỢP TELEGRAM) ---
+            # TAB TIẾN ĐỘ & GANTT
             with sub_tabs[0]:
                 col_g1, col_g2 = st.columns([2, 3])
-                
-                # Thuật toán tính tiến độ trung bình (Avg) để hiển thị lên thanh Master Progress
-                avg_progress_v18 = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
-                
+
+                avg_progress = tasks_data['progress_pct'].apply(lambda x: to_float(str(x).split('%')[0])).mean() if not tasks_data.empty else 0
+
                 with col_g1:
                     if not tasks_data.empty:
-                        # Chuẩn bị dữ liệu vẽ biểu đồ GANTT bằng thư viện Altair chuyên nghiệp
-                        df_gantt_v18 = tasks_data.copy()
-                        df_gantt_v18['start_date'] = pd.to_datetime(df_gantt_v18['start_date'], errors='coerce')
-                        df_gantt_v18['end_date'] = pd.to_datetime(df_gantt_v18['end_date'], errors='coerce')
-                        
-                        # Tạo dòng "Master Summary" đại diện cho tổng thời gian và tiến độ dự án
-                        master_summary_row = pd.DataFrame([{
-                            'task_name': f'⭐ TỔNG TIẾN ĐỘ ({avg_progress_v18:.0f}%)',
+                        df_gantt = tasks_data.copy()
+                        df_gantt['start_date'] = pd.to_datetime(df_gantt['start_date'], errors='coerce')
+                        df_gantt['end_date'] = pd.to_datetime(df_gantt['end_date'], errors='coerce')
+
+                        master_row = pd.DataFrame([{
+                            'task_name': f'⭐ TỔNG TIẾN ĐỘ ({avg_progress:.0f}%)',
                             'start_date': pd.to_datetime(active_prj['start_date']),
                             'end_date': pd.to_datetime(active_prj['end_date']),
                             'status': 'Master'
                         }])
-                        
-                        # Cấu hình biểu đồ thanh cột ngang (GANTT) với màu sắc theo trạng thái
-                        gantt_chart = alt.Chart(pd.concat([master_summary_row, df_gantt_v18])).mark_bar(cornerRadius=5, height=20).encode(
-                            x=alt.X('start_date', title='Dòng thời gian thực hiện'),
+
+                        gantt_chart = alt.Chart(pd.concat([master_row, df_gantt])).mark_bar(cornerRadius=5, height=20).encode(
+                            x=alt.X('start_date', title='Thời gian'),
                             x2='end_date',
-                            y=alt.Y('task_name', sort=None, title='Hạng mục công việc'),
+                            y=alt.Y('task_name', sort=None, title='Công việc'),
                             color=alt.Color('status', scale=alt.Scale(
                                 domain=['Master', 'To-do', 'Doing', 'Review', 'Done'],
                                 range=['#000000', '#D3D3D3', '#FFA500', '#3498DB', '#2ECC71']
-                            ), title='Trạng thái hiện tại')
+                            ))
                         ).properties(height=450)
-                        
+
                         st.altair_chart(gantt_chart, use_container_width=True)
                     else:
-                        st.info("Dự án hiện chưa có nhiệm vụ con nào được khởi tạo.")
+                        st.info("Chưa có nhiệm vụ nào.")
 
                 with col_g2:
-                    # Bảng chỉnh sửa trực tiếp thông tin nhiệm vụ, người làm và tiến độ
                     df_tasks_editor = tasks_data[["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"]].copy() \
-                        if not tasks_data.empty \
-                        else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
-                    
+                        if not tasks_data.empty else pd.DataFrame(columns=["task_name", "assignee", "start_date", "end_date", "progress_pct", "status"])
+
                     df_tasks_editor['start_date'] = pd.to_datetime(df_tasks_editor['start_date'], errors='coerce').dt.date
                     df_tasks_editor['end_date'] = pd.to_datetime(df_tasks_editor['end_date'], errors='coerce').dt.date
-                    
-                    edited_tasks_v18 = st.data_editor(
+
+                    edited_tasks = st.data_editor(
                         df_tasks_editor,
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "progress_pct": st.column_config.SelectboxColumn(
-                                "Tiến độ (%)",
-                                options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]
-                            ),
-                            "status": st.column_config.SelectboxColumn(
-                                "Trạng thái",
-                                options=["To-do", "Doing", "Review", "Done"]
-                            ),
-                            "start_date": st.column_config.DateColumn("Ngày bắt đầu"),
-                            "end_date": st.column_config.DateColumn("Ngày hoàn thành")
+                            "progress_pct": st.column_config.SelectboxColumn("Tiến độ (%)", options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"]),
+                            "status": st.column_config.SelectboxColumn("Trạng thái", options=["To-do", "Doing", "Review", "Done"]),
+                            "start_date": st.column_config.DateColumn("Bắt đầu"),
+                            "end_date": st.column_config.DateColumn("Hoàn thành")
                         },
-                        key=f"ed_v18_tasks_full_sync_{sel_prj_id}"
+                        key=f"ed_tasks_v20_{sel_prj_id}"
                     )
-                    
-                    # YÊU CẦU 2 & 3: CẬP NHẬT NHIỆM VỤ VÀ GỬI CẢNH BÁO TELEGRAM (API DÁN TRỰC TIẾP TRONG CODE)
-                    if st.button("💾 LƯU TIẾN ĐỘ & GỬI THÔNG BÁO TELEGRAM", type="primary", use_container_width=True, key=f"btn_up_tasks_v18_full_{sel_prj_id}"):
-                        with st.spinner("Đang đồng bộ dữ liệu dự án và quét công việc quá hạn..."):
+
+                    if st.button("💾 LƯU TIẾN ĐỘ & GỬI TELEGRAM", type="primary", use_container_width=True, key=f"btn_tasks_v20_{sel_prj_id}"):
+                        with st.spinner("Đang đồng bộ..."):
                             try:
-                                # Xóa toàn bộ task cũ của dự án này và ghi đè bằng bộ task mới vừa sửa
                                 supabase.table("crm_project_tasks").delete().eq("project_code", sel_prj_id).execute()
-                                
-                                new_tasks_to_db = []
-                                overdue_alert_msgs = [] # Danh sách các tin nhắn cảnh báo quá hạn
-                                today_date = datetime.now().date()
-                                
-                                for r in edited_tasks_v18.to_dict('records'):
+
+                                new_tasks = []
+                                overdue_msgs = []
+                                today = datetime.now().date()
+
+                                for r in edited_tasks.to_dict('records'):
                                     if r.get('task_name'):
-                                        new_tasks_to_db.append({
+                                        new_tasks.append({
                                             "project_code": sel_prj_id,
                                             "task_name": r['task_name'],
                                             "assignee": r['assignee'],
@@ -3045,176 +2946,133 @@ with t7:
                                             "progress_pct": r['progress_pct'],
                                             "status": r['status']
                                         })
-                                        
-                                        # YÊU CẦU 3: THUẬT TOÁN TỰ ĐỘNG QUÉT QUÁ HẠN
+
                                         if r['end_date'] and r['status'] != 'Done':
-                                            task_due_date = pd.to_datetime(r['end_date']).date()
-                                            if task_due_date < today_date:
-                                                # Tạo nội dung tin nhắn cảnh báo cực kỳ chi tiết
-                                                overdue_alert_msgs.append(
-                                                    f"⚠️ <b>CẢNH BÁO QUÁ HẠN</b>\n"
-                                                    f"📌 <b>Việc:</b> <i>{r['task_name']}</i>\n"
-                                                    f"🏢 <b>Dự án:</b> {active_prj['project_name']}\n"
-                                                    f"👤 <b>Phụ trách:</b> {r['assignee']}\n"
-                                                    f"📅 <b>Ngày hết hạn:</b> {r['end_date']}"
+                                            due = pd.to_datetime(r['end_date']).date()
+                                            if due < today:
+                                                overdue_msgs.append(
+                                                    f"⚠️ <b>QUÁ HẠN</b>\nViệc: {r['task_name']}\nDự án: {active_prj['project_name']}\nPhụ trách: {r['assignee']}\nHạn: {r['end_date']}"
                                                 )
 
-                                if new_tasks_to_db:
-                                    supabase.table("crm_project_tasks").insert(new_tasks_to_db).execute()
-                                
-                                # YÊU CẦU 2: THUẬT TOÁN GỬI TELEGRAM (SỬ DỤNG API VÀ ID ĐÃ DÁN TRONG CODE)
-                                if PRJ_INTERNAL_TOKEN and PRJ_INTERNAL_CHAT_ID:
-                                    import requests
-                                    telegram_api_url = f"https://api.telegram.org/bot{PRJ_INTERNAL_TOKEN}/sendMessage"
-                                    
-                                    # 1. Gửi báo cáo tiến độ dự án chung
-                                    main_progress_msg = (
-                                        f"🚀 <b>CẬP NHẬT DỰ ÁN</b>\n\n"
-                                        f"📌 <b>Dự án:</b> {active_prj['project_name']}\n"
-                                        f"🔢 <b>Mã dự án:</b> {sel_prj_id}\n"
-                                        f"📊 <b>Tiến độ TB:</b> {avg_progress_v18:.0f}%\n"
-                                        f"📍 <b>Trạng thái:</b> {active_prj['status']}\n\n"
-                                        f"<i>Vui lòng truy cập CRM để xem chi tiết!</i>"
-                                    )
-                                    requests.post(telegram_api_url, json={"chat_id": PRJ_INTERNAL_CHAT_ID, "text": main_progress_msg, "parse_mode": "HTML"})
-                                    
-                                    # 2. Gửi các cảnh báo quá hạn cho từng công việc con nếu có
-                                    for alert in overdue_alert_msgs:
-                                        requests.post(telegram_api_url, json={"chat_id": PRJ_INTERNAL_CHAT_ID, "text": alert, "parse_mode": "HTML"})
-                                    
-                                    st.toast("✅ Đã cập nhật và gửi báo cáo Telegram thành công!", icon="🚀")
-                                else:
-                                    st.error("🛑 Lỗi: Chưa cấu hình Token hoặc Chat ID bên trong mã nguồn.")
+                                if new_tasks:
+                                    supabase.table("crm_project_tasks").insert(new_tasks).execute()
 
-                                st.success("✅ Dữ liệu tiến độ đã được đồng bộ hoàn toàn!")
+                                if PRJ_INTERNAL_TOKEN and PRJ_INTERNAL_CHAT_ID:
+                                    url = f"https://api.telegram.org/bot{PRJ_INTERNAL_TOKEN}/sendMessage"
+                                    main_msg = f"🚀 CẬP NHẬT DỰ ÁN\nDự án: {active_prj['project_name']}\nMã: {sel_prj_id}\nTiến độ TB: {avg_progress:.0f}%\nTrạng thái: {active_prj['status']}"
+                                    requests.post(url, json={"chat_id": PRJ_INTERNAL_CHAT_ID, "text": main_msg, "parse_mode": "HTML"})
+
+                                    for msg in overdue_msgs:
+                                        requests.post(url, json={"chat_id": PRJ_INTERNAL_CHAT_ID, "text": msg, "parse_mode": "HTML"})
+
+                                    st.toast("Đã gửi Telegram!", icon="🚀")
+
+                                st.success("Đã lưu tiến độ!")
                                 time.sleep(0.8)
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Lỗi trong quá trình cập nhật: {str(e)}")
+                                st.error(f"Lỗi: {e}")
 
-            # --- TAB 5.2: QUẢN LÝ CHI PHÍ PHÁT SINH (DÀNH CHO ADMIN) ---
-            if st.session_state.is_admin:
+            # TAB CHI PHÍ (ADMIN ONLY)
+            if st.session_state.is_admin and len(sub_tabs) > 1:
                 with sub_tabs[1]:
-                    st.write(f"**Tổng Chi Phí Thực Tế (Phát sinh): {fmt_num(active_prj['total_cost'])} VND**")
-                    # Tải bảng chi phí chi tiết của dự án
-                    prj_costs_data = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame(columns=["cost_type", "amount_vnd", "ref_po", "description"])
-                    df_costs_render = prj_costs_data[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
-                    # Format số tiền hiển thị cho dễ đọc
-                    df_costs_render['amount_vnd'] = df_costs_render['amount_vnd'].apply(lambda x: "{:,.0f}".format(float(x)) if x != 0 and x is not None else "")
+                    st.write(f"**Tổng chi phí thực tế: {fmt_num(active_prj['total_cost'])} VND**")
 
-                    edited_costs_v18 = st.data_editor(
-                        df_costs_render,
+                    prj_costs = df_costs_master[df_costs_master["project_code"] == sel_prj_id] if not df_costs_master.empty else pd.DataFrame()
+                    df_costs_edit = prj_costs[["cost_type", "amount_vnd", "ref_po", "description"]].copy()
+                    df_costs_edit['amount_vnd'] = df_costs_edit['amount_vnd'].apply(lambda x: float(x) if pd.notna(x) else 0)
+
+                    edited_costs = st.data_editor(
+                        df_costs_edit,
                         num_rows="dynamic",
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "cost_type": st.column_config.TextColumn("Loại chi phí đầu tư"),
-                            "amount_vnd": st.column_config.NumberColumn("Số tiền thực chi (VND)", format="%,.0f"),
-                            "ref_po": st.column_config.TextColumn("Hợp đồng / Số hóa đơn"),
-                            "description": st.column_config.TextColumn("Mô tả chi tiết mục chi")
+                            "cost_type": st.column_config.TextColumn("Loại chi phí"),
+                            "amount_vnd": st.column_config.NumberColumn("Số tiền (VND)", format="%,.0f"),
+                            "ref_po": st.column_config.TextColumn("Hóa đơn/PO"),
+                            "description": st.column_config.TextColumn("Mô tả")
                         },
-                        key=f"ed_v18_costs_full_final_{sel_prj_id}"
+                        key=f"costs_v20_{sel_prj_id}"
                     )
 
-                    if st.button("💾 CẬP NHẬT CHI PHÍ DỰ ÁN", type="primary", use_container_width=True, key=f"btn_sv_costs_v18_{sel_prj_id}"):
-                        with st.spinner("Đang hạch toán dữ liệu chi phí..."):
-                            try:
-                                supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
-                                final_costs_list = []
-                                for row in edited_costs_v18.to_dict('records'):
-                                    amount_val = to_float(row['amount_vnd'])
-                                    if row.get('cost_type') and amount_val > 0:
-                                        final_costs_list.append({
-                                            "project_code": sel_prj_id,
-                                            "cost_type": row['cost_type'],
-                                            "amount_vnd": amount_val,
-                                            "ref_po": row['ref_po'],
-                                            "description": row['description']
-                                        })
-                                if final_costs_list:
-                                    supabase.table("crm_project_costs").insert(final_costs_list).execute()
-                                st.success("✅ Toàn bộ chi phí thực tế đã được lưu vào hệ thống!")
-                                time.sleep(0.8); st.rerun()
-                            except Exception as e:
-                                st.error(f"Lỗi lưu chi phí: {str(e)}")
+                    if st.button("💾 CẬP NHẬT CHI PHÍ", type="primary", key=f"save_costs_v20_{sel_prj_id}"):
+                        try:
+                            supabase.table("crm_project_costs").delete().eq("project_code", sel_prj_id).execute()
+                            final_costs = []
+                            for row in edited_costs.to_dict('records'):
+                                if row.get('cost_type') and row['amount_vnd'] > 0:
+                                    final_costs.append({
+                                        "project_code": sel_prj_id,
+                                        "cost_type": row['cost_type'],
+                                        "amount_vnd": float(row['amount_vnd']),
+                                        "ref_po": row.get('ref_po', ''),
+                                        "description": row.get('description', '')
+                                    })
+                            if final_costs:
+                                supabase.table("crm_project_costs").insert(final_costs).execute()
+                            st.success("Đã lưu chi phí!")
+                            time.sleep(0.8)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Lỗi: {e}")
 
-                # --- TAB 5.3: CÀI ĐẶT THÔNG TIN VÀ TÀI LIỆU DỰ ÁN (UPLOAD GHI ĐÈ) ---
+            # TAB CÀI ĐẶT (ADMIN ONLY)
+            if st.session_state.is_admin and len(sub_tabs) > 2:
                 with sub_tabs[2]:
-                    st.markdown("### ⚙️ CÀI ĐẶT DỰ ÁN & QUẢN LÝ HỒ SƠ KỸ THUẬT")
-                    # Chức năng đặc biệt: Reset nhanh liên kết tài liệu để dọn dẹp Link Folder
+                    st.markdown("### ⚙️ CÀI ĐẶT DỰ ÁN & HỒ SƠ")
+
                     if active_prj['project_docs']:
-                        if st.button("🗑️ XÓA LIÊN KẾT TÀI LIỆU (LÀM TRỐNG Ô TÀI LIỆU)", use_container_width=True):
-                            try:
-                                supabase.table("crm_projects").update({"project_docs": ""}).eq("project_code", sel_prj_id).execute()
-                                st.success("✅ Đã xóa liên kết thư mục trên bảng danh sách dự án!"); time.sleep(0.5); st.rerun()
-                            except Exception as e: st.error(f"Lỗi Reset link: {e}")
+                        if st.button("🗑️ XÓA LIÊN KẾT TÀI LIỆU"):
+                            supabase.table("crm_projects").update({"project_docs": ""}).eq("project_code", sel_prj_id).execute()
+                            st.success("Đã xóa link tài liệu!")
+                            time.sleep(0.5)
+                            st.rerun()
 
-                    with st.form(key=f"form_settings_v18_full_final_{sel_prj_id}"):
-                        c_edit1, c_edit2 = st.columns(2)
-                        up_name_full = c_edit1.text_input("Tên Dự Án (Thay đổi)", value=safe_str(active_prj['project_name']))
-                        up_bud_full = c_edit2.number_input("Cập nhật Ngân Sách Đầu Tư (VND)", value=float(active_prj['budget_vnd']))
-                        up_start_full = c_edit1.date_input("Ngày Bắt Đầu Lại", value=pd.to_datetime(active_prj['start_date']) if active_prj['start_date'] else datetime.now())
-                        up_end_full = c_edit2.date_input("Ngày Kết Thúc Mới", value=pd.to_datetime(active_prj['end_date']) if active_prj['end_date'] else datetime.now())
-                        up_status_full = c_edit1.selectbox("Cập nhật Trạng Thái", ["In Progress", "Completed", "On Hold", "Cancelled"], index=0)
-                        up_img_full = st.file_uploader("Thay thế hình ảnh đại diện dự án mới", type=["png", "jpg", "jpeg"])
+                    with st.form(key=f"form_prj_v20_{sel_prj_id}"):
+                        c1, c2 = st.columns(2)
+                        up_name = c1.text_input("Tên dự án", value=safe_str(active_prj['project_name']))
+                        up_budget = c2.number_input("Ngân sách (VND)", value=float(active_prj['budget_vnd']))
+                        up_start = c1.date_input("Bắt đầu", value=pd.to_datetime(active_prj['start_date']) if active_prj['start_date'] else datetime.now())
+                        up_end = c2.date_input("Kết thúc", value=pd.to_datetime(active_prj['end_date']) if active_prj['end_date'] else datetime.now())
+                        up_status = c1.selectbox("Trạng thái", ["In Progress", "Completed", "On Hold", "Cancelled"], index=0)
+                        up_image = st.file_uploader("Thay ảnh đại diện", type=["png", "jpg", "jpeg"])
 
-                        # Ô UPLOAD/UPDATE TÀI LIỆU (GHI ĐÈ FILE NẾU TRÙNG TÊN)
-                        up_docs_full = st.file_uploader(
-                            "📄 Cập nhật hồ sơ/tài liệu giải pháp (Word, Excel, PDF, Video... - trùng tên sẽ tự động ghi đè bản mới)",
-                            type=None,
-                            accept_multiple_files=True,
-                            key=f"u_docs_v18_full_final_{sel_prj_id}"
-                        )
+                        up_docs = st.file_uploader("Cập nhật tài liệu (ghi đè nếu trùng tên)", accept_multiple_files=True, type=None)
 
-                        if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT TOÀN BỘ THÔNG TIN", use_container_width=True, type="primary"):
-                            update_payload = {
-                                "project_name": up_name_full,
-                                "budget_vnd": float(up_bud_full),
-                                "start_date": str(up_start_full),
-                                "end_date": str(up_end_full),
-                                "status": up_status_full
+                        if st.form_submit_button("💾 CẬP NHẬT", type="primary"):
+                            payload = {
+                                "project_name": up_name,
+                                "budget_vnd": float(up_budget),
+                                "start_date": str(up_start),
+                                "end_date": str(up_end),
+                                "status": up_status
                             }
 
-                            # Xử lý cập nhật ảnh đại diện mới
-                            if up_img_full:
-                                with st.spinner("Đang thay thế hình ảnh dự án..."):
-                                    ts_full = int(time.time())
-                                    fn_full = f"PRJ_ID_{active_prj['project_code'].strip().upper()}_{ts_full}.png"
-                                    fresh_img_url, _ = upload_to_drive_simple(up_img_full, "CRM_PROJECT_IMAGES", fn_full)
-                                    update_payload["project_image"] = fresh_img_url
+                            if up_image:
+                                ts = int(time.time())
+                                fn = f"PRJ_{sel_prj_id}_{ts}.png"
+                                url_img, _ = upload_to_drive_simple(up_image, "CRM_PROJECT_IMAGES", fn)
+                                payload["project_image"] = url_img
 
-                            # XỬ LÝ ĐỒNG BỘ TÀI LIỆU LÊN DRIVE (CẬP NHẬT CỘT project_docs)
-                            if up_docs_full and len(up_docs_full) > 0:
-                                with st.spinner("Đang đồng bộ hồ sơ lên Google Drive (xử lý ghi đè)..."):
-                                    try:
-                                        srv_v18_full = get_drive_service()
-                                        if srv_v18_full:
-                                            # Trỏ đúng thư mục dự án trên Drive
-                                            path_v18_full = ["CRM_PROJECT_DOCS", active_prj['project_code'].strip().upper()]
-                                            folder_id_v18 = get_or_create_folder_hierarchy(srv_v18_full, path_v18_full, ROOT_FOLDER_ID)
-                                            # Cập nhật link thư mục vào database
-                                            folder_url_v18 = f"https://drive.google.com/drive/folders/{folder_id_v18}"
-                                            for uploaded_file in up_docs_full:
-                                                # Hàm upload structured mặc định hỗ trợ ghi đè bản mới nhất
-                                                upload_to_drive_structured(uploaded_file, path_list=path_v18_full, file_name=uploaded_file.name)
-                                            update_payload["project_docs"] = folder_url_v18
-                                            st.success("📂 Toàn bộ hồ sơ kỹ thuật đã được đồng bộ bản mới nhất lên Drive!")
-                                    except Exception as e_drive_full:
-                                        st.error(f"Lỗi khi xử lý hồ sơ trên Drive: {e_drive_full}")
+                            if up_docs:
+                                srv = get_drive_service()
+                                if srv:
+                                    path = ["CRM_PROJECT_DOCS", sel_prj_id]
+                                    folder_id = get_or_create_folder_hierarchy(srv, path, ROOT_FOLDER_ID)
+                                    folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
+                                    for f in up_docs:
+                                        upload_to_drive_structured(f, path, f.name)
+                                    payload["project_docs"] = folder_url
 
-                            # Thực hiện lệnh cập nhật cuối cùng vào Supabase
-                            try:
-                                supabase.table("crm_projects").update(update_payload).eq("project_code", active_prj['project_code']).execute()
-                                st.cache_data.clear()
-                                st.success("✅ Toàn bộ thay đổi đã được áp dụng thành công!")
-                                time.sleep(1.2); st.rerun()
-                            except Exception as e:
-                                st.error(f"Lỗi đồng bộ Database: {e}")
+                            supabase.table("crm_projects").update(payload).eq("project_code", sel_prj_id).execute()
+                            st.cache_data.clear()
+                            st.success("Đã cập nhật!")
+                            time.sleep(1)
+                            st.rerun()
 
     else:
-        st.info("Hệ thống chưa ghi nhận dự án nào. Vui lòng nhấn 'TẠO DỰ ÁN MỚI' để bắt đầu quản lý.")
-# =============================================================================
-# --- KẾT THÚC TAB 7 (FULL VERSION - ĐÃ FIX LỖI SUPERGROUP + 3 TÍNH NĂNG MỚI) ---
+        st.info("Chưa có dự án nào. Nhấn 'TẠO DỰ ÁN MỚI' để bắt đầu.")
 # =============================================================================
 # --- TAB 8: QUẢN LÝ ISSUE (THEO DÕI SỰ CỐ / VẤN ĐỀ) ---
 # =============================================================================
