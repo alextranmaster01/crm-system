@@ -3282,7 +3282,7 @@ with t8:
     c_i1, c_i2 = st.columns([7, 3])
     with c_i1:
         st.markdown("📋 **DANH SÁCH SỰ CỐ & TIẾN ĐỘ XỬ LÝ**")
-        st.caption("💡 Mẹo 1: Bấm vào dòng trống ở dưới cùng để thêm mới. Mẹo 2: **Nhấp đúp chuột (Double-Click)** vào các ô mô tả để xem toàn bộ chữ không bị cắt.")
+        st.caption("💡 Mẹo 1: Kéo thả, copy-paste nhiều dòng từ Excel thoải mái. Mẹo 2: Nhấp đúp chuột vào ô để xem toàn bộ nội dung dài.")
 
     with c_i2:
         if not df_issues.empty:
@@ -3315,8 +3315,14 @@ with t8:
     tab_open, tab_resolved = st.tabs(["🔴 SỰ CỐ ĐANG MỞ (OPEN / IN PROGRESS)", "🟢 ĐÃ GIẢI QUYẾT (RESOLVED / CLOSED)"])
     
     def render_issue_table(df_subset, tab_key):
+        # Thiết lập lại Index để đồng bộ số đếm chuẩn xác
+        df_subset = df_subset.reset_index(drop=True)
         df_edit_issue = df_subset[expected_cols].copy()
         
+        # ẨN HOÀN TOÀN CỘT ID KHỎI BẢNG GIAO DIỆN
+        if 'id' in df_edit_issue.columns:
+            df_edit_issue = df_edit_issue.drop(columns=['id'])
+            
         # TẠO CỘT SỐ THỨ TỰ (NO) VÀO VỊ TRÍ ĐẦU TIÊN
         df_edit_issue.insert(0, "No", range(1, len(df_edit_issue) + 1))
         
@@ -3328,11 +3334,10 @@ with t8:
             num_rows="dynamic", # KÍCH HOẠT NHẬP DỮ LIỆU NHƯ EXCEL
             column_config={
                 "No": st.column_config.NumberColumn("No.", disabled=True, width=50), # Hiện cột Số thứ tự
-                "id": None, # ẨN HOÀN TOÀN CỘT ID
                 "date_reported": st.column_config.DateColumn("Ngày PS", width=90),
                 "date_resolved": st.column_config.DateColumn("Ngày KT", width=90),
                 "customer_name": st.column_config.SelectboxColumn("Khách hàng", options=cust_list, width=120),
-                "description": st.column_config.TextColumn("Mô tả vấn đề (Nhấp đúp để xem hết)", width="large"),
+                "description": st.column_config.TextColumn("Mô tả vấn đề", width="large"), 
                 "assignee": st.column_config.TextColumn("Người phụ trách", width=110),
                 "status": st.column_config.SelectboxColumn("Trạng thái", options=["Open", "In Progress", "Resolved", "Closed"], width=100),
                 "progress_pct": st.column_config.SelectboxColumn(
@@ -3340,45 +3345,72 @@ with t8:
                     options=["0% ⚪", "10% 🔴", "20% 🔴", "30% 🟠", "40% 🟠", "50% 🟡", "60% 🟡", "70% 🔵", "80% 🔵", "90% 🔵", "100% 🟢"], 
                     width=90
                 ),
-                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú (Nhấp đúp)", width="large"),
-                "last_updated": None # Ẩn cột này không cho user sửa
+                "resolution_note": st.column_config.TextColumn("Tình hình / Ghi chú", width="large"),
+                "last_updated": None # Ẩn cột này
             },
             key=f"editor_issues_{tab_key}"
         )
 
         st.markdown('<div style="text-align: right;">', unsafe_allow_html=True)
         if st.button("💾 LƯU TẤT CẢ (THÊM MỚI & CẬP NHẬT)", type="primary", key=f"btn_update_issues_{tab_key}"):
-            with st.spinner("Đang đồng bộ..."):
+            with st.spinner("Đang hạch toán dữ liệu hàng loạt..."):
                 try:
                     changes_made = False
+                    inserts = []
+                    updates = []
                     
-                    for i, row in edited_issues.iterrows():
+                    for idx, row in edited_issues.iterrows():
                         def get_str(val): return str(val).strip() if pd.notna(val) else ""
                         
-                        # THUẬT TOÁN MỚI: NHẬN DIỆN DÒNG MỚI BẰNG ID ẨN (CHÍNH XÁC 100%)
-                        db_id = row.get('id')
-                        is_new_row = pd.isna(db_id) or str(db_id).strip() == ""
-                        
-                        if is_new_row:
-                            # ==========================================
-                            # LOGIC 1: DÒNG THÊM MỚI (INSERT)
-                            # ==========================================
-                            desc = get_str(row.get('description'))
-                            if not desc or desc.lower() == 'nan': 
-                                continue # Bỏ qua nếu dòng trống không có mô tả
-                                
-                            # Xử lý các giá trị mặc định cho dòng mới
-                            dr_new = str(row['date_reported']) if pd.notna(row.get('date_reported')) else datetime.now().strftime('%Y-%m-%d')
-                            dres_new = str(row['date_resolved']) if pd.notna(row.get('date_resolved')) else None
-                            status_new = row.get('status') if pd.notna(row.get('status')) else "Open"
-                            prog_new = row.get('progress_pct') if pd.notna(row.get('progress_pct')) else "0% ⚪"
+                        desc = get_str(row.get('description'))
+                        if not desc or desc.lower() == 'nan': 
+                            continue # Bỏ qua dòng trống
                             
-                            # Tự động Resolved nếu 100%
-                            if "100%" in str(prog_new) and status_new not in ["Resolved", "Closed"]:
-                                status_new = "Resolved"
-                                if not dres_new:
-                                    dres_new = datetime.now().strftime('%Y-%m-%d')
-                                    
+                        dr_new = str(row['date_reported']) if pd.notna(row.get('date_reported')) else datetime.now().strftime('%Y-%m-%d')
+                        dres_new = str(row['date_resolved']) if pd.notna(row.get('date_resolved')) else None
+                        status_new = row.get('status') if pd.notna(row.get('status')) else "Open"
+                        prog_new = row.get('progress_pct') if pd.notna(row.get('progress_pct')) else "0% ⚪"
+                        
+                        # Tự động Resolved nếu 100%
+                        if "100%" in str(prog_new) and status_new not in ["Resolved", "Closed"]:
+                            status_new = "Resolved"
+                            if not dres_new:
+                                dres_new = datetime.now().strftime('%Y-%m-%d')
+                        
+                        # THUẬT TOÁN ĐỊNH VỊ INDEX (Khắc phục triệt để lỗi KeyError: 2)
+                        if idx in df_subset.index:
+                            # ==========================================
+                            # LOGIC CẬP NHẬT DÒNG CŨ
+                            # ==========================================
+                            orig_row = df_subset.loc[idx]
+                            db_id = int(orig_row['id'])
+                            old_dr = str(orig_row['date_resolved']) if pd.notna(orig_row['date_resolved']) else None
+
+                            if (get_str(row.get('status')) != get_str(orig_row['status']) or
+                                get_str(row.get('progress_pct')) != get_str(orig_row['progress_pct']) or
+                                get_str(row.get('resolution_note')) != get_str(orig_row['resolution_note']) or
+                                get_str(row.get('assignee')) != get_str(orig_row['assignee']) or
+                                get_str(row.get('description')) != get_str(orig_row['description']) or
+                                get_str(row.get('customer_name')) != get_str(orig_row['customer_name']) or
+                                dres_new != old_dr):
+
+                                payload_update = {
+                                    "id_upd": db_id, # Lưu tạm ID để gọi lệnh Update
+                                    "status": status_new, 
+                                    "progress_pct": prog_new,
+                                    "resolution_note": get_str(row.get('resolution_note')), 
+                                    "assignee": get_str(row.get('assignee')),
+                                    "description": desc,
+                                    "customer_name": get_str(row.get('customer_name')),
+                                    "date_resolved": dres_new,
+                                    "date_reported": dr_new,
+                                    "last_updated": datetime.now().isoformat()
+                                }
+                                updates.append(payload_update)
+                        else:
+                            # ==========================================
+                            # LOGIC INSERT DÒNG MỚI (Dù là 1 hay 100 dòng)
+                            # ==========================================
                             payload_insert = {
                                 "date_reported": dr_new,
                                 "date_resolved": dres_new,
@@ -3390,84 +3422,49 @@ with t8:
                                 "resolution_note": get_str(row.get('resolution_note')),
                                 "last_updated": datetime.now().isoformat()
                             }
-                            
-                            supabase.table("crm_issues").insert([payload_insert]).execute()
-                            
-                            # Bắn Telegram cho dòng mới
-                            try:
-                                msg = (
-                                    f"🆕 <b>PHÁT SINH SỰ CỐ MỚI</b>\n\n"
-                                    f"🏢 <b>Khách hàng:</b> {payload_insert['customer_name']}\n"
-                                    f"📝 <b>Vấn đề:</b> {payload_insert['description']}\n"
-                                    f"👤 <b>Phụ trách:</b> {payload_insert['assignee']}\n"
-                                    f"🏷 <b>Trạng thái:</b> {payload_insert['status']}\n\n"
-                                    f"<i>👉 Yêu cầu PIC tiếp nhận và xử lý!</i>"
-                                )
-                                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                                requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
-                            except: pass
-                            
-                            changes_made = True
-                        else:
-                            # ==========================================
-                            # LOGIC 2: DÒNG CŨ BỊ CHỈNH SỬA (UPDATE)
-                            # ==========================================
-                            db_id = int(db_id)
-                            orig_rows = df_subset[df_subset['id'] == db_id]
-                            if orig_rows.empty: continue
-                            
-                            orig_row = orig_rows.iloc[0]
-                            
-                            new_dr = str(row['date_resolved']) if pd.notna(row['date_resolved']) else None
-                            old_dr = str(orig_row['date_resolved']) if pd.notna(orig_row['date_resolved']) else None
+                            inserts.append(payload_insert)
 
-                            if (get_str(row['status']) != get_str(orig_row['status']) or
-                                get_str(row['progress_pct']) != get_str(orig_row['progress_pct']) or
-                                get_str(row['resolution_note']) != get_str(orig_row['resolution_note']) or
-                                get_str(row['assignee']) != get_str(orig_row['assignee']) or
-                                get_str(row['description']) != get_str(orig_row['description']) or
-                                get_str(row['customer_name']) != get_str(orig_row['customer_name']) or
-                                new_dr != old_dr):
+                    # THỰC THI BATCH CHUNG ĐỂ TRÁNH QUÁ TẢI SERVER
+                    if inserts:
+                        chunk_size = 50
+                        for k in range(0, len(inserts), chunk_size):
+                            supabase.table("crm_issues").insert(inserts[k:k+chunk_size]).execute()
+                        changes_made = True
+                        
+                        # Bắn Telegram cho dòng mới nhất
+                        try:
+                            msg = (
+                                f"🆕 <b>PHÁT SINH {len(inserts)} SỰ CỐ MỚI</b>\n\n"
+                                f"🏢 <b>Khách hàng:</b> {inserts[0]['customer_name']}\n"
+                                f"📝 <b>Vấn đề:</b> {inserts[0]['description']}...\n"
+                                f"👤 <b>Phụ trách:</b> {inserts[0]['assignee']}\n"
+                                f"<i>👉 Yêu cầu PIC tiếp nhận và xử lý!</i>"
+                            )
+                            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                            requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                        except: pass
 
-                                # TỰ ĐỘNG CHUYỂN RESOLVED KHI TIẾN ĐỘ 100%
-                                status_to_save = row['status']
-                                if "100%" in str(row['progress_pct']) and status_to_save not in ["Resolved", "Closed"]:
-                                    status_to_save = "Resolved"
-                                    if not new_dr:
-                                        new_dr = datetime.now().strftime('%Y-%m-%d')
-
-                                payload_update = {
-                                    "status": status_to_save, 
-                                    "progress_pct": row['progress_pct'],
-                                    "resolution_note": row['resolution_note'], 
-                                    "assignee": row['assignee'],
-                                    "description": row['description'],
-                                    "customer_name": row['customer_name'],
-                                    "date_resolved": new_dr,
-                                    "date_reported": str(row['date_reported']) if pd.notna(row['date_reported']) else None,
-                                    "last_updated": datetime.now().isoformat()
-                                }
-
-                                supabase.table("crm_issues").update(payload_update).eq("id", db_id).execute()
-                                
-                                # GỬI TELEGRAM CHO DÒNG ĐƯỢC CẬP NHẬT
+                    if updates:
+                        for u in updates:
+                            upd_id = u.pop("id_upd")
+                            supabase.table("crm_issues").update(u).eq("id", upd_id).execute()
+                            
+                            # Gửi telegram cập nhật (gửi 1 cái nếu update nhiều)
+                            if u == updates[0]:
                                 try:
                                     msg = (
                                         f"🔔 <b>CẬP NHẬT TIẾN ĐỘ SỰ CỐ</b>\n\n"
-                                        f"🏢 <b>Khách hàng:</b> {payload_update['customer_name']}\n"
-                                        f"📝 <b>Vấn đề:</b> {payload_update['description']}\n"
-                                        f"👤 <b>Phụ trách:</b> {payload_update['assignee']}\n"
-                                        f"📊 <b>Tiến độ mới:</b> {payload_update['progress_pct']}\n"
-                                        f"🏷 <b>Trạng thái:</b> {payload_update['status']}\n"
-                                        f"💡 <b>Ghi chú:</b> {payload_update['resolution_note']}\n\n"
-                                        f"<i>👉 Vui lòng kiểm tra lại phần mềm CRM để xem chi tiết!</i>"
+                                        f"🏢 <b>Khách hàng:</b> {u['customer_name']}\n"
+                                        f"📝 <b>Vấn đề:</b> {u['description']}\n"
+                                        f"👤 <b>Phụ trách:</b> {u['assignee']}\n"
+                                        f"📊 <b>Tiến độ mới:</b> {u['progress_pct']}\n"
+                                        f"🏷 <b>Trạng thái:</b> {u['status']}\n"
+                                        f"<i>👉 Vui lòng kiểm tra CRM để xem chi tiết!</i>"
                                     )
                                     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
                                     requests.post(url, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
-                                except Exception as e_tel:
-                                    print(f"Lỗi gửi Telegram: {e_tel}")
-                                
-                                changes_made = True
+                                except: pass
+                        changes_made = True
 
                     if changes_made:
                         st.cache_data.clear()
