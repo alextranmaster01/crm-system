@@ -3487,3 +3487,4 @@ with t8:
             render_issue_table(df_resolved, "resolved")
         else:
             st.info("Chưa có sự cố nào được giải quyết.")
+
