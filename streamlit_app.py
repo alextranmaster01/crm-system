@@ -3597,7 +3597,7 @@ with t9:
         except:
             st.session_state.temp_po_df = pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"])
 
-    # 3. CHỈ HIỂN THỊ DUY NHẤT 1 BẢNG EDITOR (Xóa sạch st.write hay st.dataframe dư thừa)
+    # 3. CHỈ HIỂN THỊ DUY NHẤT 1 BẢNG EDITOR
     edited_df = st.data_editor(
         st.session_state.temp_po_df,
         column_config={
@@ -3614,7 +3614,7 @@ with t9:
         key="po_editor_final_clean"
     )
 
-    # 4. CẬP NHẬT TÍNH TOÁN NGẦM (Không hiển thị thêm gì ở đây)
+    # 4. CẬP NHẬT TÍNH TOÁN NGẦM
     if not edited_df.equals(st.session_state.temp_po_df):
         for c in ["Qty", "Unit_price"]:
             edited_df[c] = pd.to_numeric(edited_df[c], errors='coerce').fillna(0)
@@ -3627,14 +3627,15 @@ with t9:
         try:
             df_save = edited_df[~(edited_df["Customer"].isna() & edited_df["PO_no"].isna())]
             recs = df_save.where(pd.notnull(df_save), None).to_dict('records')
+            
             if recs:
                 supabase.table("crm_po_list").delete().neq("No", -1).execute()
                 supabase.table("crm_po_list").insert(recs).execute()
                 
                 # Gửi Telegram trực tiếp
                 import requests
-                B_TOKEN = "7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7" 
-                C_ID = "-4756536551" 
+                B_TOKEN = "7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7"
+                C_ID = "-4756536551"
                 last = recs[-1]
                 msg = f"🚀 **PO MỚI:** {last.get('PO_no')}\n👤 **KH:** {last.get('Customer')}\n💰 **Tổng:** {last.get('Total_price', 0):,.0f} VND"
                 requests.post(f"https://api.telegram.org/bot{B_TOKEN}/sendMessage", json={"chat_id": C_ID, "text": msg, "parse_mode": "Markdown"})
@@ -3645,7 +3646,7 @@ with t9:
         except Exception as e:
             st.error(f"Lỗi: {e}")
 
-    # 6. BIỂU ĐỒ (Nếu có tiền mới hiện)
+    # 6. BIỂU ĐỒ (chỉ hiện khi có doanh số)
     if edited_df["Total_price"].sum() > 0:
         c_data = edited_df.groupby("Customer")["Total_price"].sum().reset_index()
         chart = alt.Chart(c_data[c_data["Total_price"] > 0]).mark_bar(cornerRadius=5).encode(
