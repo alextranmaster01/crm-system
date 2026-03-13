@@ -3582,22 +3582,62 @@ with t9:
 # --- TAB 9: QUẢN LÝ PO (THEO DÕI ĐƠN HÀNG) ---
 # =============================================================================
 with t9:
-    # 1. LẤY DANH SÁCH KHÁCH HÀNG
+    # --- 1. KHỞI TẠO & LẤY DATA KHÁCH HÀNG ---
     try:
         res_cust = supabase.table("crm_master_data").select("customer_name").execute()
         list_customers = sorted(list(set([r['customer_name'] for r in res_cust.data if r.get('customer_name')])))
     except:
         list_customers = ["Khách lẻ", "NEXGA", "Apollo"]
 
-    # 2. KHỞI TẠO DỮ LIỆU TRONG SESSION STATE (Để bảng không bị reset khi thao tác)
     if 'temp_po_df' not in st.session_state:
         try:
             res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
-            st.session_state.temp_po_df = pd.DataFrame(res_po.data) if res_po.data else pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"])
+            st.session_state.temp_po_df = pd.DataFrame(res_po.data) if res_po.data else pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "PO_docs", "Remark"])
         except:
-            st.session_state.temp_po_df = pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"])
+            st.session_state.temp_po_df = pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "PO_docs", "Remark"])
 
-    # 3. HIỂN THỊ DUY NHẤT 1 BẢNG NHẬP LIỆU (Đây là bảng duy nhất được giữ lại)
+    # --- 2. GIAO DIỆN NÚT CHỨC NĂNG (NẰM NGANG GIỐNG ẢNH MẪU) ---
+    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1, 1, 1.5])
+    
+    with col_btn1:
+        # Nút Import Excel/CSV
+        uploaded_po = st.file_uploader("📥 Import PO", type=["xlsx", "csv"], label_visibility="collapsed")
+        if uploaded_po:
+            df_imp = pd.read_csv(uploaded_po) if uploaded_po.name.endswith('.csv') else pd.read_excel(uploaded_po)
+            st.session_state.temp_po_df = df_imp
+            st.success("Đã nạp file!")
+
+    with col_btn2:
+        if st.button("💾 LƯU & TELEGRAM", type="primary", use_container_width=True):
+            try:
+                df_save = st.session_state.temp_po_df[~(st.session_state.temp_po_df["Customer"].isna())]
+                recs = df_save.where(pd.notnull(df_save), None).to_dict('records')
+                if recs:
+                    supabase.table("crm_po_list").delete().neq("No", -1).execute()
+                    supabase.table("crm_po_list").insert(recs).execute()
+                    # Telegram
+                    import requests
+                    msg = f"🚀 **PO MỚI:** {recs[-1].get('PO_no')}\n👤 **KH:** {recs[-1].get('Customer')}\n💰 **Tổng:** {recs[-1].get('Total_price', 0):,.0f} VND"
+                    requests.post(f"https://api.telegram.org/bot7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7/sendMessage", json={"chat_id": "-4756536551", "text": msg, "parse_mode": "Markdown"})
+                    st.success("Đã lưu!"); time.sleep(1); st.rerun()
+            except Exception as e: st.error(f"Lỗi: {e}")
+
+    with col_btn3:
+        # Nút Xuất file Excel
+        csv_buffer = st.session_state.temp_po_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 XUẤT EXCEL", data=csv_buffer, file_name="PO_LIST.csv", mime='text/csv', use_container_width=True)
+
+    with col_btn4:
+        # TÍNH NĂNG UPLOAD FILE LÊN DRIVE CHO CỘT "PO DOCS"
+        up_doc = st.file_uploader("📁 Upload PO Docs (PDF/Img/Excel)", label_visibility="collapsed")
+        if up_doc:
+            # Lưu ý: Hàm 'upload_to_drive' này phải trùng tên với hàm bạn dùng ở Tab 7
+            file_id, file_link = upload_to_drive(up_doc) 
+            if file_link:
+                st.info(f"Link file: {file_link}")
+                st.warning("Hãy dán link này vào cột 'PO_docs' bên dưới.")
+
+    # --- 3. BẢNG NHẬP LIỆU CHÍNH ---
     edited_df = st.data_editor(
         st.session_state.temp_po_df,
         column_config={
@@ -3606,69 +3646,24 @@ with t9:
             "Qty": st.column_config.NumberColumn("Q'ty", format="%d"),
             "Unit_price": st.column_config.NumberColumn("Unit price", format="%d"),
             "Total_price": st.column_config.NumberColumn("Total price", format="%d", disabled=True),
-            "Drive_Link": st.column_config.LinkColumn("Drive Link"),
+            "PO_docs": st.column_config.LinkColumn("PO docs", help="Dán link file Drive vào đây"),
         },
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="po_editor_unique_v9"
+        key="po_editor_v10"
     )
 
-    # 4. LOGIC TÍNH TOÁN NGẦM (Không hiển thị thêm bất cứ bảng nào ở đây)
+    # --- 4. CẬP NHẬT LOGIC & BIỂU ĐỒ ---
     if not edited_df.equals(st.session_state.temp_po_df):
-        for col in ["Qty", "Unit_price"]:
-            edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0)
-        edited_df["Total_price"] = edited_df["Qty"] * edited_df["Unit_price"]
-        edited_df["Month"] = datetime.now().strftime("%Y-%m")
+        edited_df["Total_price"] = pd.to_numeric(edited_df["Qty"], errors='coerce').fillna(0) * pd.to_numeric(edited_df["Unit_price"], errors='coerce').fillna(0)
         st.session_state.temp_po_df = edited_df
 
-    # 5. KHU VỰC NÚT BẤM (Dàn hàng ngang chuyên nghiệp)
-    st.write("") 
-    c_save, c_export = st.columns(2)
-    
-    with c_save:
-        if st.button("💾 LƯU & BẮN TELEGRAM", type="primary", use_container_width=True):
-            try:
-                # Lọc bỏ dòng trống trước khi lưu
-                df_to_save = edited_df[~(edited_df["Customer"].isna() & edited_df["PO_no"].isna())]
-                recs = df_to_save.where(pd.notnull(df_to_save), None).to_dict('records')
-                
-                if recs:
-                    supabase.table("crm_po_list").delete().neq("No", -1).execute()
-                    supabase.table("crm_po_list").insert(recs).execute()
-                    
-                    # Gửi Telegram trực tiếp
-                    import requests
-                    B_TOKEN = "7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7" 
-                    C_ID = "-4756536551" 
-                    last = recs[-1]
-                    msg = f"🚀 **PO MỚI:** {last.get('PO_no')}\n👤 **KH:** {last.get('Customer')}\n💰 **Tổng:** {last.get('Total_price', 0):,.0f} VND"
-                    requests.post(f"https://api.telegram.org/bot{B_TOKEN}/sendMessage", json={"chat_id": C_ID, "text": msg, "parse_mode": "Markdown"})
-                    
-                    st.success("✅ Đã lưu xong!")
-                    time.sleep(1)
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi: {e}")
-
-    with c_export:
-        # XỬ LÝ DỮ LIỆU XUẤT FILE NGẦM (Không dùng st.write)
-        csv_buffer = edited_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="📥 XUẤT FILE EXCEL (CSV)",
-            data=csv_buffer,
-            file_name=f"PO_LIST_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime='text/csv',
-            use_container_width=True
-        )
-
-    # 6. BIỂU ĐỒ DOANH SỐ (Dưới cùng)
     if edited_df["Total_price"].sum() > 0:
         st.markdown("---")
-        summary_data = edited_df.groupby("Customer")["Total_price"].sum().reset_index()
-        chart_v9 = alt.Chart(summary_data[summary_data["Total_price"] > 0]).mark_bar(cornerRadius=5).encode(
+        c_data = edited_df.groupby("Customer")["Total_price"].sum().reset_index()
+        chart = alt.Chart(c_data[c_data["Total_price"] > 0]).mark_bar(cornerRadius=5, color="#00b09b").encode(
             x=alt.X('Customer', sort='-y', title="Khách hàng"),
-            y=alt.Y('Total_price', title="Doanh số (VND)"),
-            color='Customer'
+            y=alt.Y('Total_price', title="Doanh số (VND)")
         ).properties(height=300)
-        st.altair_chart(chart_v9, use_container_width=True)
+        st.altair_chart(chart, use_container_width=True)
