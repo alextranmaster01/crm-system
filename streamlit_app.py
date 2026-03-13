@@ -3582,28 +3582,25 @@ with tab9:
 # =============================================================================
 with tab9:
     st.header("📋 PO LIST - QUẢN LÝ TẠM THỜI")
-    st.info("💡 Tab hoạt động độc lập. Dữ liệu được lưu trữ trên Supabase.")
+    st.info("💡 Tab hoạt động độc lập. Dữ liệu lưu tại bảng 'crm_po_list' trên Supabase.")
 
-    # 1. LẤY TÊN KHÁCH HÀNG (Kết nối duy nhất)
+    # 1. LẤY TÊN KHÁCH HÀNG
     try:
         res_cust = supabase.table("crm_master_data").select("customer_name").execute()
         list_customers = sorted(list(set([r['customer_name'] for r in res_cust.data if r.get('customer_name')])))
     except:
-        list_customers = ["Khách lẻ", "NEXGA", "Apollo"]
+        list_customers = []
 
     # 2. TẢI DỮ LIỆU
     try:
         res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
-        df_po_load = pd.DataFrame(res_po.data)
+        df_po = pd.DataFrame(res_po.data)
     except:
-        df_po_load = pd.DataFrame()
+        df_po = pd.DataFrame()
 
-    if df_po_load.empty:
+    if df_po.empty:
         cols = ["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"]
         df_po = pd.DataFrame([[i+1] + [None]*11 for i in range(20)], columns=cols)
-    else:
-        # Đảm bảo có đủ các cột cần thiết
-        df_po = df_po_load
 
     # 3. BẢNG NHẬP LIỆU
     edited_po = st.data_editor(
@@ -3619,13 +3616,14 @@ with tab9:
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="po_editor_fix_final"
+        key="po_editor_tab9_final_v2"
     )
 
-    # 4. TÍNH TOÁN (Xử lý lỗi np.nan trực tiếp bằng pandas)
+    # 4. TÍNH TOÁN
     if not edited_po.empty:
-        edited_po["Qty"] = pd.to_numeric(edited_po["Qty"], errors='coerce').fillna(0)
-        edited_po["Unit_price"] = pd.to_numeric(edited_po["Unit_price"], errors='coerce').fillna(0)
+        # Ép kiểu số để tính toán
+        for col in ["Qty", "Unit_price"]:
+            edited_po[col] = pd.to_numeric(edited_po[col], errors='coerce').fillna(0)
         edited_po["Total_price"] = edited_po["Qty"] * edited_po["Unit_price"]
         edited_po["Month"] = datetime.now().strftime("%Y-%m")
 
@@ -3633,43 +3631,59 @@ with tab9:
     st.divider()
     if st.button("💾 LƯU VÀ GỬI THÔNG BÁO", type="primary", use_container_width=True):
         try:
-            # Lưu DB: Chuyển đổi NaN thành None để Supabase hiểu
-            data_to_save = edited_po[edited_po["Customer"].notna() | edited_po["PO_no"].notna()]
-            # Sửa lỗi 'np' bằng cách dùng hàm của pandas
-            final_records = data_to_save.where(pd.notnull(data_to_save), None).to_dict('records')
+            # Lọc bỏ dòng không có tên Khách hàng VÀ không có số PO
+            df_to_save = edited_po[~(edited_po["Customer"].isna() & edited_po["PO_no"].isna())]
+            
+            # Chuyển đổi NaN thành None (Null) để Supabase hiểu
+            final_records = df_to_save.where(pd.notnull(df_to_save), None).to_dict('records')
             
             if final_records:
-                # Xóa và chèn mới
+                # Ghi đè vào database
                 supabase.table("crm_po_list").delete().neq("No", -1).execute()
                 supabase.table("crm_po_list").insert(final_records).execute()
                 
-                # Gửi Telegram
-                last = final_records[-1]
+                # --- PHẦN GỬI TELEGRAM (ĐÃ FIX LỖI GET) ---
+                # Lấy dòng cuối cùng có thực sự chứa dữ liệu
+                last_row = final_records[-1]
+                
+                # Tạo nội dung tin nhắn an toàn
+                customer_name = last_row.get('Customer') or "Chưa rõ"
+                po_number = last_row.get('PO_no') or "Chưa có số"
+                total_val = last_row.get('Total_price') or 0
+                drive_url = last_row.get('Drive_Link') or ""
+
                 msg = (
                     f"🚀 **CẬP NHẬT PO MỚI (TAB 9)**\n"
-                    f"👤 **KH:** {last.get('Customer') or '---'}\n"
-                    f"📦 **PO:** {last.get('PO_no') or '---'}\n"
-                    f"💰 **Giá trị:** {last.get('Total_price', 0):,.0f} VND\n"
-                    f"🔗 [Link tài liệu]({last.get('Drive_Link') or ''})"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 **KH:** {customer_name}\n"
+                    f"📦 **PO:** {po_number}\n"
+                    f"💰 **Giá trị:** {total_val:,.0f} VND\n"
                 )
-                # Đảm bảo hàm này đã tồn tại trong app.py của bạn
+                if drive_url:
+                    msg += f"🔗 [Link tài liệu]({drive_url})\n"
+                msg += f"━━━━━━━━━━━━━━━━━━━━"
+                
                 send_telegram_msg(msg)
                 
-                st.success("✅ Đã lưu dữ liệu thành công!")
+                st.success("✅ Đã lưu dữ liệu và thông báo Telegram!")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.warning("Chưa có dữ liệu để lưu.")
+                st.warning("⚠️ Bạn chưa nhập dữ liệu nào để lưu.")
         except Exception as e:
-            st.error(f"Lỗi khi lưu dữ liệu: {e}")
+            st.error(f"Lỗi: {e}")
 
-    # 6. BIỂU ĐỒ (Sử dụng Altair giống các tab khác của bạn)
+    # 6. BIỂU ĐỒ DOANH SỐ
     if not edited_po.empty and edited_po["Total_price"].sum() > 0:
-        st.subheader("📊 Thống kê doanh số")
+        st.subheader("📊 Thống kê nhanh doanh số")
         chart_data = edited_po.groupby("Customer")["Total_price"].sum().reset_index()
-        fig = alt.Chart(chart_data).mark_bar().encode(
-            x='Customer',
-            y='Total_price',
-            color='Customer'
-        ).properties(height=300)
-        st.altair_chart(fig, use_container_width=True)
+        # Loại bỏ các dòng 0 VND để biểu đồ đẹp hơn
+        chart_data = chart_data[chart_data["Total_price"] > 0]
+        
+        if not chart_data.empty:
+            c = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=10, cornerRadiusTopRight=10).encode(
+                x=alt.X('Customer', sort='-y'),
+                y='Total_price',
+                color='Customer'
+            ).properties(height=300)
+            st.altair_chart(c, use_container_width=True)
