@@ -3513,4 +3513,121 @@ with t8:
             render_issue_table(df_resolved, "resolved")
         else:
             st.info("Chưa có sự cố nào được giải quyết.")
+# =============================================================================
+# --- TAB 9: QUẢN LÝ ĐƠN HÀNG ĐỘC LẬP (PO INDEPENDENT) ---
+# =============================================================================
+with t9: # Anh nhớ thêm t9 vào danh sách tabs ở đầu file nhé
+    st.subheader("📑 TRUNG TÂM QUẢN LÝ PO (INDEPENDENT MODE)")
+
+    # 1. LOAD DATA KHÁCH HÀNG (Dữ liệu duy nhất được liên kết)
+    cust_db = load_data("crm_customers")
+    cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
+
+    # 2. THANH CÔNG CỤ (IMPORT & THÊM MỚI)
+    c_tools1, c_tools2 = st.columns([2, 1])
+    
+    with c_tools1:
+        with st.popover("📥 IMPORT EXCEL / THÊM PO MỚI", use_container_width=True):
+            st.markdown("**Cấu trúc file Excel: No | PO Number | Customer | Amount | Date | Note**")
+            up_po_file = st.file_uploader("Chọn file PO list.xlsx", type=["xlsx"], key="up_po_tab9")
             
+            st.divider()
+            st.markdown("**Hoặc nhập thủ công:**")
+            manual_cust = st.selectbox("Chọn Khách Hàng", cust_list, key="p9_manual_cust")
+            manual_po = st.text_input("Số PO", key="p9_manual_po")
+            manual_val = st.number_input("Giá trị PO (VND)", min_value=0.0, format="%f")
+            manual_date = st.date_input("Ngày PO", value=datetime.now())
+
+            if st.button("🚀 XÁC NHẬN LƯU", use_container_width=True, type="primary"):
+                if up_po_file:
+                    try:
+                        df_imp = pd.read_excel(up_po_file, dtype=str).fillna("")
+                        recs = []
+                        for _, r in df_imp.iterrows():
+                            recs.append({
+                                "po_number": safe_str(r.iloc[1]), 
+                                "customer": safe_str(r.iloc[2]),
+                                "total_price": to_float(r.iloc[3]),
+                                "order_date": safe_str(r.iloc[4]),
+                                "note": safe_str(r.iloc[5]) if len(r) > 5 else ""
+                            })
+                        # Ghi đè nếu trùng Số PO (po_number phải là unique key trong DB)
+                        supabase.table("db_customer_orders").upsert(recs, on_conflict="po_number").execute()
+                        st.success("✅ Đã Import & Ghi đè dữ liệu thành công!")
+                    except Exception as e: st.error(f"Lỗi: {e}")
+                elif manual_cust and manual_po:
+                    new_rec = {
+                        "po_number": manual_po, 
+                        "customer": manual_cust, 
+                        "total_price": manual_val, 
+                        "order_date": str(manual_date)
+                    }
+                    supabase.table("db_customer_orders").upsert([new_rec], on_conflict="po_number").execute()
+                    st.success("✅ Đã lưu PO mới!")
+                st.rerun()
+
+    # 3. HIỂN THỊ BẢNG DỮ LIỆU & LINK DRIVE
+    df_po_display = load_data("db_customer_orders", order_by="order_date", ascending=False)
+    
+    if not df_po_display.empty:
+        # Tạo link Drive động dựa trên số PO (Yêu cầu 4)
+        def create_po_drive_link(row):
+            return f"https://drive.google.com/drive/search?q={row['po_number']}"
+        
+        df_po_display['drive_link'] = df_po_display.apply(create_po_drive_link, axis=1)
+
+        # Định dạng tiền tệ cho bảng
+        df_po_display['total_price'] = df_po_display['total_price'].apply(to_float)
+
+        st.markdown("---")
+        edited_po = st.data_editor(
+            df_po_display,
+            column_config={
+                "po_number": st.column_config.TextColumn("Số PO", width="medium"),
+                "customer": st.column_config.SelectboxColumn("Khách Hàng", options=cust_list, width="medium"),
+                "total_price": st.column_config.NumberColumn("Giá trị (VND)", format="%d"),
+                "order_date": st.column_config.DateColumn("Ngày Đặt"),
+                "drive_link": st.column_config.LinkColumn("📂 Drive", display_text="Mở Hồ Sơ"),
+                "id": None # Ẩn cột ID
+            },
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            height=500,
+            key="editor_po_tab9"
+        )
+
+        # 4. BIỂU ĐỒ DOANH SỐ (YÊU CẦU 5)
+        st.divider()
+        st.markdown("### 📊 PHÂN TÍCH DOANH SỐ THÁNG HIỆN TẠI")
+        
+        df_po_display['dt_obj'] = pd.to_datetime(df_po_display['order_date'], errors='coerce')
+        df_po_display['Month'] = df_po_display['dt_obj'].dt.strftime('%Y-%m')
+        
+        curr_m = datetime.now().strftime('%Y-%m')
+        df_curr = df_po_display[df_po_display['Month'] == curr_m]
+        
+        if not df_curr.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write(f"**Doanh thu theo Khách hàng (Tháng {curr_m})**")
+                bar = alt.Chart(df_curr).mark_bar().encode(
+                    x=alt.X('customer', sort='-y', title='Khách hàng'),
+                    y=alt.Y('total_price', title='VND'),
+                    color='customer',
+                    tooltip=['customer', alt.Tooltip('total_price', format=',.0f')]
+                ).properties(height=350)
+                st.altair_chart(bar, use_container_width=True)
+                
+            with c2:
+                st.write("**Tỷ trọng doanh số (%)**")
+                pie = alt.Chart(df_curr).mark_arc(innerRadius=60).encode(
+                    theta='total_price',
+                    color='customer',
+                    tooltip=['customer', 'total_price']
+                ).properties(height=350)
+                st.altair_chart(pie, use_container_width=True)
+        else:
+            st.info(f"Chưa có dữ liệu PO phát sinh trong tháng {curr_m}")
+    else:
+        st.info("Danh sách PO đang trống. Hãy Import file hoặc thêm thủ công.")
