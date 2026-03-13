@@ -3581,9 +3581,9 @@ with tab9:
 # =============================================================================
 # --- TAB 9: QUẢN LÝ PO (THEO DÕI ĐƠN HÀNG) ---
 # =============================================================================
-with tab9:
+with t9:
     st.header("📋 PO LIST - QUẢN LÝ TẠM THỜI")
-    st.info("💡 Tab hoạt động độc lập. Dữ liệu lưu tại bảng 'crm_po_list'.")
+    st.info("💡 Tab hoạt động độc lập. Dữ liệu lưu tại bảng 'crm_po_list' trên Supabase.")
 
     # 1. LẤY TÊN KHÁCH HÀNG TỪ MASTER DATA
     try:
@@ -3595,13 +3595,15 @@ with tab9:
     # 2. TẢI DỮ LIỆU CŨ
     try:
         res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
-        df_po = pd.DataFrame(res_po.data)
+        df_po_load = pd.DataFrame(res_po.data)
     except:
-        df_po = pd.DataFrame()
+        df_po_load = pd.DataFrame()
 
-    if df_po.empty:
+    if df_po_load.empty:
         cols = ["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"]
         df_po = pd.DataFrame([[i+1] + [None]*11 for i in range(20)], columns=cols)
+    else:
+        df_po = df_po_load
 
     # 3. BẢNG NHẬP LIỆU
     edited_po = st.data_editor(
@@ -3617,68 +3619,65 @@ with tab9:
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="po_editor_final_no_error"
+        key="po_editor_t9_final"
     )
 
     # 4. TÍNH TOÁN
     if not edited_po.empty:
-        for col in ["Qty", "Unit_price"]:
-            edited_po[col] = pd.to_numeric(edited_po[col], errors='coerce').fillna(0)
+        for c_name in ["Qty", "Unit_price"]:
+            edited_po[c_name] = pd.to_numeric(edited_po[c_name], errors='coerce').fillna(0)
         edited_po["Total_price"] = edited_po["Qty"] * edited_po["Unit_price"]
         edited_po["Month"] = datetime.now().strftime("%Y-%m")
 
-    # 5. LƯU & GỬI TELEGRAM (TỰ TRUYỀN TOKEN/ID ĐỂ TRÁNH LỖI HÀM)
+    # 5. LƯU & GỬI TELEGRAM (TỰ GỬI ĐỂ KHÔNG LỖI HÀM NGOÀI)
     st.divider()
     if st.button("💾 LƯU VÀ GỬI THÔNG BÁO", type="primary", use_container_width=True):
         try:
             # Lọc bỏ dòng trống
             df_to_save = edited_po[~(edited_po["Customer"].isna() & edited_po["PO_no"].isna())]
-            final_records = df_to_save.where(pd.notnull(df_to_save), None).to_dict('records')
+            final_recs = df_to_save.where(pd.notnull(df_to_save), None).to_dict('records')
             
-            if final_records:
+            if final_recs:
                 # Lưu Supabase
                 supabase.table("crm_po_list").delete().neq("No", -1).execute()
-                supabase.table("crm_po_list").insert(final_records).execute()
+                supabase.table("crm_po_list").insert(final_recs).execute()
                 
-                # --- TỰ GỬI TELEGRAM TRỰC TIẾP (KHÔNG GỌI HÀM NGOÀI) ---
-                last = final_records[-1]
-                # Lấy Token và ID từ cấu hình bạn đã dùng ở Tab 7/8
-                # Thông thường bạn để ở st.secrets hoặc biến toàn cục
-                BOT_TOKEN = "7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7" # Alex kiểm tra lại Token của bạn nhé
-                CHAT_ID = "-5194813184" # Alex kiểm tra lại Chat ID của bạn nhé
+                # --- GỬI TELEGRAM TRỰC TIẾP (FIXED) ---
+                import requests
+                # Alex kiểm tra lại TOKEN và ID này có đúng của bạn không nhé
+                B_TOKEN = "7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7" 
+                C_ID = "-4756536551" 
 
-                text_msg = (
+                last_row = final_recs[-1]
+                msg_txt = (
                     f"🚀 **CẬP NHẬT PO LIST (TAB 9)**\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 KH: {last.get('Customer') or '---'}\n"
-                    f"📦 PO: {last.get('PO_no') or '---'}\n"
-                    f"💰 Giá trị: {last.get('Total_price', 0):,.0f} VND\n"
-                    f"🔗 Link: {last.get('Drive_Link') or ''}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
+                    f"👤 KH: {last_row.get('Customer') or '---'}\n"
+                    f"📦 PO: {last_row.get('PO_no') or '---'}\n"
+                    f"💰 Giá trị: {last_row.get('Total_price', 0):,.0f} VND\n"
+                    f"🔗 Link: {last_row.get('Drive_Link') or ''}"
                 )
                 
-                # Gửi trực tiếp qua API
-                import requests
-                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                requests.post(url, json={"chat_id": CHAT_ID, "text": text_msg, "parse_mode": "Markdown"})
+                t_url = f"https://api.telegram.org/bot{B_TOKEN}/sendMessage"
+                requests.post(t_url, json={"chat_id": C_ID, "text": msg_txt, "parse_mode": "Markdown"})
                 
                 st.success("✅ Đã lưu và bắn Telegram thành công!")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.warning("⚠️ Nhập dữ liệu đi mày!")
+                st.warning("⚠️ Nhập dữ liệu đã Alex ơi!")
         except Exception as e:
-            st.error(f"Lỗi rồi Alex: {e}")
+            st.error(f"Lỗi rồi: {e}")
 
     # 6. BIỂU ĐỒ DOANH SỐ
     if not edited_po.empty and edited_po["Total_price"].sum() > 0:
         st.subheader("📊 Doanh số hiện tại")
-        chart_data = edited_po.groupby("Customer")["Total_price"].sum().reset_index()
-        chart_data = chart_data[chart_data["Total_price"] > 0]
-        if not chart_data.empty:
-            c = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=10, cornerRadiusTopRight=10).encode(
+        c_data = edited_po.groupby("Customer")["Total_price"].sum().reset_index()
+        c_data = c_data[c_data["Total_price"] > 0]
+        if not c_data.empty:
+            chart_v9 = alt.Chart(c_data).mark_bar(cornerRadiusTopLeft=10, cornerRadiusTopRight=10).encode(
                 x=alt.X('Customer', sort='-y'),
                 y='Total_price',
                 color='Customer'
             ).properties(height=300)
-            st.altair_chart(c, use_container_width=True)
+            st.altair_chart(chart_v9, use_container_width=True)
