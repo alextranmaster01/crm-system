@@ -3582,8 +3582,7 @@ with t9:
 # --- TAB 9: QUẢN LÝ PO (THEO DÕI ĐƠN HÀNG) ---
 # =============================================================================
 with t9:
-    st.header("📋 PO LIST - QUẢN LÝ TẠM THỜI")
-    st.info("💡 Tab hoạt động độc lập. Dữ liệu lưu tại bảng 'crm_po_list' trên Supabase.")
+    st.header("📋 PO LIST - NHẬP LIỆU NHANH")
 
     # 1. LẤY TÊN KHÁCH HÀNG TỪ MASTER DATA
     try:
@@ -3592,25 +3591,24 @@ with t9:
     except:
         list_customers = ["Khách lẻ", "NEXGA", "Apollo"]
 
-    # 2. TẢI DỮ LIỆU CŨ
-    try:
-        res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
-        df_po_load = pd.DataFrame(res_po.data)
-    except:
-        df_po_load = pd.DataFrame()
+    # 2. TẢI DỮ LIỆU (Dùng st.cache_data hoặc kiểm tra session_state để tránh load lại gây thừa bảng)
+    if 'temp_po_df' not in st.session_state:
+        try:
+            res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
+            if res_po.data:
+                st.session_state.temp_po_df = pd.DataFrame(res_po.data)
+            else:
+                st.session_state.temp_po_df = pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"])
+        except:
+            st.session_state.temp_po_df = pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"])
 
-    if df_po_load.empty:
-        cols = ["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"]
-        df_po = pd.DataFrame([[i+1] + [None]*11 for i in range(20)], columns=cols)
-    else:
-        df_po = df_po_load
-
-    # 3. BẢNG NHẬP LIỆU
-    edited_po = st.data_editor(
-        df_po,
+    # 3. HIỂN THỊ BẢNG NHẬP LIỆU DUY NHẤT
+    # Tôi dùng st.data_editor và gán trực tiếp vào biến để xử lý sau
+    edited_df = st.data_editor(
+        st.session_state.temp_po_df,
         column_config={
             "No": st.column_config.NumberColumn("No", width="small"),
-            "Customer": st.column_config.SelectboxColumn("Customer", options=list_customers),
+            "Customer": st.column_config.SelectboxColumn("Customer", options=list_customers, width="medium"),
             "Qty": st.column_config.NumberColumn("Q'ty", format="%d"),
             "Unit_price": st.column_config.NumberColumn("Unit price", format="%d"),
             "Total_price": st.column_config.NumberColumn("Total price", format="%d", disabled=True),
@@ -3619,65 +3617,59 @@ with t9:
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="po_editor_t9_final"
+        key="main_po_editor"
     )
 
-    # 4. TÍNH TOÁN
-    if not edited_po.empty:
-        for c_name in ["Qty", "Unit_price"]:
-            edited_po[c_name] = pd.to_numeric(edited_po[c_name], errors='coerce').fillna(0)
-        edited_po["Total_price"] = edited_po["Qty"] * edited_po["Unit_price"]
-        edited_po["Month"] = datetime.now().strftime("%Y-%m")
+    # 4. XỬ LÝ LOGIC TÍNH TOÁN (Ngầm bên dưới, không hiển thị thêm bảng)
+    if not edited_df.equals(st.session_state.temp_po_df):
+        edited_df["Qty"] = pd.to_numeric(edited_df["Qty"], errors='coerce').fillna(0)
+        edited_df["Unit_price"] = pd.to_numeric(edited_df["Unit_price"], errors='coerce').fillna(0)
+        edited_df["Total_price"] = edited_df["Qty"] * edited_df["Unit_price"]
+        edited_df["Month"] = datetime.now().strftime("%Y-%m")
+        st.session_state.temp_po_df = edited_df
+        # Không st.rerun ở đây để tránh bảng bị reset liên tục khi đang gõ
 
-    # 5. LƯU & GỬI TELEGRAM (TỰ GỬI ĐỂ KHÔNG LỖI HÀM NGOÀI)
+    # 5. NÚT LƯU & GỬI TELEGRAM
     st.divider()
-    if st.button("💾 LƯU VÀ GỬI THÔNG BÁO", type="primary", use_container_width=True):
+    if st.button("💾 LƯU DỮ LIỆU & BẮN TELEGRAM", type="primary", use_container_width=True):
         try:
             # Lọc bỏ dòng trống
-            df_to_save = edited_po[~(edited_po["Customer"].isna() & edited_po["PO_no"].isna())]
+            df_to_save = edited_df[~(edited_df["Customer"].isna() & edited_df["PO_no"].isna())]
             final_recs = df_to_save.where(pd.notnull(df_to_save), None).to_dict('records')
             
             if final_recs:
-                # Lưu Supabase
+                # Ghi đè database
                 supabase.table("crm_po_list").delete().neq("No", -1).execute()
                 supabase.table("crm_po_list").insert(final_recs).execute()
                 
-                # --- GỬI TELEGRAM TRỰC TIẾP (FIXED) ---
+                # Gửi Telegram trực tiếp
                 import requests
-                # Alex kiểm tra lại TOKEN và ID này có đúng của bạn không nhé
                 B_TOKEN = "7547004654:AAESvXp0_yV5U7n9R8E7hG57n9G57n9R8E7" 
                 C_ID = "-4756536551" 
 
-                last_row = final_recs[-1]
+                last = final_recs[-1]
                 msg_txt = (
-                    f"🚀 **CẬP NHẬT PO LIST (TAB 9)**\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 KH: {last_row.get('Customer') or '---'}\n"
-                    f"📦 PO: {last_row.get('PO_no') or '---'}\n"
-                    f"💰 Giá trị: {last_row.get('Total_price', 0):,.0f} VND\n"
-                    f"🔗 Link: {last_row.get('Drive_Link') or ''}"
+                    f"🚀 **CẬP NHẬT PO MỚI (TAB 9)**\n"
+                    f"👤 KH: {last.get('Customer') or '---'}\n"
+                    f"📦 PO: {last.get('PO_no') or '---'}\n"
+                    f"💰 Giá trị: {last.get('Total_price', 0):,.0f} VND\n"
                 )
                 
-                t_url = f"https://api.telegram.org/bot{B_TOKEN}/sendMessage"
-                requests.post(t_url, json={"chat_id": C_ID, "text": msg_txt, "parse_mode": "Markdown"})
+                requests.post(f"https://api.telegram.org/bot{B_TOKEN}/sendMessage", 
+                             json={"chat_id": C_ID, "text": msg_txt, "parse_mode": "Markdown"})
                 
-                st.success("✅ Đã lưu và bắn Telegram thành công!")
+                st.success("✅ Đã lưu xong!")
                 time.sleep(1)
                 st.rerun()
-            else:
-                st.warning("⚠️ Nhập dữ liệu đã Alex ơi!")
         except Exception as e:
-            st.error(f"Lỗi rồi: {e}")
+            st.error(f"Lỗi: {e}")
 
-    # 6. BIỂU ĐỒ DOANH SỐ
-    if not edited_po.empty and edited_po["Total_price"].sum() > 0:
-        st.subheader("📊 Doanh số hiện tại")
-        c_data = edited_po.groupby("Customer")["Total_price"].sum().reset_index()
-        c_data = c_data[c_data["Total_price"] > 0]
-        if not c_data.empty:
-            chart_v9 = alt.Chart(c_data).mark_bar(cornerRadiusTopLeft=10, cornerRadiusTopRight=10).encode(
-                x=alt.X('Customer', sort='-y'),
-                y='Total_price',
-                color='Customer'
-            ).properties(height=300)
-            st.altair_chart(chart_v9, use_container_width=True)
+    # 6. BIỂU ĐỒ (Chỉ hiện nếu có tiền)
+    total_rev = edited_df["Total_price"].sum()
+    if total_rev > 0:
+        st.subheader("📊 Thống kê doanh số")
+        c_data = edited_df.groupby("Customer")["Total_price"].sum().reset_index()
+        chart = alt.Chart(c_data[c_data["Total_price"] > 0]).mark_bar(cornerRadius=5).encode(
+            x='Customer', y='Total_price', color='Customer'
+        ).properties(height=300)
+        st.altair_chart(chart, use_container_width=True)
