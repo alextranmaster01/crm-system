@@ -389,8 +389,8 @@ def parse_formula(formula, buying_price, ap_price):
 
 # =============================================================================
 # 4. GIAO DIỆN CHÍNH
-# =============================================================================
-t1, t2, t3, t4, t5, t7, t8, t6 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "🚀 DỰ ÁN", "⚠️ QUẢN LÝ ISSUE", "⚙️ MASTER DATA"])
+# Thêm t9 vào cuối danh sách biến và thêm tên Tab vào danh sách chuỗi
+t1, t2, t3, t4, t5, t7, t8, t6, t9 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "🚀 DỰ ÁN", "⚠️ QUẢN LÝ ISSUE", "⚙️ MASTER DATA", "📈 DOANH SỐ PO"])
 # --- TAB 1: DASHBOARD (UPDATED - FIX METRICS LOGIC) ---
 # =============================================================================
 with t1:
