@@ -3673,3 +3673,4 @@ with t9:
             x='Customer', y='Total_price', color='Customer'
         ).properties(height=300)
         st.altair_chart(chart, use_container_width=True)
+        
