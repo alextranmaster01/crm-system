@@ -3584,223 +3584,102 @@ with tab9:
 [telegram]
 bot_token = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw"
 chat_id = "-5194813184"
-# =============================================================================
-# === THÊM TAB 9: ĐƠN HÀNG (PO LIST) - ĐỘC LẬP HOÀN TOÀN ===
-# =============================================================================
+with tab9:
+    st.header("📋 PO LIST - QUẢN LÝ TẠM THỜI")
+    st.info("💡 Tab hoạt động độc lập. Chỉ đồng bộ tên khách hàng từ Master Data.")
 
-# 1. SỬA DÒNG TABS ĐẦU TIÊN (thay thế dòng cũ)
-# =============================================================================
-# Dòng cũ: t1, t2, t3, t4, t5, t7, t6 = st.tabs([...])
-# Thay bằng dòng mới sau (thêm t9 ở cuối):
-t1, t2, t3, t4, t5, t7, t6, t9 = st.tabs([
-    "📊 DASHBOARD", 
-    "📦 KHO HÀNG", 
-    "💰 BÁO GIÁ", 
-    "📑 QUẢN LÝ PO", 
-    "🚚 TRACKING", 
-    "🚀 DỰ ÁN", 
-    "⚙️ MASTER DATA",
-    "📋 ĐƠN HÀNG"          # <--- TAB SỐ 9
-])
+    # 1. LẤY TÊN KHÁCH HÀNG
+    try:
+        res_cust = supabase.table("crm_master_data").select("customer_name").execute()
+        list_customers = sorted(list(set([r['customer_name'] for r in res_cust.data if r.get('customer_name')])))
+    except:
+        list_customers = ["Khách lẻ", "NEXGA", "Apollo"]
 
-# =============================================================================
-# 2. CODE TAB 9 (đặt ngay sau with t7: ... hết tab Dự Án)
-# =============================================================================
-with t9:
-    st.subheader("📋 QUẢN LÝ ĐƠN HÀNG (PO LIST)")
-    st.caption("✅ Tab hoạt động ĐỘC LẬP - Chỉ lấy tên khách hàng từ Master Data. Import Excel/CSV từ file PO LIST.xlsx. Lưu trữ Drive + Biểu đồ + Telegram.")
+    # 2. TẢI DỮ LIỆU TỪ SUPABASE
+    try:
+        res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
+        df_po = pd.DataFrame(res_po.data)
+    except:
+        df_po = pd.DataFrame()
 
-    # --- A. LẤY KHÁCH HÀNG TỪ MASTER DATA (yêu cầu 1) ---
-    cust_df = load_data("crm_customers")
-    customer_list = [""] + sorted(cust_df["short_name"].dropna().astype(str).unique().tolist()) if not cust_df.empty else [""]
+    if df_po.empty:
+        cols = ["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark"]
+        df_po = pd.DataFrame([[i+1] + [None]*11 for i in range(20)], columns=cols)
 
-    # --- B. SESSION STATE (để độc lập, không ảnh hưởng tab khác) ---
-    if "po_list_df" not in st.session_state:
-        st.session_state.po_list_df = pd.DataFrame(columns=[
-            "No", "Customer", "PO no", "Req No", "Item code", "Item name", 
-            "Specs", "Q'ty", "Unit price", "Total price", "Remark", 
-            "Order Date", "Drive Link"
-        ])
+    # 3. BẢNG NHẬP LIỆU (Excel-like)
+    edited_po = st.data_editor(
+        df_po,
+        column_config={
+            "No": st.column_config.NumberColumn("No", width="small"),
+            "Customer": st.column_config.SelectboxColumn("Customer", options=list_customers, width="medium"),
+            "Qty": st.column_config.NumberColumn("Q'ty", format="%d"),
+            "Unit_price": st.column_config.NumberColumn("Unit price", format="%d"),
+            "Total_price": st.column_config.NumberColumn("Total price", format="%d", disabled=True),
+            "Drive_Link": st.column_config.LinkColumn("Drive Link", help="Dán link folder Drive vào đây"),
+        },
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        key="po_editor_tab9_vFinal"
+    )
 
-    po_df = st.session_state.po_list_df.copy()
+    # 4. TÍNH TOÁN
+    if not edited_po.empty:
+        for col in ["Qty", "Unit_price"]:
+            edited_po[col] = pd.to_numeric(edited_po[col], errors='coerce').fillna(0)
+        edited_po["Total_price"] = edited_po["Qty"] * edited_po["Unit_price"]
+        edited_po["Month"] = datetime.now().strftime("%Y-%m")
 
-    # Đảm bảo có 2 cột mới (yêu cầu 4)
-    if "Order Date" not in po_df.columns:
-        po_df["Order Date"] = datetime.now().strftime("%Y-%m-%d")
-    if "Drive Link" not in po_df.columns:
-        po_df["Drive Link"] = ""
-
-    # --- C. IMPORT EXCEL/CSV (yêu cầu 2 & 3) ---
-    c_imp, c_edit = st.columns([1, 3])
-    with c_imp:
-        st.markdown("**📥 Import PO List (Excel hoặc CSV)**")
-        st.caption("Dùng đúng template PO LIST.xlsx (11 cột đầu)")
-        up_file = st.file_uploader("Chọn file", type=["xlsx", "csv"], key="po_list_import_9")
-
-        if up_file and st.button("🚀 Import & Ghi đè"):
-            try:
-                if up_file.name.lower().endswith(".csv"):
-                    temp_df = pd.read_csv(up_file)
-                else:
-                    temp_df = pd.read_excel(up_file, sheet_name=0)
-
-                # Chuẩn hóa đúng template (yêu cầu 2)
-                template_cols = ["No", "Customer", "PO no", "Req No", "Item code", "Item name", "Specs", "Q'ty", "Unit price", "Total price", "Remark"]
-                for col in template_cols:
-                    if col not in temp_df.columns:
-                        temp_df[col] = ""
-                
-                temp_df = temp_df[template_cols].copy()
-                temp_df["Order Date"] = datetime.now().strftime("%Y-%m-%d")
-                temp_df["Drive Link"] = ""
-                
-                # Chỉ giữ khách hàng có trong Master (an toàn)
-                temp_df["Customer"] = temp_df["Customer"].apply(lambda x: x if str(x).strip() in customer_list else "")
-
-                st.session_state.po_list_df = temp_df
-                st.success(f"✅ Import thành công {len(temp_df)} dòng!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi import: {e}")
-
-    # --- D. DATA EDITOR (giao diện Excel-like) ---
-    with c_edit:
-        st.markdown("**📝 Chỉnh sửa / Thêm đơn hàng**")
-        st.caption("Customer chỉ chọn từ Master Data • Total price tự tính khi nhấn nút")
-
-        edited_df = st.data_editor(
-            po_df,
-            num_rows="dynamic",
-            column_config={
-                "No": st.column_config.NumberColumn("No.", min_value=1, step=1, width="small"),
-                "Customer": st.column_config.SelectboxColumn("Khách hàng", options=customer_list, required=True),
-                "PO no": st.column_config.TextColumn("PO no", required=True),
-                "Req No": st.column_config.TextColumn("Req No"),
-                "Item code": st.column_config.TextColumn("Item code"),
-                "Item name": st.column_config.TextColumn("Item name"),
-                "Specs": st.column_config.TextColumn("Specs"),
-                "Q'ty": st.column_config.NumberColumn("Q'ty", min_value=0, format="%d"),
-                "Unit price": st.column_config.NumberColumn("Unit price (VND)", min_value=0, format="%.0f"),
-                "Total price": st.column_config.NumberColumn("Total price (VND)", min_value=0, format="%.0f"),
-                "Remark": st.column_config.TextColumn("Remark"),
-                "Order Date": st.column_config.DateColumn("Ngày đặt hàng", format="YYYY-MM-DD"),
-                "Drive Link": st.column_config.TextColumn("Drive Link (docs)", help="Dán link Google Drive tài liệu liên quan"),
-            },
-            use_container_width=True,
-            hide_index=True,
-            key="po_list_editor_9"
-        )
-        st.session_state.po_list_df = edited_df
-
-    # --- E. TÍNH TOÁN TỰ ĐỘNG & TỔNG DOANH SỐ ---
-    col_calc, col_total = st.columns([1, 2])
-    with col_calc:
-        if st.button("🔄 Tính lại Total Price (Q'ty × Unit price)"):
-            df_calc = st.session_state.po_list_df.copy()
-            df_calc["Total price"] = df_calc.apply(
-                lambda r: to_float(r.get("Q'ty", 0)) * to_float(r.get("Unit price", 0)), axis=1
-            )
-            st.session_state.po_list_df = df_calc
-            st.rerun()
-
-    with col_total:
-        total_val = edited_df["Total price"].apply(to_float).sum()
-        st.markdown(f"""
-        <div class="total-view">
-            💰 TỔNG DOANH SỐ TOÀN BỘ: {fmt_num(total_val)} VND
-        </div>
-        """, unsafe_allow_html=True)
-
-    # --- F. LƯU TRỮ GOOGLE DRIVE (yêu cầu 4) ---
-    c_drive1, c_drive2 = st.columns(2)
-    with c_drive1:
-        if st.button("💾 LƯU TOÀN BỘ PO LIST LÊN GOOGLE DRIVE", type="primary"):
-            try:
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    edited_df.to_excel(writer, sheet_name="PO_LIST", index=False)
-                buffer.seek(0)
-
-                fname = f"PO_LIST_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-                path_list = ["PO_LISTS", datetime.now().strftime("%Y"), datetime.now().strftime("%m")]
-                
-                folder_link, file_id = upload_to_drive_structured(buffer, path_list, fname)
-                
-                st.success("✅ Đã lưu file lên Drive!")
-                st.markdown(f"📂 [Mở file](https://drive.google.com/file/d/{file_id}/view)")
-                
-                # Cập nhật cột Drive Link (toàn bộ dòng đều có cùng link file)
-                edited_df["Drive Link"] = f"https://drive.google.com/file/d/{file_id}/view"
-                st.session_state.po_list_df = edited_df
-            except Exception as e:
-                st.error(f"Lỗi Drive: {e}")
-
-    # --- G. GỬI THÔNG BÁO TELEGRAM (yêu cầu 5 - giống tab 7 & 8) ---
-    with c_drive2:
-        if st.button("📨 Gửi thông báo Telegram"):
-            try:
-                # Lấy từ secrets (bạn chỉ cần thêm vào secrets.toml)
-                bot_token = st.secrets["telegram"]["bot_token"]
-                chat_id = st.secrets["telegram"]["chat_id"]
-                
-                msg = f"""🛎️ **CẬP NHẬT ĐƠN HÀNG MỚI**
-                
-📋 Tổng doanh số: {fmt_num(total_val)} VND
-👥 Số khách hàng: {len(edited_df["Customer"].dropna().unique())}
-📅 Ngày: {datetime.now().strftime('%d/%m/%Y')}
-                
-Kiểm tra tab ĐƠN HÀNG ngay!"""
-
-                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                payload = {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}
-                r = requests.post(url, json=payload)
-                
-                if r.status_code == 200:
-                    st.success("✅ Đã gửi Telegram!")
-                else:
-                    st.error("Lỗi gửi Telegram")
-            except Exception as e:
-                st.warning("⚠️ Chưa cấu hình Telegram trong secrets.toml (telegram.bot_token & chat_id)")
-
-    # --- H. BIỂU ĐỒ DOANH SỐ THÁNG VỪA RỒI (yêu cầu 5) ---
+    # 5. LƯU & GỬI TELEGRAM (Đã sửa để khớp hàm send_telegram_msg)
     st.divider()
-    st.subheader("📊 Doanh số tháng vừa rồi theo từng khách hàng (%)")
+    if st.button("💾 LƯU VÀ GỬI THÔNG BÁO", type="primary", use_container_width=True):
+        try:
+            # Lọc bỏ dòng trống
+            df_to_save = edited_po[~(edited_po["Customer"].isna() & edited_po["PO_no"].isna())]
+            final_records = df_to_save.where(pd.notnull(df_to_save), None).to_dict('records')
+            
+            if final_records:
+                # Lưu database
+                supabase.table("crm_po_list").delete().neq("No", -1).execute()
+                supabase.table("crm_po_list").insert(final_records).execute()
+                
+                # --- PHẦN GỬI TELEGRAM (Đã sửa tham số) ---
+                last = final_records[-1]
+                cust_name = last.get('Customer') or "Chưa rõ"
+                po_num = last.get('PO_no') or "---"
+                val = last.get('Total_price') or 0
+                link = last.get('Drive_Link') or ""
 
-    if st.button("📈 Vẽ biểu đồ (30 ngày gần nhất)"):
-        df_chart = edited_df.copy()
-        if "Order Date" in df_chart.columns and not df_chart.empty:
-            df_chart["Order Date"] = pd.to_datetime(df_chart["Order Date"], errors="coerce")
-            df_chart = df_chart.dropna(subset=["Order Date"])
-            
-            cutoff = datetime.now() - timedelta(days=30)
-            recent = df_chart[df_chart["Order Date"] >= cutoff]
-            
-            if not recent.empty:
-                recent["Total price"] = recent["Total price"].apply(to_float)
-                group = recent.groupby("Customer")["Total price"].sum().reset_index()
-                total_sales = group["Total price"].sum()
-                group["% Tổng"] = (group["Total price"] / total_sales * 100).round(2)
-                group = group.sort_values("% Tổng", ascending=False)
-                
-                st.dataframe(group, use_container_width=True, hide_index=True)
-                
-                # Bar chart
-                bar = alt.Chart(group).mark_bar().encode(
-                    x=alt.X("Customer", sort="-y"),
-                    y="Total price",
-                    tooltip=["Customer", alt.Tooltip("Total price", format=",d"), "% Tổng"]
-                ).properties(height=400)
-                st.altair_chart(bar, use_container_width=True)
-                
-                # Pie chart
-                pie = alt.Chart(group).mark_arc().encode(
-                    theta="Total price",
-                    color=alt.Color("Customer", sort="-Total price")
+                # Nội dung tin nhắn
+                content = (
+                    f"👤 **Khách hàng:** {cust_name}\n"
+                    f"📦 **Số PO:** {po_num}\n"
+                    f"💰 **Giá trị:** {val:,.0f} VND\n"
                 )
-                st.altair_chart(pie, use_container_width=True)
+                if link:
+                    content += f"🔗 [Hồ sơ dự án]({link})\n"
+                
+                # Truyền đúng 2 tham số: (nội dung, tiêu đề)
+                send_telegram_msg(content, "🚀 CẬP NHẬT PO LIST (TAB 9)")
+                
+                st.success("✅ Đã lưu và bắn Telegram thành công!")
+                time.sleep(1)
+                st.rerun()
             else:
-                st.info("Không có đơn hàng trong 30 ngày gần nhất.")
-        else:
-            st.info("Cần có cột Order Date để vẽ biểu đồ.")
+                st.warning("⚠️ Nhập dữ liệu trước khi lưu Alex ơi!")
+        except Exception as e:
+            st.error(f"Lỗi rồi: {e}")
 
-    st.caption("✅ Tab 9 hoàn tất. Khi tab 2 (Kho hàng) hoàn chỉnh, chúng ta sẽ link toàn bộ các tab sau.")
+    # 6. BIỂU ĐỒ DOANH SỐ
+    if not edited_po.empty and edited_po["Total_price"].sum() > 0:
+        st.subheader("📊 Doanh số tháng này")
+        chart_data = edited_po.groupby("Customer")["Total_price"].sum().reset_index()
+        chart_data = chart_data[chart_data["Total_price"] > 0]
+        
+        if not chart_data.empty:
+            c = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=10, cornerRadiusTopRight=10).encode(
+                x=alt.X('Customer', sort='-y', title="Khách hàng"),
+                y=alt.Y('Total_price', title="Doanh số (VND)"),
+                color='Customer'
+            ).properties(height=300)
+            st.altair_chart(c, use_container_width=True)
