@@ -393,8 +393,7 @@ def parse_formula(formula, buying_price, ap_price):
 # Cập nhật danh sách Tabs (Thêm tab thứ 9)
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📊 Tổng quan", "📝 Báo Giá NCC", "📄 Báo Giá KH", "📦 Đặt hàng NCC", 
-    "🚚 Theo dõi", "⚙️ Master Data", "🏗️ Dự án", "⚠️ Quản lý Issue", "📋 PO LIST"
-])
+    "🚚 Theo dõi", "⚙️ Master Data", "🏗️ Dự án", "⚠️ Quản lý Issue", "📋 PO LIST"])
 # --- TAB 1: DASHBOARD (UPDATED - FIX METRICS LOGIC) ---
 # =============================================================================
 with t1:
