@@ -3581,116 +3581,100 @@ with tab9:
 with tab9:
     st.header("📋 QUẢN LÝ ĐƠN HÀNG (PO LIST)")
 
-    # --- A. LẤY DATA KHÁCH HÀNG TỪ MASTER DATA ---
+    # 1. LẤY DATA KHÁCH HÀNG TỪ MASTER DATA
     try:
         res_cust = supabase.table("crm_master_data").select("customer_name").execute()
         list_customers = sorted(list(set([r['customer_name'] for r in res_cust.data if r.get('customer_name')])))
     except:
-        list_customers = []
+        list_customers = ["Khách lẻ", "NEXGA", "Apollo"]
 
-    # --- B. XỬ LÝ DỮ LIỆU ---
-    # Tải dữ liệu từ Supabase (Bạn cần tạo bảng 'crm_po_list' trên Supabase trước)
-    try:
-        res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
-        df_po = pd.DataFrame(res_po.data)
-    except:
-        # Nếu chưa có bảng, tạo khung dữ liệu trống theo form PO LIST.xlsx
-        cols = ["No", "Customer", "PO no", "Req No", "Item code", "Item name", "Specs", "Q'ty", "Unit price", "Total price", "Drive Link", "Remark", "Month"]
-        df_po = pd.DataFrame(columns=cols)
+    # 2. HÀM GỬI TELEGRAM (Dùng chung cấu hình Tab 7/8)
+    def send_po_telegram(df_new):
+        if not df_new.empty:
+            last_item = df_new.iloc[-1]
+            msg = (
+                f"🔔 **CẬP NHẬT PO MỚI**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 **Khách hàng:** {last_item.get('Customer', 'N/A')}\n"
+                f"📦 **Số PO:** {last_item.get('PO_no', 'N/A')}\n"
+                f"📑 **Sản phẩm:** {last_item.get('Item_name', 'N/A')}\n"
+                f"💰 **Tổng tiền:** {last_item.get('Total_price', 0):,.0f} VND\n"
+                f"🔗 [Tài liệu Drive]({last_item.get('Drive_Link', '')})\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            send_telegram_msg(msg)
 
-    # --- C. TÍNH NĂNG IMPORT & ĐIỀU KHIỂN ---
-    col_f1, col_f2 = st.columns([2, 1])
-    with col_f1:
-        uploaded_file = st.file_uploader("📥 Import PO từ Excel/CSV", type=["xlsx", "csv"])
-        if uploaded_file:
-            if uploaded_file.name.endswith('.csv'):
-                df_imp = pd.read_csv(uploaded_file)
-            else:
-                df_imp = pd.read_excel(uploaded_file)
-            if st.button("Xác nhận chèn dữ liệu từ File"):
-                # Logic map cột nếu cần hoặc append trực tiếp
-                st.session_state.po_data_sync = df_imp
+    # 3. TẢI DỮ LIỆU TỪ SUPABASE
+    res_po = supabase.table("crm_po_list").select("*").order("No", ascending=True).execute()
+    df_po = pd.DataFrame(res_po.data) if res_po.data else pd.DataFrame(columns=["No", "Customer", "PO_no", "Req_No", "Item_code", "Item_name", "Specs", "Qty", "Unit_price", "Total_price", "Drive_Link", "Remark", "Month"])
+
+    # 4. KHU VỰC IMPORT FILE
+    with st.expander("📥 Import dữ liệu từ Excel/CSV"):
+        up_file = st.file_uploader("Chọn file PO", type=["xlsx", "csv"], key="po_import")
+        if up_file:
+            df_imp = pd.read_csv(up_file) if up_file.name.endswith('.csv') else pd.read_excel(up_file)
+            st.dataframe(df_imp.head(3))
+            if st.button("Xác nhận Import đè dữ liệu hiện tại"):
+                # Mapping các cột từ file upload vào cấu hình chuẩn
+                df_po = df_imp.copy()
                 st.success("Đã nạp dữ liệu từ file!")
 
-    # --- D. BẢNG CHỈNH SỬA (DATA EDITOR) ---
+    # 5. BẢNG CHỈNH SỬA (DATA EDITOR)
     st.subheader("Bảng chi tiết PO")
     edited_po = st.data_editor(
-        df_po if not df_po.empty else pd.DataFrame([[i+1]+[""]*11 for i in range(10)], columns=["No", "Customer", "PO no", "Req No", "Item code", "Item name", "Specs", "Q'ty", "Unit price", "Total price", "Drive Link", "Remark"]),
+        df_po,
         column_config={
             "No": st.column_config.NumberColumn("No", width="small"),
             "Customer": st.column_config.SelectboxColumn("Customer", options=list_customers, width="medium"),
-            "Drive Link": st.column_config.LinkColumn("Drive Link", help="Dán link folder Google Drive"),
-            "Q'ty": st.column_config.NumberColumn("Q'ty", format="%d"),
-            "Unit price": st.column_config.NumberColumn("Unit price", format="%d VND"),
-            "Total price": st.column_config.NumberColumn("Total price", format="%d VND", disabled=True),
+            "Qty": st.column_config.NumberColumn("Q'ty", format="%d"),
+            "Unit_price": st.column_config.NumberColumn("Unit price", format="%d VND"),
+            "Total_price": st.column_config.NumberColumn("Total price", format="%d VND", disabled=True),
+            "Drive_Link": st.column_config.LinkColumn("Drive Link"),
         },
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="editor_tab9"
+        key="po_editor_v9"
     )
 
-    # Tính toán tự động Total Price & Thêm tháng phục vụ biểu đồ
+    # Tính toán tự động
     if not edited_po.empty:
-        edited_po["Q'ty"] = pd.to_numeric(edited_po["Q'ty"], errors='coerce').fillna(0)
-        edited_po["Unit price"] = pd.to_numeric(edited_po["Unit price"], errors='coerce').fillna(0)
-        edited_po["Total price"] = edited_po["Q'ty"] * edited_po["Unit price"]
-        # Tự động gán tháng hiện tại cho các dòng mới để vẽ biểu đồ
-        edited_po["Month"] = datetime.now().strftime("%Y-%m")
+        edited_po["Qty"] = pd.to_numeric(edited_po["Qty"], errors='coerce').fillna(0)
+        edited_po["Unit_price"] = pd.to_numeric(edited_po["Unit_price"], errors='coerce').fillna(0)
+        edited_po["Total_price"] = edited_po["Qty"] * edited_po["Unit_price"]
+        edited_po["Month"] = datetime.now().strftime("%m/%Y")
 
-    # --- E. LƯU DỮ LIỆU & GỬI TELEGRAM ---
-    if st.button("💾 LƯU DỮ LIỆU & GỬI THÔNG BÁO TELEGRAM", type="primary", use_container_width=True):
-        # 1. Lưu Supabase (Xóa cũ ghi mới hoặc upsert)
+    # 6. NÚT LƯU & THÔNG BÁO
+    if st.button("💾 LƯU DỮ LIỆU & BẮN TELEGRAM", type="primary", use_container_width=True):
         try:
-            supabase.table("crm_po_list").delete().neq("No", -1).execute() # Xóa sạch để đồng bộ lại
-            records = edited_po.to_dict('records')
-            if records:
-                supabase.table("crm_po_list").insert(records).execute()
+            # Xóa cũ ghi mới (Đồng bộ hóa)
+            supabase.table("crm_po_list").delete().neq("No", -1).execute()
+            data_to_save = edited_po.replace({np.nan: None}).to_dict('records')
+            if data_to_save:
+                supabase.table("crm_po_list").insert(data_to_save).execute()
             
-            # 2. Gửi Telegram
-            last_row = edited_po.iloc[-1] if not edited_po.empty else None
-            if last_row is not None and str(last_row['Customer']) != 'nan':
-                tg_msg = (
-                    f"🔔 **CẬP NHẬT PO MỚI (TAB 9)**\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 **Khách hàng:** {last_row['Customer']}\n"
-                    f"📦 **Số PO:** {last_row['PO no']}\n"
-                    f"📑 **Mặt hàng:** {last_row['Item name']}\n"
-                    f"💰 **Giá trị:** {last_row['Total price']:,.0f} VND\n"
-                    f"🔗 [Xem tài liệu Drive]({last_row['Drive Link']})\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
-                )
-                send_telegram_msg(tg_msg) # Sử dụng hàm có sẵn trong file của bạn
-            st.success("✅ Đã lưu dữ liệu và bắn tin Telegram thành công!")
-            time.sleep(1)
-            st.rerun()
+            # Gửi Telegram cho dòng cuối cùng
+            send_po_telegram(edited_po)
+            st.success("Đã cập nhật hệ thống thành công!")
+            time.sleep(1); st.rerun()
         except Exception as e:
-            st.error(f"Lỗi khi lưu: {e}")
+            st.error(f"Lỗi lưu Supabase: {e}")
 
-    # --- F. BIỂU ĐỒ DOANH SỐ ---
+    # 7. BIỂU ĐỒ DOANH SỐ
     st.divider()
-    st.subheader("📊 BÁO CÁO DOANH SỐ THEO KHÁCH HÀNG (THÁNG HIỆN TẠI)")
-    
-    current_month = datetime.now().strftime("%Y-%m")
-    df_chart = edited_po[edited_po["Month"] == current_month]
-    
-    if not df_chart.empty and df_chart["Total price"].sum() > 0:
-        summary = df_chart.groupby("Customer")["Total price"].sum().reset_index()
-        total_rev = summary["Total price"].sum()
-        summary["Percentage"] = (summary["Total price"] / total_rev * 100).round(1)
+    st.subheader(f"📊 Phân tích doanh số tháng {datetime.now().strftime('%m/%Y')}")
+    if not edited_po.empty:
+        current_m = datetime.now().strftime("%m/%Y")
+        df_current = edited_po[edited_po["Month"] == current_m]
+        
+        if not df_current.empty:
+            summary = df_current.groupby("Customer")["Total_price"].sum().reset_index()
+            total_val = summary["Total_price"].sum()
+            summary["%"] = (summary["Total_price"] / total_val * 100).round(1)
 
-        c_chart1, c_chart2 = st.columns([2, 1])
-        with c_chart1:
-            # Vẽ biểu đồ cột bằng Altair (giống Tab 1 của bạn)
-            chart = alt.Chart(summary).mark_bar(cornerRadiusTopLeft=10, cornerRadiusTopRight=10).encode(
-                x=alt.X('Customer:N', title='Khách hàng', sort='-y'),
-                y=alt.Y('Total price:Q', title='Doanh số (VND)'),
-                color=alt.Color('Customer:N', legend=None)
-            ).properties(height=400)
-            st.altair_chart(chart, use_container_width=True)
-            
-        with c_chart2:
-            st.write(f"**Tổng doanh số: {total_rev:,.0f} VND**")
-            st.dataframe(summary[["Customer", "Percentage"]].rename(columns={"Percentage": "Tỷ trọng (%)"}), hide_index=True)
-    else:
-        st.info("Chưa có dữ liệu doanh số của tháng này để hiển thị biểu đồ.")
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.bar_chart(summary.set_index("Customer")["Total_price"])
+            with c2:
+                st.write("**Tỷ trọng doanh số:**")
+                st.dataframe(summary[["Customer", "Total_price", "%"]], hide_index=True)
