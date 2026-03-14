@@ -2483,9 +2483,7 @@ with t5:
 # --- TAB 9: THEO DÕI ĐƠN HÀNG (FIXED: XÓA BIẾN MẤT NGAY & ĐỒNG BỘ KPI) ---
 # =============================================================================
 with t9:
-    # Khởi tạo session state cho editor nếu chưa có
-    if "main_po_editor_vfinal_fix" not in st.session_state:
-        st.session_state["main_po_editor_vfinal_fix"] = {"edited_cells": {}}
+    # Khởi tạo session state cần thiết
     if "just_deleted_t9" not in st.session_state:
         st.session_state.just_deleted_t9 = False
 
@@ -2497,7 +2495,7 @@ with t9:
     # --- 2. GIAO DIỆN TIÊU ĐỀ ---
     st.markdown("### 📋 TRUNG TÂM QUẢN LÝ ĐƠN HÀNG (ORDER COMMAND CENTER)")
 
-    # --- 3. 3 Ô KPI ĐẦU TRANG (CONTAINER ĐỂ CẬP NHẬT REAL-TIME) ---
+    # --- 3. 3 Ô KPI ĐẦU TRANG ---
     m1, m2, m3 = st.columns(3)
     kpi_val_cont = m1.empty()
     kpi_pos_cont = m2.empty()
@@ -2530,7 +2528,7 @@ with t9:
             ).any(axis=1)
             df_filtered_9 = df_filtered_9[mask]
 
-        # --- NÚT TẠO ĐƠN HÀNG ---
+        # --- NÚT TẠO ĐƠN HÀNG MỚI ---
         with col_t2:
             with st.popover("➕ TẠO ĐƠN HÀNG MỚI", use_container_width=True):
                 p_legal = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"])
@@ -2604,13 +2602,17 @@ with t9:
         df_table_9 = df_filtered_9.copy()
         df_table_9.insert(0, "Chọn", False)
         
-        # Đảm bảo tất cả cột tồn tại
         for col in cols_final:
             if col not in df_table_9.columns:
                 df_table_9[col] = ""
         
-        # Xử lý cột id an toàn
-        df_table_9["id"] = df_table_9["id"].astype(str).replace(["nan", "None"], "")
+        df_table_9["id"] = df_table_9["id"].astype(str).replace(["nan", "None", ""], pd.NA)
+
+        # Key động: thay đổi tạm thời sau khi xóa để reset widget hoàn toàn
+        editor_key = "main_po_editor_vfinal_fix"
+        if st.session_state.just_deleted_t9:
+            editor_key = f"main_po_editor_vfinal_fix_reset_{int(time.time()*1000)}"
+            st.session_state.just_deleted_t9 = False
 
         edited_po_9 = st.data_editor(
             df_table_9[cols_final].reset_index(drop=True),
@@ -2624,10 +2626,10 @@ with t9:
                 "total_price": st.column_config.NumberColumn("Thành tiền", format="%,.0f"),
                 "po_docs": st.column_config.LinkColumn("Drive", display_text="📂 Xem"),
             },
-            key="main_po_editor_vfinal_fix"
+            key=editor_key
         )
 
-        # --- 6. ĐỒNG BỘ KPI & DÒNG TỔNG REAL-TIME ---
+        # --- 6. ĐỒNG BỘ KPI REAL-TIME ---
         df_active = edited_po_9[edited_po_9["Chọn"] == False]
         cur_total = df_active['total_price'].apply(to_float).sum()
         cur_pos = len(df_active['po_no'].unique()) if not df_active.empty else 0
@@ -2651,19 +2653,8 @@ with t9:
             unsafe_allow_html=True
         )
 
-    # --- 7. XỬ LÝ XÓA (đã fix triệt để) ---
+    # --- 7. XỬ LÝ XÓA ---
     with c_left:
-        # Reset checkbox sau khi vừa xóa thành công
-        if st.session_state.just_deleted_t9:
-            if "main_po_editor_vfinal_fix" in st.session_state:
-                editor_state = st.session_state["main_po_editor_vfinal_fix"]
-                if isinstance(editor_state, dict) and "edited_cells" in editor_state:
-                    to_remove = [k for k in editor_state["edited_cells"] if k.startswith("Chọn_")]
-                    for k in to_remove:
-                        del editor_state["edited_cells"][k]
-            st.session_state.just_deleted_t9 = False
-            st.rerun()  # rerun thêm lần nữa để giao diện sạch hoàn toàn
-
         selected_to_del = edited_po_9[edited_po_9["Chọn"] == True]
         
         if not selected_to_del.empty:
@@ -2674,8 +2665,8 @@ with t9:
             if st.button("🔥 XÁC NHẬN XÓA", type="primary", use_container_width=True):
                 if pwd_del == "admin":
                     ids_del = [
-                        int(x) for x in selected_to_del["id"].tolist()
-                        if str(x).strip() and str(x).isdigit()
+                        int(x) for x in selected_to_del["id"]
+                        if pd.notna(x) and str(x).strip().isdigit()
                     ]
                     
                     if ids_del:
@@ -2683,18 +2674,19 @@ with t9:
                             supabase.table("crm_po_tracking").delete().in_("id", ids_del).execute()
                             st.success(f"✅ Đã xóa {len(ids_del)} dòng thành công!")
                             
+                            # Kích hoạt reset widget + clear cache
                             st.session_state.just_deleted_t9 = True
                             st.cache_data.clear()
-                            time.sleep(0.4)
+                            time.sleep(0.3)
                             st.rerun()
                             
                         except Exception as e:
                             st.error(f"Lỗi khi xóa: {str(e)}")
                     else:
-                        st.warning("Không tìm thấy ID hợp lệ để xóa")
+                        st.warning("Không tìm thấy ID hợp lệ để xóa.")
                 else:
-                    st.error("Mật khẩu không đúng!")
-
+                    st.error("Mật khẩu sai!")
+        
         st.divider()
         if not df_po_tracking.empty:
             out_xlsx = io.BytesIO()
