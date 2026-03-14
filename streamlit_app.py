@@ -2593,42 +2593,58 @@ with t9:
                     supabase.table("crm_po_tracking").update({"date_delivery": str(u_date_del)}).eq("po_no", sel_po_up).execute()
                     st.success("✅ Đã cập nhật!"); time.sleep(1); st.rerun()
 
-    # --- 6. HIỂN THỊ & XÓA DÒNG (Yêu cầu 12, 14, 8) ---
-    st.markdown("#### 📋 CHI TIẾT ĐƠN HÀNG")
-    if not df_po_tracking.empty:
-        df_view_t9 = df_po_tracking.copy()
-        df_view_t9.insert(0, "Select", False)
+    # --- 6. HIỂN THỊ & XÓA DÒNG (SỬA LỖI TRUY XUẤT ID) ---
+st.markdown("#### 📋 CHI TIẾT ĐƠN HÀNG")
+if not df_po_tracking.empty:
+    # Bước 1: Tạo bản sao dữ liệu và thêm cột Select
+    df_view_t9 = df_po_tracking.copy()
+    df_view_t9.insert(0, "Select", False)
 
-        # Cấu hình bảng: ẨN CỘT ID NHƯNG GIỮ DỮ LIỆU ĐỂ FIX LỖI KEYERROR
-        edited_t9 = st.data_editor(
-            df_view_t9, use_container_width=True, hide_index=True, height=500,
-            column_config={
-                "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-                "id": None, # Ẩn cột nhưng Pandas vẫn đọc được để xóa
-                "po_docs": st.column_config.LinkColumn("📂 Drive", display_text="Mở"),
-                "total_price": st.column_config.NumberColumn("Thành tiền", format="%,.0f")
-            },
-            key="editor_t9_final_v2"
-        )
+    # Bước 2: Hiển thị bảng và cho phép chỉnh sửa
+    edited_t9 = st.data_editor(
+        df_view_t9, 
+        use_container_width=True, 
+        hide_index=True, 
+        height=500,
+        column_config={
+            "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
+            "id": None, # Ẩn ID trên giao diện
+            "po_docs": st.column_config.LinkColumn("📂 Drive", display_text="Mở"),
+            "total_price": st.column_config.NumberColumn("Thành tiền", format="%,.0f")
+        },
+        key="editor_t9_v2026_fixed"
+    )
 
-        # Xử lý xóa dòng (Yêu cầu 12, 14)
-        selected_rows = edited_t9[edited_t9["Select"] == True]
-        if not selected_rows.empty:
-            st.warning(f"Chọn {len(selected_rows)} dòng để xóa.")
-            c_d1, c_d2 = st.columns([3, 1])
-            pass_del = c_d1.text_input("Mật khẩu xóa", type="password", key="pwd_del_t9_row_final")
-            if c_d2.button("🔥 XÁC NHẬN XÓA DÒNG", type="primary", key="btn_confirm_del_t9"):
-                if pass_del == "admin":
-                    if "id" in selected_rows.columns:
-                        ids_to_del = selected_rows["id"].tolist()
+    # Bước 3: Thuật toán xóa dòng an toàn
+    # Lấy danh sách các index (chỉ số dòng) mà người dùng đã tick chọn
+    selected_indices = edited_t9[edited_t9["Select"] == True].index
+
+    if len(selected_indices) > 0:
+        st.warning(f"⚠️ Đang chọn {len(selected_indices)} dòng để xóa.")
+        c_d1, c_d2 = st.columns([3, 1])
+        pass_del = c_d1.text_input("Mật khẩu xóa dòng", type="password", key="pwd_del_t9_final_fix")
+        
+        if c_d2.button("🔥 XÁC NHẬN XÓA DÒNG PO", type="primary", key="btn_confirm_del_t9_fixed"):
+            if pass_del == "admin":
+                try:
+                    # TRUY XUẤT ID TRỰC TIẾP TỪ DATAFRAME GỐC DỰA TRÊN INDEX
+                    ids_to_del = df_view_t9.loc[selected_indices, "id"].tolist()
+                    
+                    if ids_to_del:
                         supabase.table("crm_po_tracking").delete().in_("id", ids_to_del).execute()
-                        st.success("✅ Đã xóa!"); time.sleep(1); st.rerun()
-                    else: st.error("Lỗi: Không tìm thấy cột ID!")
-                else: st.error("Sai mật khẩu!")
+                        st.success(f"✅ Đã xóa thành công {len(ids_to_del)} dòng!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Không tìm thấy ID tương ứng để xóa!")
+                except Exception as e:
+                    st.error(f"Lỗi hệ thống khi xóa: {e}")
+            else:
+                st.error("Mật khẩu Admin không đúng!")
 
-        # Tổng tiền tự động cập nhật (Yêu cầu 14)
-        total_disp_t9 = edited_t9["total_price"].apply(to_float).sum()
-        st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ HIỂN THỊ: {fmt_num(total_disp_t9)} VND</div>', unsafe_allow_html=True)
+    # Bước 4: Tự động cập nhật tổng tiền
+    total_disp_t9 = edited_t9["total_price"].apply(to_float).sum()
+    st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ HIỂN THỊ: {fmt_num(total_disp_t9)} VND</div>', unsafe_allow_html=True)
 # =============================================================================
 # --- KẾT THÚC TAB 9 ---
 # =============================================================================
