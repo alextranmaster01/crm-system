@@ -2480,10 +2480,10 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 9: THEO DÕI ĐƠN HÀNG (FULL FIX: ĐỒNG BỘ KPI & XÓA TRIỆT ĐỂ) ---
+# --- TAB 9: THEO DÕI ĐƠN HÀNG (FIXED: XÓA BIẾN MẤT NGAY & ĐỒNG BỘ KPI) ---
 # =============================================================================
 with t9:
-    # 1. TẢI DỮ LIỆU ĐỘC LẬP
+    # 1. TẢI DỮ LIỆU & LÀM MỚI CACHE
     df_po_tracking = load_data("crm_po_tracking", order_by="id", ascending=False)
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
@@ -2491,16 +2491,11 @@ with t9:
     # --- 2. GIAO DIỆN TIÊU ĐỀ ---
     st.markdown("### 📋 TRUNG TÂM QUẢN LÝ ĐƠN HÀNG (ORDER COMMAND CENTER)")
 
-    # --- 3. [YÊU CẦU 1] 3 Ô KPI LÊN ĐẦU TRANG (ĐỒNG BỘ TUYỆT ĐỐI) ---
-    # Thuật toán tính toán KPI dựa trên dữ liệu gốc
-    t_val_init = df_po_tracking['total_price'].apply(to_float).sum() if not df_po_tracking.empty else 0
-    t_pos_init = len(df_po_tracking['po_no'].unique()) if not df_po_tracking.empty else 0
-    t_items_init = len(df_po_tracking) if not df_po_tracking.empty else 0
-
+    # --- 3. 3 Ô KPI ĐẦU TRANG (CONTAINER ĐỂ CẬP NHẬT REAL-TIME) ---
     m1, m2, m3 = st.columns(3)
-    kpi_val = m1.empty() # Tạo container để cập nhật số sau khi lọc
-    kpi_pos = m2.empty()
-    kpi_items = m3.empty()
+    kpi_val_cont = m1.empty()
+    kpi_pos_cont = m2.empty()
+    kpi_items_cont = m3.empty()
 
     st.divider()
 
@@ -2509,7 +2504,7 @@ with t9:
     
     with c_left:
         st.markdown("📂 **BỘ LỌC**")
-        sel_cust_9 = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].dropna().unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"], key="filter_cust_t9_final_ok")
+        sel_cust_9 = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].dropna().unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"], key="filter_cust_t9_vfinal")
         
         df_filtered_9 = df_po_tracking.copy() if not df_po_tracking.empty else pd.DataFrame()
         if sel_cust_9 != "TẤT CẢ":
@@ -2517,12 +2512,12 @@ with t9:
 
     with c_right:
         col_t1, col_t2 = st.columns([4, 1.5])
-        search_kw_9 = st.text_input("🔍 Tìm kiếm nhanh...", "", key="search_t9_final_fixed_v2")
+        search_kw_9 = st.text_input("🔍 Tìm kiếm nhanh...", "", key="search_t9_vfinal")
         if search_kw_9:
             mask = df_filtered_9.astype(str).apply(lambda x: x.str.contains(search_kw_9, case=False, na=False)).any(axis=1)
             df_filtered_9 = df_filtered_9[mask]
 
-        # --- NÚT TẠO ĐƠN HÀNG (CÓ TELEGRAM) ---
+        # --- NÚT TẠO ĐƠN HÀNG (GIỮ NGUYÊN TELEGRAM) ---
         with col_t2:
             with st.popover("➕ TẠO ĐƠN HÀNG MỚI", use_container_width=True):
                 p_legal = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"])
@@ -2537,7 +2532,7 @@ with t9:
                         mapping = {'no': 'No', 'item_code': 'Item code', 'item_name': 'Item name', 'specs': 'Specs', 'qty': "Q'ty", 'unit_price': 'Unit price', 'total_price': 'Total price', 'remark': 'Remark'}
                         doc_url = ""
                         if p_files_at:
-                            path = ["PO_TRACKING_DOCS", p_po_no]; fid = get_or_create_folder_hierarchy(get_drive_service(), path, ROOT_FOLDER_ID)
+                            path = ["PO_TRACKING", p_po_no]; fid = get_or_create_folder_hierarchy(get_drive_service(), path, ROOT_FOLDER_ID)
                             doc_url = f"https://drive.google.com/drive/folders/{fid}"
                             for f in p_files_at: upload_to_drive_structured(f, path, f.name)
 
@@ -2553,15 +2548,15 @@ with t9:
                         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
                         st.cache_data.clear(); st.success("✅ Đã lưu!"); time.sleep(0.5); st.rerun()
 
-        # --- 5. HIỂN THỊ BẢNG (THUẬT TOÁN TAB 2) ---
+        # --- 5. HIỂN THỊ BẢNG (ĐỊNH DẠNG TUYỆT ĐỐI) ---
         cols_final = ["Chọn", "no", "legal_entity", "customer", "po_no", "item_code", "item_name", "qty", "unit_price", "total_price", "po_docs", "date_received", "date_delivery", "id"]
-        df_display_final = df_filtered_9.copy()
-        df_display_final.insert(0, "Chọn", False)
+        df_table_9 = df_filtered_9.copy()
+        df_table_9.insert(0, "Chọn", False)
         for col in cols_final:
-            if col not in df_display_final.columns: df_display_final[col] = ""
+            if col not in df_table_9.columns: df_table_9[col] = ""
 
         edited_po_9 = st.data_editor(
-            df_display_final[cols_final].reset_index(drop=True),
+            df_table_9[cols_final].reset_index(drop=True),
             use_container_width=True, hide_index=True, height=500,
             column_config={
                 "Chọn": st.column_config.CheckboxColumn("Xóa", width="small"),
@@ -2569,41 +2564,47 @@ with t9:
                 "total_price": st.column_config.NumberColumn("Thành tiền", format="%,.0f"),
                 "po_docs": st.column_config.LinkColumn("Drive", display_text="📂 Xem"),
             },
-            key="main_po_editor_v9_final"
+            key="main_po_editor_vfinal_fix"
         )
 
-        # --- ĐỒNG BỘ KPI & DÒNG TỔNG (FIX QUAN TRỌNG) ---
+        # --- 6. ĐỒNG BỘ KPI & DÒNG TỔNG REAL-TIME ---
         df_active = edited_po_9[edited_po_9["Chọn"] == False]
         cur_total = df_active['total_price'].apply(to_float).sum()
         cur_pos = len(df_active['po_no'].unique()) if not df_active.empty else 0
         cur_items = len(df_active)
 
-        # Cập nhật KPI đầu trang real-time
-        kpi_val.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{fmt_num(cur_total)}</h1></div>", unsafe_allow_html=True)
-        kpi_pos.markdown(f"<div class='card-3d bg-cost'><h3>SỐ LƯỢNG PO</h3><h1>{cur_pos}</h1></div>", unsafe_allow_html=True)
-        kpi_items.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG</h3><h1>{cur_items}</h1></div>", unsafe_allow_html=True)
+        # Cập nhật 3 ô KPI trên đầu trang
+        kpi_val_cont.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{fmt_num(cur_total)}</h1></div>", unsafe_allow_html=True)
+        kpi_pos_cont.markdown(f"<div class='card-3d bg-cost'><h3>SỐ LƯỢNG PO</h3><h1>{cur_pos}</h1></div>", unsafe_allow_html=True)
+        kpi_items_cont.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG</h3><h1>{cur_items}</h1></div>", unsafe_allow_html=True)
         
         st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ DÒNG ĐANG HIỂN THỊ: {fmt_num(cur_total)} VND</div>', unsafe_allow_html=True)
 
-    # --- 6. [YÊU CẦU 2 & 3] THUẬT TOÁN XÓA TAB 2: HIỆN THANH XÁC NHẬN ---
+    # --- 7. THUẬT TOÁN XÓA TAB 2 (XÓA TRIỆT ĐỂ & BIẾN MẤT NGAY) ---
     with c_left:
         selected_to_del = edited_po_9[edited_po_9["Chọn"] == True]
         if not selected_to_del.empty:
             st.divider()
-            st.markdown(f"""<div style="background-color: #fff3cd; padding: 10px; border-radius: 5px; border-left: 5px solid #ffc107;">
-                <span style="color: #856404; font-weight: bold;">⚠️ Chọn xóa {len(selected_to_del)} dòng.</span>
-            </div>""", unsafe_allow_html=True)
-            
-            pwd_del = st.text_input("Mật khẩu Admin:", type="password", key="pwd_del_v9_final")
+            st.markdown(f"⚠️ **Chọn xóa {len(selected_to_del)} dòng.**")
+            pwd_del = st.text_input("Mật khẩu Admin:", type="password", key="pwd_del_t9_last")
             if st.button("🔥 XÁC NHẬN XÓA", type="primary", use_container_width=True):
                 if pwd_del == "admin":
-                    # FIX: Chuyển ID sang kiểu int để tránh lỗi API
+                    # Ép kiểu ID thành số để xóa chính xác
                     ids_del = [int(x) for x in selected_to_del["id"].tolist() if str(x).isdigit()]
                     if ids_del:
                         supabase.table("crm_po_tracking").delete().in_("id", ids_del).execute()
-                        st.cache_data.clear() # Xóa cache để biến mất dòng ngay lập tức
-                        st.success("✅ Đã xóa!"); time.sleep(0.5); st.rerun()
+                        
+                        # QUAN TRỌNG: Xóa cache và rerun để dòng biến mất ngay
+                        st.cache_data.clear()
+                        st.success("✅ Đã xóa thành công!")
+                        time.sleep(0.5)
+                        st.rerun()
                 else: st.error("Mật khẩu sai!")
+
+        st.divider()
+        if not df_po_tracking.empty:
+            out_xlsx = io.BytesIO(); df_po_tracking.to_excel(out_xlsx, index=False)
+            st.download_button("📥 EXPORT PO LIST", data=out_xlsx.getvalue(), file_name=f"PO_LIST.xlsx", use_container_width=True)
 # =============================================================================
 # --- KẾT THÚC TAB 9 ---
 # =============================================================================
