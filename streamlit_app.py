@@ -2593,58 +2593,66 @@ with t9:
                     supabase.table("crm_po_tracking").update({"date_delivery": str(u_date_del)}).eq("po_no", sel_po_up).execute()
                     st.success("✅ Đã cập nhật!"); time.sleep(1); st.rerun()
 
-    # --- 6. HIỂN THỊ & XÓA DÒNG (SỬA LỖI TRUY XUẤT ID) ---
-st.markdown("#### 📋 CHI TIẾT ĐƠN HÀNG")
+    # --- 6. HIỂN THỊ & XÓA DÒNG (FIX TRIỆT ĐỂ LỖI 'id' SYSTEM ERROR) ---
+st.markdown("#### 📋 DANH SÁCH CHI TIẾT ĐƠN HÀNG")
 if not df_po_tracking.empty:
-    # Bước 1: Tạo bản sao dữ liệu và thêm cột Select
+    # BƯỚC 1: ÉP KIỂU VÀ CHUẨN HÓA DỮ LIỆU GỐC
+    # Đảm bảo cột 'id' tồn tại và không bị drop trong dataframe gốc
     df_view_t9 = df_po_tracking.copy()
-    df_view_t9.insert(0, "Select", False)
+    
+    # Thêm cột Select vào đầu bảng để người dùng tích chọn (Yêu cầu 12)
+    if "Select" not in df_view_t9.columns:
+        df_view_t9.insert(0, "Select", False)
 
-    # Bước 2: Hiển thị bảng và cho phép chỉnh sửa
+    # BƯỚC 2: CẤU HÌNH BẢNG HIỂN THỊ
+    # Quan trọng: Dùng column_config để ẩn 'id' nhưng vẫn giữ lại trong dữ liệu ngầm
     edited_t9 = st.data_editor(
         df_view_t9, 
         use_container_width=True, 
-        hide_index=True, 
+        hide_index=False, # Hiện index để đối chiếu chính xác
         height=500,
         column_config={
             "Select": st.column_config.CheckboxColumn("Chọn", width="small"),
-            "id": None, # Ẩn ID trên giao diện
-            "po_docs": st.column_config.LinkColumn("📂 Drive", display_text="Mở"),
+            "id": None, # Ẩn cột ID trên giao diện nhưng Pandas vẫn giữ trong DF
+            "po_docs": st.column_config.LinkColumn("📂 DRIVE", display_text="Xem"),
             "total_price": st.column_config.NumberColumn("Thành tiền", format="%,.0f")
         },
-        key="editor_t9_v2026_fixed"
+        key="editor_t9_final_fixed_v3"
     )
 
-    # Bước 3: Thuật toán xóa dòng an toàn
-    # Lấy danh sách các index (chỉ số dòng) mà người dùng đã tick chọn
-    selected_indices = edited_t9[edited_t9["Select"] == True].index
+    # BƯỚC 3: THUẬT TOÁN XÓA DÒNG DỰA TRÊN ĐỐI CHIẾU INDEX
+    # Lấy danh sách các dòng đã được Tick chọn
+    selected_rows = edited_t9[edited_t9["Select"] == True]
 
-    if len(selected_indices) > 0:
-        st.warning(f"⚠️ Đang chọn {len(selected_indices)} dòng để xóa.")
-        c_d1, c_d2 = st.columns([3, 1])
-        pass_del = c_d1.text_input("Mật khẩu xóa dòng", type="password", key="pwd_del_t9_final_fix")
+    if not selected_rows.empty:
+        st.warning(f"⚠️ Đang chọn {len(selected_rows)} dòng để xóa khỏi hệ thống.")
+        c_del_1, c_del_2 = st.columns([3, 1])
+        pass_del_t9 = c_del_1.text_input("Nhập mật khẩu Admin để xóa", type="password", key="pwd_del_t9_ultimate")
         
-        if c_d2.button("🔥 XÁC NHẬN XÓA DÒNG PO", type="primary", key="btn_confirm_del_t9_fixed"):
-            if pass_del == "admin":
+        if c_del_2.button("🔥 XÁC NHẬN XÓA DÒNG", type="primary", key="btn_confirm_del_t9_final"):
+            if pass_del_t9 == "admin":
                 try:
-                    # TRUY XUẤT ID TRỰC TIẾP TỪ DATAFRAME GỐC DỰA TRÊN INDEX
-                    ids_to_del = df_view_t9.loc[selected_indices, "id"].tolist()
+                    # CÁCH LẤY ID AN TOÀN NHẤT:
+                    # Lấy ID từ dataframe gốc (df_view_t9) bằng index của những dòng được chọn
+                    ids_to_del = df_view_t9.loc[selected_rows.index, "id"].tolist()
                     
                     if ids_to_del:
                         supabase.table("crm_po_tracking").delete().in_("id", ids_to_del).execute()
-                        st.success(f"✅ Đã xóa thành công {len(ids_to_del)} dòng!")
+                        st.success(f"✅ Đã xóa thành công {len(ids_to_del)} dòng dữ liệu!")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("Không tìm thấy ID tương ứng để xóa!")
+                        st.error("Lỗi: Không tìm thấy giá trị ID hợp lệ trong dữ liệu nguồn!")
                 except Exception as e:
+                    # Nếu vẫn lỗi, in ra tên các cột hiện có để debug
                     st.error(f"Lỗi hệ thống khi xóa: {e}")
+                    st.write("Cột hiện có trong bảng:", df_view_t9.columns.tolist())
             else:
                 st.error("Mật khẩu Admin không đúng!")
 
-    # Bước 4: Tự động cập nhật tổng tiền
-    total_disp_t9 = edited_t9["total_price"].apply(to_float).sum()
-    st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ HIỂN THỊ: {fmt_num(total_disp_t9)} VND</div>', unsafe_allow_html=True)
+    # BƯỚC 4: TỔNG TIỀN TỰ ĐỘNG CẬP NHẬT (Yêu cầu 14)
+    total_val_t9 = edited_t9["total_price"].apply(to_float).sum()
+    st.markdown(f'<div class="total-view">💰 TỔNG GIÁ TRỊ HIỂN THỊ: {fmt_num(total_val_t9)} VND</div>', unsafe_allow_html=True)
 # =============================================================================
 # --- KẾT THÚC TAB 9 ---
 # =============================================================================
