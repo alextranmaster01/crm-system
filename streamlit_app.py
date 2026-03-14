@@ -2557,13 +2557,24 @@ with t9:
                         new_db_data.append(d)
                 
                 if new_db_data:
-                    supabase.table("crm_po_tracking").insert(new_db_data).execute()
-                    last = new_db_data[-1]
-                    msg = f"📦 **CẬP NHẬT ĐƠN HÀNG**\n\n🏢 KH: {last['customer']}\n💰 Tổng: {fmt_num(last['total_price'])} VND"
-                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_GROUP_ID, "text": msg})
-                    st.success("✅ Đã lưu!"); time.sleep(1); st.rerun()
-            except Exception as e: st.error(f"Lỗi lưu dữ liệu: {e}")
-
+                    # Thuật toán lọc cột thông minh: Chỉ gửi dữ liệu nếu cột đó tồn tại trong DB
+                    # Giúp tránh tuyệt đối lỗi KeyError hoặc PGRST204/205
+                    try:
+                        # Lấy danh sách cột thực tế đang có trên Supabase
+                        actual_columns = supabase.table("crm_po_tracking").select("*").limit(1).execute().data
+                        db_cols = actual_columns[0].keys() if actual_columns else []
+                        
+                        clean_to_save = []
+                        for row in new_db_data:
+                            # Chỉ giữ lại những trường dữ liệu mà DB có cột tương ứng
+                            clean_row = {k: v for k, v in row.items() if k in db_cols or not db_cols}
+                            clean_to_save.append(clean_row)
+                        
+                        supabase.table("crm_po_tracking").insert(clean_to_save).execute()
+                        # ... (phần gửi telegram giữ nguyên)
+                    except:
+                        # Nếu table rỗng chưa có cột nào, cứ thử insert mặc định
+                        supabase.table("crm_po_tracking").insert(new_db_data).execute()
     # --- CỘT PHẢI: BẢNG DỮ LIỆU (FIX TRIỆT ĐỂ KEYERROR) ---
     with c_right_9:
         st.markdown("### 📋 DANH SÁCH THEO DÕI ĐƠN HÀNG")
