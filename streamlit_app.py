@@ -2575,8 +2575,9 @@ with t9:
                     except:
                         # Nếu table rỗng chưa có cột nào, cứ thử insert mặc định
                         supabase.table("crm_po_tracking").insert(new_db_data).execute()
-    # --- CỘT PHẢI: BẢNG DỮ LIỆU (FIX TRIỆT ĐỂ KEYERROR) ---
-    with c_right_9:
+                        
+# --- CỘT PHẢI: BẢNG DỮ LIỆU (FIX TRIỆT ĐỂ KEYERROR) --- 
+with c_right_9:
         st.markdown("### 📋 DANH SÁCH THEO DÕI ĐƠN HÀNG")
         search_po = st.text_input("🔍 Tìm kiếm nhanh...", key="search_t9_v5")
 
