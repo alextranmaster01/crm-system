@@ -2480,40 +2480,29 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 9: THEO DÕI ĐƠN HÀNG (GIAO DIỆN CHUẨN TAB 2) ---
+# --- TAB 9: THEO DÕI ĐƠN HÀNG (FIX LỖI THỤT LỀ & IMPORT) ---
 # =============================================================================
 with t9:
-    # 1. TẢI DỮ LIỆU ĐỘC LẬP
+    # 1. Tải dữ liệu
     df_po_track = load_data("crm_po_tracking", order_by="id", ascending=False)
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    # 2. BỐ CỤC 2 CỘT GIỐNG TAB 2
+    # 2. Bố cục 2 cột
     c_left_9, c_right_9 = st.columns([1.2, 5])
 
-    # --- CỘT TRÁI: CÔNG CỤ (IMPORT & UPLOAD) ---
     with c_left_9:
         st.markdown("### 📥 Thao tác")
         
-        # Công cụ Import
+        # --- PHẦN IMPORT (Dòng 2501 - 2503 bạn đang bị lỗi ở đây) ---
         with st.expander("📂 Import Excel/CSV", expanded=False):
-            up_po_csv = st.file_uploader("Kéo thả file vào đây", type=["xlsx", "csv"], key="up_bulk_t9_v2")
-            if up_po_csv and st.button("🚀 Thực hiện Import", use_container_width=True):
-                # Công cụ Import (ĐÃ FIX LỖI PARSE COLUMNS)
-        with st.expander("📂 Import Excel/CSV", expanded=False):
-            up_po_csv = st.file_uploader("Kéo thả file vào đây", type=["xlsx", "csv"], key="up_bulk_t9_v2")
-            if up_po_csv and st.button("🚀 Thực hiện Import", use_container_width=True):
-                try:
-                    # 1. Đọc file
-                    df_imp = pd.read_csv(up_po_csv).fillna("") if up_po_csv.name.endswith('.csv') else pd.read_excel(up_po_csv).fillna("")
-                    
-                    if df_imp.empty:
-                        st.error("File không có dữ liệu!")
-                    else:
-                        # 2. Chuẩn hóa tên cột file upload (viết thường, xóa khoảng trắng) để dễ khớp
+            up_po_csv = st.file_uploader("Kéo thả file vào đây", type=["xlsx", "csv"], key="up_bulk_t9_v3")
+            if up_po_csv:
+                if st.button("🚀 Thực hiện Import", use_container_width=True):
+                    try:
+                        df_imp = pd.read_csv(up_po_csv).fillna("") if up_po_csv.name.endswith('.csv') else pd.read_excel(up_po_csv).fillna("")
                         df_imp.columns = [str(c).strip().lower().replace(" ", "_") for c in df_imp.columns]
                         
-                        # 3. Mapping thông minh: Tìm các cột tương ứng trong file
                         mapping = {
                             'customer': ['customer', 'khách_hàng', 'khach_hang', 'cust'],
                             'po_no': ['po_no', 'số_po', 'so_po', 'po_number'],
@@ -2531,33 +2520,26 @@ with t9:
                         for _, row in df_imp.iterrows():
                             record = {}
                             for db_col, aliases in mapping.items():
-                                # Tìm xem trong file có cột nào nằm trong danh sách aliases không
                                 found_col = next((c for c in aliases if c in df_imp.columns), None)
                                 if found_col:
-                                    # Xử lý ép kiểu số cho qty/price
                                     val = row[found_col]
-                                    if db_col in ['qty', 'unit_price', 'total_price']:
-                                        record[db_col] = to_float(val)
-                                    else:
-                                        record[db_col] = str(val)
+                                    if db_col in ['qty', 'unit_price', 'total_price']: record[db_col] = to_float(val)
+                                    else: record[db_col] = str(val)
                                 else:
-                                    # Nếu không thấy cột thì để trống, tránh lỗi PGRST100
                                     record[db_col] = 0 if db_col in ['qty', 'unit_price', 'total_price'] else ""
                             final_data.append(record)
 
-                        # 4. Đẩy lên Database
                         if final_data:
                             supabase.table("crm_po_tracking").insert(final_data).execute()
-                            st.success(f"✅ Đã import thành công {len(final_data)} dòng!"); time.sleep(1); st.rerun()
-                except Exception as e: 
-                    st.error(f"Lỗi hệ thống: {str(e)}")
+                            st.success(f"✅ Đã import {len(final_data)} dòng!"); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"Lỗi: {e}")
 
         st.divider()
 
-        # Công cụ Upload tài liệu cho từng dòng
+        # --- PHẦN UPLOAD FILE ---
         st.markdown("**📂 Đính kèm hồ sơ (Drive)**")
-        target_no = st.number_input("Số thứ tự (No)", min_value=1, step=1)
-        up_files_t9 = st.file_uploader("Ảnh, PDF, Excel...", accept_multiple_files=True, key="up_files_t9_v2")
+        target_no = st.number_input("Số thứ tự (No)", min_value=1, step=1, key="target_no_t9_fix")
+        up_files_t9 = st.file_uploader("Ảnh, PDF, Excel...", accept_multiple_files=True, key="up_files_t9_fix")
         
         if st.button("💾 LƯU & GỬI TELEGRAM", type="primary", use_container_width=True):
             try:
@@ -2571,7 +2553,6 @@ with t9:
                         doc_url = f"https://drive.google.com/drive/folders/{folder_id}"
                         for f in up_files_t9: upload_to_drive_structured(f, path_list, f.name)
 
-                # Lưu Database
                 supabase.table("crm_po_tracking").delete().neq("id", 0).execute()
                 new_recs = []
                 for i, row in edited_po_t9.iterrows():
@@ -2582,35 +2563,26 @@ with t9:
                 
                 if new_recs:
                     supabase.table("crm_po_tracking").insert(new_recs).execute()
-                    # Telegram
                     last = new_recs[-1]
                     msg = f"📦 **CẬP NHẬT PO**\n👤 KH: {last['customer']}\n📄 PO: {last['po_no']}\n💰 Tổng: {fmt_num(last['total_price'])} VND"
                     requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
                     st.success("✅ Đã lưu!"); time.sleep(1); st.rerun()
             except Exception as e: st.error(f"Lỗi: {e}")
 
-    # --- CỘT PHẢI: BẢNG DỮ LIỆU (THEO STYLE TAB 2) ---
+    # --- CỘT PHẢI: BẢNG DỮ LIỆU ---
     with c_right_9:
         st.markdown("### 📋 DANH SÁCH THEO DÕI ĐƠN HÀNG")
-        
-        # Thanh tìm kiếm giống Tab 2
-        search_po = st.text_input("🔍 Tìm kiếm theo PO, Khách hàng, Mã hàng...", key="search_po_t9")
+        search_po = st.text_input("🔍 Tìm kiếm...", key="search_po_t9_fix")
 
-        # Chuẩn bị dữ liệu hiển thị
         expected_po_cols = ['customer', 'po_no', 'req_no', 'item_code', 'item_name', 'specs', 'qty', 'unit_price', 'total_price', 'po_docs', 'remark']
-        if df_po_track.empty:
-            df_display_po = pd.DataFrame(columns=expected_po_cols)
-        else:
-            df_display_po = df_po_track[expected_po_cols].copy()
+        df_display_po = df_po_track[expected_po_cols].copy() if not df_po_track.empty else pd.DataFrame(columns=expected_po_cols)
 
-        # Lọc tìm kiếm
         if search_po:
             mask = df_display_po.astype(str).apply(lambda x: x.str.contains(search_po, case=False, na=False)).any(axis=1)
             df_display_po = df_display_po[mask]
 
         df_display_po.insert(0, "No", range(1, len(df_display_po) + 1))
 
-        # BẢNG EDITOR CHUYÊN NGHIỆP
         edited_po_t9 = st.data_editor(
             df_display_po,
             num_rows="dynamic",
@@ -2620,15 +2592,10 @@ with t9:
             column_config={
                 "No": st.column_config.NumberColumn("No", width=40, disabled=True),
                 "customer": st.column_config.SelectboxColumn("Khách hàng", options=cust_list, width=150),
-                "po_no": st.column_config.TextColumn("Số PO", width=120),
-                "qty": st.column_config.NumberColumn("Số lượng", format="%d", width=80),
-                "unit_price": st.column_config.NumberColumn("Đơn giá", format="%.0f", width=120),
-                "total_price": st.column_config.NumberColumn("Thành tiền", format="%.0f", width=120),
-                "po_docs": st.column_config.LinkColumn("Tài liệu", display_text="📂 Mở Drive", width=120),
-                "item_name": st.column_config.TextColumn("Tên hàng", width=200),
-                "specs": st.column_config.TextColumn("Quy cách", width=200),
+                "total_price": st.column_config.NumberColumn("Thành tiền", format="%.0f"),
+                "po_docs": st.column_config.LinkColumn("Tài liệu", display_text="📂 Drive"),
             },
-            key="main_po_editor_t9"
+            key="main_po_editor_t9_fix"
         )
 # =============================================================================
 # --- KẾT THÚC TAB 9 ---
