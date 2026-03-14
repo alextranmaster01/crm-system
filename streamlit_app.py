@@ -2480,130 +2480,111 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 9: THEO DÕI ĐƠN HÀNG (INDEPENDENT - EXCEL STYLE) ---
+# --- TAB 9: THEO DÕI ĐƠN HÀNG (GIAO DIỆN CHUẨN TAB 2) ---
 # =============================================================================
 with t9:
-    st.markdown("### 📋 HỆ THỐNG THEO DÕI ĐƠN HÀNG ĐỘC LẬP")
-
-    # 1. TẢI DỮ LIỆU (Hoạt động độc lập trên bảng crm_po_tracking)
+    # 1. TẢI DỮ LIỆU ĐỘC LẬP
     df_po_track = load_data("crm_po_tracking", order_by="id", ascending=False)
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    # 2. GIAO DIỆN CÔNG CỤ (THAM KHẢO TAB 2)
-    c_tools_9_1, c_tools_9_2 = st.columns([7, 3])
-    
-    with c_tools_9_2:
-        with st.expander("📥 IMPORT EXCEL/CSV", expanded=False):
-            up_po_csv = st.file_uploader("Chọn file", type=["xlsx", "csv"], key="up_po_track_bulk_t9")
-            if up_po_csv and st.button("🚀 XÁC NHẬN IMPORT", use_container_width=True):
+    # 2. BỐ CỤC 2 CỘT GIỐNG TAB 2
+    c_left_9, c_right_9 = st.columns([1.2, 5])
+
+    # --- CỘT TRÁI: CÔNG CỤ (IMPORT & UPLOAD) ---
+    with c_left_9:
+        st.markdown("### 📥 Thao tác")
+        
+        # Công cụ Import
+        with st.expander("📂 Import Excel/CSV", expanded=False):
+            up_po_csv = st.file_uploader("Kéo thả file vào đây", type=["xlsx", "csv"], key="up_bulk_t9_v2")
+            if up_po_csv and st.button("🚀 Thực hiện Import", use_container_width=True):
                 try:
                     df_imp = pd.read_csv(up_po_csv).fillna("") if up_po_csv.name.endswith('.csv') else pd.read_excel(up_po_csv).fillna("")
-                    # Chỉ lấy các cột hợp lệ để tránh lỗi database
                     valid_cols = ['customer', 'po_no', 'req_no', 'item_code', 'item_name', 'specs', 'qty', 'unit_price', 'total_price', 'remark']
-                    # Lọc lấy các cột tồn tại trong file upload
                     imp_data = df_imp[[c for c in valid_cols if c in df_imp.columns]].to_dict('records')
                     supabase.table("crm_po_tracking").insert(imp_data).execute()
-                    st.success("✅ Đã import thành công!"); time.sleep(1); st.rerun()
-                except Exception as e: st.error(f"Lỗi import: {e}")
+                    st.success("✅ Thành công!"); time.sleep(1); st.rerun()
+                except Exception as e: st.error(f"Lỗi: {e}")
 
-    # 3. BẢNG DỮ LIỆU CHÍNH (GIAO DIỆN ĐƠN GIẢN NHƯ TAB 2)
-    expected_po_cols = ['customer', 'po_no', 'req_no', 'item_code', 'item_name', 'specs', 'qty', 'unit_price', 'total_price', 'po_docs', 'remark']
-    
-    # Chuẩn bị Data
-    if df_po_track.empty:
-        df_display_po = pd.DataFrame(columns=expected_po_cols)
-    else:
-        # Giữ lại cột ID ngầm để update nhưng không hiện lên bảng
-        df_display_po = df_po_track.copy()
-        for col in expected_po_cols:
-            if col not in df_display_po.columns: df_display_po[col] = ""
-        df_display_po = df_display_po[expected_po_cols]
+        st.divider()
 
-    # Thêm số thứ tự No
-    df_display_po.insert(0, "No", range(1, len(df_display_po) + 1))
-
-    # HIỂN THỊ EDITOR
-    edited_po_t9 = st.data_editor(
-        df_display_po,
-        num_rows="dynamic", # Cho phép thêm dòng mới như Excel
-        use_container_width=True,
-        hide_index=True,
-        height=550,
-        column_config={
-            "No": st.column_config.NumberColumn("No", width=40, disabled=True),
-            "customer": st.column_config.SelectboxColumn("Customer", options=cust_list, width=150),
-            "qty": st.column_config.NumberColumn("Q'ty", format="%d"),
-            "unit_price": st.column_config.NumberColumn("Unit price", format="%.0f"),
-            "total_price": st.column_config.NumberColumn("Total price", format="%.0f"),
-            "po_docs": st.column_config.LinkColumn("PO Docs", width=150, display_text="📂 Mở Drive"),
-            "item_name": st.column_config.TextColumn("Item name", width=200),
-            "specs": st.column_config.TextColumn("Specs", width=200),
-        },
-        key="editor_po_tracking_tab9_v1"
-    )
-
-    # 4. XỬ LÝ LƯU & UPLOAD & TELEGRAM
-    st.divider()
-    c_save_9_1, c_save_9_2 = st.columns([4, 6])
-    
-    with c_save_9_1:
-        st.markdown("**📂 ĐÍNH KÈM TÀI LIỆU (DRIVE)**")
-        target_no = st.number_input("Chọn 'No' để đính kèm file", min_value=1, step=1, key="target_no_t9")
-        up_files_t9 = st.file_uploader("Ảnh, PDF, Excel, Word...", accept_multiple_files=True, key="up_files_t9")
-
-    with c_save_9_2:
-        st.write("<br>", unsafe_allow_html=True)
-        if st.button("💾 LƯU THAY ĐỔI & GỬI TELEGRAM", type="primary", use_container_width=True, key="btn_save_t9"):
+        # Công cụ Upload tài liệu cho từng dòng
+        st.markdown("**📂 Đính kèm hồ sơ (Drive)**")
+        target_no = st.number_input("Số thứ tự (No)", min_value=1, step=1)
+        up_files_t9 = st.file_uploader("Ảnh, PDF, Excel...", accept_multiple_files=True, key="up_files_t9_v2")
+        
+        if st.button("💾 LƯU & GỬI TELEGRAM", type="primary", use_container_width=True):
             try:
-                # A. Xử lý upload Drive (nếu có file)
                 doc_url = ""
                 if up_files_t9:
-                    with st.spinner("Đang tải tài liệu lên Drive..."):
-                        # Lấy số PO của dòng đang chọn để tạo thư mục
-                        row_idx = target_no - 1
-                        po_ref = edited_po_t9.iloc[row_idx]['po_no'] if row_idx < len(edited_po_t9) else "TEMP"
-                        path_list = ["THEO_DOI_PO", str(po_ref)]
+                    with st.spinner("Đang tải lên Drive..."):
+                        po_ref = edited_po_t9.iloc[target_no-1]['po_no'] if (target_no-1) < len(edited_po_t9) else "TEMP"
+                        path_list = ["PO_TRACKING", str(po_ref)]
                         srv = get_drive_service()
                         folder_id = get_or_create_folder_hierarchy(srv, path_list, ROOT_FOLDER_ID)
                         doc_url = f"https://drive.google.com/drive/folders/{folder_id}"
-                        for f in up_files_t9:
-                            upload_to_drive_structured(f, path_list, f.name)
+                        for f in up_files_t9: upload_to_drive_structured(f, path_list, f.name)
 
-                # B. Lưu Database (Ghi đè để đảm bảo tính độc lập)
-                # Xóa sạch data cũ của bảng này để lưu bộ mới nhất từ Editor
+                # Lưu Database
                 supabase.table("crm_po_tracking").delete().neq("id", 0).execute()
-                
-                final_recs = []
+                new_recs = []
                 for i, row in edited_po_t9.iterrows():
-                    if row['customer'] and row['po_no']:
-                        d = {k: row[k] for k in expected_po_cols}
-                        # Gán link drive vào đúng dòng đã chọn
-                        if i == (target_no - 1) and doc_url:
-                            d['po_docs'] = doc_url
-                        final_recs.append(d)
+                    if row['customer']:
+                        d = {k: row[k] for k in ['customer', 'po_no', 'req_no', 'item_code', 'item_name', 'specs', 'qty', 'unit_price', 'total_price', 'po_docs', 'remark']}
+                        if i == (target_no - 1) and doc_url: d['po_docs'] = doc_url
+                        new_recs.append(d)
                 
-                if final_recs:
-                    supabase.table("crm_po_tracking").insert(final_recs).execute()
-                    
-                    # C. Gửi thông báo Telegram (Thuật toán Tab 7/8)
-                    last_po = final_recs[-1] # Lấy dòng cuối cùng vừa nhập
-                    msg_tele = (
-                        f"📦 <b>CẬP NHẬT ĐƠN HÀNG (TAB 9)</b>\n\n"
-                        f"👤 <b>Khách hàng:</b> {last_po['customer']}\n"
-                        f"📄 <b>Số PO:</b> {last_po['po_no']}\n"
-                        f"💰 <b>Tổng tiền:</b> {fmt_num(last_po['total_price'])} VND\n"
-                        f"📅 <b>Ngày nhận:</b> {datetime.now().strftime('%d/%m/%Y')}\n\n"
-                        f"<i>👉 Đã lưu tài liệu vào Drive hệ thống!</i>"
-                    )
-                    url_tele = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                    requests.post(url_tele, json={"chat_id": TELEGRAM_GROUP_ID, "text": msg_tele, "parse_mode": "HTML"})
-                    
-                    st.success("✅ Đã lưu và gửi Telegram thành công!"); time.sleep(1); st.rerun()
-                else:
-                    st.warning("Không có dữ liệu hợp lệ (Cần có Customer và PO no)")
+                if new_recs:
+                    supabase.table("crm_po_tracking").insert(new_recs).execute()
+                    # Telegram
+                    last = new_recs[-1]
+                    msg = f"📦 **CẬP NHẬT PO**\n👤 KH: {last['customer']}\n📄 PO: {last['po_no']}\n💰 Tổng: {fmt_num(last['total_price'])} VND"
+                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_GROUP_ID, "text": msg, "parse_mode": "HTML"})
+                    st.success("✅ Đã lưu!"); time.sleep(1); st.rerun()
             except Exception as e: st.error(f"Lỗi: {e}")
 
+    # --- CỘT PHẢI: BẢNG DỮ LIỆU (THEO STYLE TAB 2) ---
+    with c_right_9:
+        st.markdown("### 📋 DANH SÁCH THEO DÕI ĐƠN HÀNG")
+        
+        # Thanh tìm kiếm giống Tab 2
+        search_po = st.text_input("🔍 Tìm kiếm theo PO, Khách hàng, Mã hàng...", key="search_po_t9")
+
+        # Chuẩn bị dữ liệu hiển thị
+        expected_po_cols = ['customer', 'po_no', 'req_no', 'item_code', 'item_name', 'specs', 'qty', 'unit_price', 'total_price', 'po_docs', 'remark']
+        if df_po_track.empty:
+            df_display_po = pd.DataFrame(columns=expected_po_cols)
+        else:
+            df_display_po = df_po_track[expected_po_cols].copy()
+
+        # Lọc tìm kiếm
+        if search_po:
+            mask = df_display_po.astype(str).apply(lambda x: x.str.contains(search_po, case=False, na=False)).any(axis=1)
+            df_display_po = df_display_po[mask]
+
+        df_display_po.insert(0, "No", range(1, len(df_display_po) + 1))
+
+        # BẢNG EDITOR CHUYÊN NGHIỆP
+        edited_po_t9 = st.data_editor(
+            df_display_po,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            height=700,
+            column_config={
+                "No": st.column_config.NumberColumn("No", width=40, disabled=True),
+                "customer": st.column_config.SelectboxColumn("Khách hàng", options=cust_list, width=150),
+                "po_no": st.column_config.TextColumn("Số PO", width=120),
+                "qty": st.column_config.NumberColumn("Số lượng", format="%d", width=80),
+                "unit_price": st.column_config.NumberColumn("Đơn giá", format="%.0f", width=120),
+                "total_price": st.column_config.NumberColumn("Thành tiền", format="%.0f", width=120),
+                "po_docs": st.column_config.LinkColumn("Tài liệu", display_text="📂 Mở Drive", width=120),
+                "item_name": st.column_config.TextColumn("Tên hàng", width=200),
+                "specs": st.column_config.TextColumn("Quy cách", width=200),
+            },
+            key="main_po_editor_t9"
+        )
 # =============================================================================
 # --- KẾT THÚC TAB 9 ---
 # =============================================================================
