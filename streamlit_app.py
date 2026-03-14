@@ -2499,13 +2499,58 @@ with t9:
         with st.expander("📂 Import Excel/CSV", expanded=False):
             up_po_csv = st.file_uploader("Kéo thả file vào đây", type=["xlsx", "csv"], key="up_bulk_t9_v2")
             if up_po_csv and st.button("🚀 Thực hiện Import", use_container_width=True):
+                # Công cụ Import (ĐÃ FIX LỖI PARSE COLUMNS)
+        with st.expander("📂 Import Excel/CSV", expanded=False):
+            up_po_csv = st.file_uploader("Kéo thả file vào đây", type=["xlsx", "csv"], key="up_bulk_t9_v2")
+            if up_po_csv and st.button("🚀 Thực hiện Import", use_container_width=True):
                 try:
+                    # 1. Đọc file
                     df_imp = pd.read_csv(up_po_csv).fillna("") if up_po_csv.name.endswith('.csv') else pd.read_excel(up_po_csv).fillna("")
-                    valid_cols = ['customer', 'po_no', 'req_no', 'item_code', 'item_name', 'specs', 'qty', 'unit_price', 'total_price', 'remark']
-                    imp_data = df_imp[[c for c in valid_cols if c in df_imp.columns]].to_dict('records')
-                    supabase.table("crm_po_tracking").insert(imp_data).execute()
-                    st.success("✅ Thành công!"); time.sleep(1); st.rerun()
-                except Exception as e: st.error(f"Lỗi: {e}")
+                    
+                    if df_imp.empty:
+                        st.error("File không có dữ liệu!")
+                    else:
+                        # 2. Chuẩn hóa tên cột file upload (viết thường, xóa khoảng trắng) để dễ khớp
+                        df_imp.columns = [str(c).strip().lower().replace(" ", "_") for c in df_imp.columns]
+                        
+                        # 3. Mapping thông minh: Tìm các cột tương ứng trong file
+                        mapping = {
+                            'customer': ['customer', 'khách_hàng', 'khach_hang', 'cust'],
+                            'po_no': ['po_no', 'số_po', 'so_po', 'po_number'],
+                            'req_no': ['req_no', 'số_req', 'so_req', 'req_number'],
+                            'item_code': ['item_code', 'mã_hàng', 'ma_hang', 'code'],
+                            'item_name': ['item_name', 'tên_hàng', 'ten_hang', 'name'],
+                            'specs': ['specs', 'quy_cách', 'quy_cach', 'specification'],
+                            'qty': ['qty', 'số_lượng', 'so_luong', 'quantity'],
+                            'unit_price': ['unit_price', 'đơn_giá', 'don_gia', 'price'],
+                            'total_price': ['total_price', 'thành_tiền', 'thanh_tien', 'total'],
+                            'remark': ['remark', 'ghi_chú', 'ghi_chu', 'note']
+                        }
+
+                        final_data = []
+                        for _, row in df_imp.iterrows():
+                            record = {}
+                            for db_col, aliases in mapping.items():
+                                # Tìm xem trong file có cột nào nằm trong danh sách aliases không
+                                found_col = next((c for c in aliases if c in df_imp.columns), None)
+                                if found_col:
+                                    # Xử lý ép kiểu số cho qty/price
+                                    val = row[found_col]
+                                    if db_col in ['qty', 'unit_price', 'total_price']:
+                                        record[db_col] = to_float(val)
+                                    else:
+                                        record[db_col] = str(val)
+                                else:
+                                    # Nếu không thấy cột thì để trống, tránh lỗi PGRST100
+                                    record[db_col] = 0 if db_col in ['qty', 'unit_price', 'total_price'] else ""
+                            final_data.append(record)
+
+                        # 4. Đẩy lên Database
+                        if final_data:
+                            supabase.table("crm_po_tracking").insert(final_data).execute()
+                            st.success(f"✅ Đã import thành công {len(final_data)} dòng!"); time.sleep(1); st.rerun()
+                except Exception as e: 
+                    st.error(f"Lỗi hệ thống: {str(e)}")
 
         st.divider()
 
