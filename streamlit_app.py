@@ -2510,7 +2510,7 @@ with t9:
     # --- [PHẦN 2]: HỆ THỐNG THÔNG BÁO QUẢN TRỊ QUA TELEGRAM ---
     # Cấu hình Token và Chat ID được cấp riêng cho Alex để quản lý PO
     PO_SYSTEM_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PO_SYSTEM_CHAT_ID = "-5283852302"
+    PO_SYSTEM_CHAT_ID = "-5179823221"
 
     def send_po_system_notification_full(legal, customer, amount, po_date, action_name="CẬP NHẬT"):
         """
