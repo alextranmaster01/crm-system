@@ -2500,12 +2500,12 @@ with t9:
             f"👤 <b>Khách hàng:</b> {customer}\n"
             f"💰 <b>Tổng giá trị:</b> {local_fmt_vnd(total)} VND\n"
             f"📅 <b>Ngày nhận:</b> {date_rec}\n"
-            f"<i>Dữ liệu đã được đồng bộ vào hệ thống CRM!</i>"
+            f"<i>Hệ thống CRM đã đồng bộ dữ liệu thành công!</i>"
         )
         try: requests.post(url, json={"chat_id": PO_TELE_CHAT_ID, "text": msg, "parse_mode": "HTML"})
         except: pass
 
-    # --- 2. HEADER: TIÊU ĐỀ & NÚT TẠO (GÓC PHẢI TRÊN - GIỐNG ẢNH) ---
+    # --- 2. HEADER: TIÊU ĐỀ & NÚT TẠO ---
     c_head1, c_head2 = st.columns([8, 2])
     c_head1.markdown("### 📊 THỐNG KÊ CHI TIẾT")
     with c_head2:
@@ -2548,17 +2548,17 @@ with t9:
                         
                         supabase.table("crm_po_tracking").insert(new_recs).execute()
                         send_po_msg_tele(n_legal, n_cust, sum(r["total_price"] for r in new_recs), str(n_date_rec), "TẠO MỚI")
-                        st.success("✅ Thành công!"); time.sleep(0.5); st.rerun()
+                        st.success("✅ Đã lưu!"); time.sleep(0.5); st.rerun()
                     except Exception as e: st.error(f"Lỗi: {e}")
 
-    # --- 3. KHỐI KPI (STYLE THEO ẢNH - XANH, CAM, VÀNG) ---
+    # --- 3. KHỐI KPI ---
     kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
-    # Các biến số sẽ được cập nhật sau từ dữ liệu của bảng edited_df
     kpi_placeholder1 = kpi_c1.empty()
     kpi_placeholder2 = kpi_c2.empty()
     kpi_placeholder3 = kpi_c3.empty()
 
-    # --- 4. BỘ LỌC & BIỂU ĐỒ (DƯỚI KPI - GIỐNG ẢNH) ---
+    # --- 4. BỘ LỌC & BIỂU ĐỒ ---
+    st.markdown("---")
     with st.expander("📊 BIỂU ĐỒ PHÂN TÍCH THEO DỮ LIỆU ĐANG CHỌN", expanded=False):
         st.info("Biểu đồ doanh số sẽ hiển thị tại đây khi có dữ liệu.")
 
@@ -2566,9 +2566,9 @@ with t9:
     with c_f1:
         sel_cust_9 = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"])
     with c_f2:
-        search_kw_9 = st.text_input("🔍 Tìm kiếm dự án (tên dự án, mã dự án, khách hàng...)", "", key="search_t9_img_style")
+        search_kw_9 = st.text_input("🔍 Tìm kiếm đơn hàng (Số PO, khách hàng, mã hàng...)", "", key="search_t9_v3")
 
-    # --- 5. BẢNG DỮ LIỆU & THANH TỔNG MÀU ĐEN (CHÍNH GIỮA) ---
+    # --- 5. BẢNG DỮ LIỆU & LOGIC XÓA VĨNH VIỄN (Yêu cầu 1) ---
     df_filtered = df_po_tracking.copy()
     if sel_cust_9 != "TẤT CẢ":
         df_filtered = df_filtered[df_filtered["customer"] == sel_cust_9]
@@ -2578,7 +2578,7 @@ with t9:
 
     cols_order = ["customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
     
-    # Render bảng Data Editor
+    # ⚠️ THUẬT TOÁN XÓA VÀ GHI ĐÈ ĐỘC LẬP
     edited_df_9 = st.data_editor(
         df_filtered[cols_order],
         use_container_width=True,
@@ -2590,36 +2590,61 @@ with t9:
             "unit_price": st.column_config.NumberColumn("Unit price", format="%,.0f"),
         },
         height=450,
-        key="editor_t9_img_final"
+        key="editor_t9_v3_main"
     )
 
-    # Thuật toán tính tổng dynamic
+    # Kiểm tra xem có dòng nào bị xóa không để đồng bộ Database
+    if len(edited_df_9) < len(df_filtered):
+        # Xác định những ID bị mất trong df_filtered
+        remaining_indices = edited_df_9.index.tolist()
+        dropped_rows = df_filtered[~df_filtered.index.isin(remaining_indices)]
+        
+        # Thực hiện xóa vĩnh viễn trong Supabase dựa trên PO No và Item Code (hoặc ID nếu có)
+        for _, row in dropped_rows.iterrows():
+            supabase.table("crm_po_tracking").delete().eq("po_no", row["po_no"]).eq("item_code", row["item_code"]).execute()
+        st.toast("🗑️ Đã xóa dữ liệu vĩnh viễn khỏi Database!", icon="✅")
+        time.sleep(0.5)
+        st.rerun()
+
+    # Thuật toán tính tổng dynamic cho KPI
     cur_total = edited_df_9["total_price"].apply(local_parse_money).sum()
     cur_pos = len(edited_df_9['po_no'].unique()) if not edited_df_9.empty else 0
     cur_items = len(edited_df_9)
 
-    # Cập nhật ngược lại vào khối KPI phía trên
+    # Cập nhật ngược lại vào khối KPI
     kpi_placeholder1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{local_fmt_vnd(cur_total)}</h1></div>", unsafe_allow_html=True)
     kpi_placeholder2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{cur_pos}</h1></div>", unsafe_allow_html=True)
     kpi_placeholder3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{cur_items}</h1></div>", unsafe_allow_html=True)
 
-    # Thanh tổng giá trị màu đen (Theo đúng ảnh mẫu)
+    # Thanh tổng giá trị màu đen
     st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; border: 2px solid #333; color: #00FF00; padding: 8px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(cur_total)} VND</div>', unsafe_allow_html=True)
 
-    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT & EXPORT (STYLE TAB DỰ ÁN) ---
+    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT THÔNG TIN ĐƠN HÀNG (Yêu cầu 2) ---
     st.divider()
     c_bot1, c_bot2 = st.columns([7, 3])
     with c_bot1:
-        st.markdown("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG & QUẢN LÝ HỒ SƠ KỸ THUẬT**")
-        with st.form("form_update_po_t9_final"):
-            u_name = st.text_input("Số PO (Thay đổi)", value="")
-            u_date = st.date_input("Ngày Nhận Lại", value=datetime.now())
-            u_docs = st.file_uploader("Cập nhật hồ sơ/tài liệu (trùng tên tự động ghi đè)", accept_multiple_files=True)
-            if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT TOÀN BỘ THÔNG TIN", use_container_width=True):
-                st.success("✅ Đã cập nhật thông tin đơn hàng!"); time.sleep(0.5); st.rerun()
+        # Sử dụng expander để thu gọn (Yêu cầu 2.1)
+        with st.expander("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG**", expanded=False):
+            with st.form("form_update_po_v3"):
+                # Yêu cầu 2.2: Thay đổi các trường nhập liệu
+                old_po = st.text_input("Số PO trước khi thay đổi", value="")
+                new_po = st.text_input("Số PO mới (sau khi thay đổi)", value="")
+                u_date = st.date_input("Ngày nhận mới (nếu có)", value=datetime.now())
+                u_docs = st.file_uploader("Cập nhật thêm tài liệu Drive", accept_multiple_files=True)
+                
+                if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT TOÀN BỘ THÔNG TIN", use_container_width=True):
+                    if old_po and new_po:
+                        try:
+                            # Thuật toán đổi số PO hàng loạt cho tất cả các dòng cùng mã PO cũ
+                            supabase.table("crm_po_tracking").update({"po_no": new_po, "date_received": str(u_date)}).eq("po_no", old_po).execute()
+                            st.success(f"✅ Đã đổi Số PO: {old_po} thành {new_po} thành công!")
+                            time.sleep(1); st.rerun()
+                        except Exception as e: st.error(f"Lỗi: {e}")
+                    else:
+                        st.warning("Vui lòng điền cả Số PO cũ và Số PO mới để thực hiện thay đổi.")
     
     with c_bot2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         if st.button("📥 EXPORT ALL PO", use_container_width=True):
             out_xlsx = io.BytesIO()
             df_po_tracking.to_excel(out_xlsx, index=False)
