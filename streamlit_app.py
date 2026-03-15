@@ -2480,7 +2480,7 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 9: THEO DÕI ĐƠN HÀNG (PO TRACKING - GIAO DIỆN THEO ẢNH MẪU 100%) ---
+# --- TAB 9: THEO DÕI ĐƠN HÀNG (PO TRACKING - GIAO DIỆN 100% THEO MẪU) ---
 # =============================================================================
 with t9:
     # 1. TẢI DỮ LIỆU ĐỘC LẬP
@@ -2522,7 +2522,9 @@ with t9:
             if st.button("🚀 LƯU ĐƠN HÀNG", type="primary", use_container_width=True):
                 if n_po_no and n_cust and n_excel:
                     try:
-                        df_imp = pd.read_excel(n_excel).fillna("") if n_excel.name.endswith('xlsx') else pd.read_csv(n_excel).fillna("")
+                        # THUẬT TOÁN MATCHING TUYỆT ĐỐI THEO VỊ TRÍ CỘT
+                        df_raw = pd.read_excel(n_excel, header=None, skiprows=1).fillna("") if n_excel.name.endswith('xlsx') else pd.read_csv(n_excel, header=None, skiprows=1).fillna("")
+                        
                         path_drive = ["PO_TRACKING_DOCS", n_cust, n_po_no]
                         doc_url = ""
                         if n_files:
@@ -2532,23 +2534,30 @@ with t9:
                             for f in n_files: upload_to_drive_structured(f, path_drive, f.name)
 
                         new_recs = []
-                        for _, row in df_imp.iterrows():
+                        for _, row in df_raw.iterrows():
+                            # Lấy data theo index cột: B=1, C=2, D=3, E=4, F=5, G=6, H=7, I=8, J=9, K=10, L=11
                             rec = {
-                                "legal_entity": n_legal, "customer": n_cust, "po_no": n_po_no,
-                                "req_no": str(row.get("Req No", "")), "item_code": str(row.get("Item code", "")),
-                                "item_name": str(row.get("Item name", "")), "specs": str(row.get("Specs", "")),
-                                "qty": local_parse_money(row.get("Q'ty", 0)),
-                                "unit_price": local_parse_money(row.get("Unit price", 0)),
-                                "total_price": local_parse_money(row.get("Total price", 0)),
-                                "po_docs": doc_url, "remark": str(row.get("Remark", "")),
+                                "legal_entity": n_legal,
+                                "customer": str(row.iloc[1]) if len(row) > 1 else n_cust,
+                                "po_no": str(row.iloc[2]) if len(row) > 2 else n_po_no,
+                                "req_no": str(row.iloc[3]) if len(row) > 3 else "",
+                                "item_code": str(row.iloc[4]) if len(row) > 4 else "",
+                                "item_name": str(row.iloc[5]) if len(row) > 5 else "",
+                                "specs": str(row.iloc[6]) if len(row) > 6 else "",
+                                "qty": local_parse_money(row.iloc[7]) if len(row) > 7 else 0,
+                                "unit_price": local_parse_money(row.iloc[8]) if len(row) > 8 else 0,
+                                "total_price": local_parse_money(row.iloc[9]) if len(row) > 9 else 0,
+                                "po_docs": doc_url if doc_url else (str(row.iloc[10]) if len(row) > 10 else ""),
+                                "remark": str(row.iloc[11]) if len(row) > 11 else "",
                                 "date_received": str(n_date_rec), "date_delivery": str(n_date_del)
                             }
-                            supabase.table("crm_po_tracking").delete().eq("po_no", n_po_no).eq("item_code", rec["item_code"]).execute()
+                            # Ghi đè: Xóa cũ theo PO No và Item Code trước khi chèn mới
+                            supabase.table("crm_po_tracking").delete().eq("po_no", rec["po_no"]).eq("item_code", rec["item_code"]).execute()
                             new_recs.append(rec)
                         
                         supabase.table("crm_po_tracking").insert(new_recs).execute()
                         send_po_msg_tele(n_legal, n_cust, sum(r["total_price"] for r in new_recs), str(n_date_rec), "TẠO MỚI")
-                        st.success("✅ Đã lưu!"); time.sleep(0.5); st.rerun()
+                        st.success("✅ Đã đồng bộ dữ liệu thành công!"); time.sleep(0.5); st.rerun()
                     except Exception as e: st.error(f"Lỗi: {e}")
 
     # --- 3. KHỐI KPI ---
@@ -2566,9 +2575,9 @@ with t9:
     with c_f1:
         sel_cust_9 = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"])
     with c_f2:
-        search_kw_9 = st.text_input("🔍 Tìm kiếm đơn hàng (Số PO, khách hàng, mã hàng...)", "", key="search_t9_v3")
+        search_kw_9 = st.text_input("🔍 Tìm kiếm nhanh đơn hàng...", "", key="search_t9_v4")
 
-    # --- 5. BẢNG DỮ LIỆU & LOGIC XÓA VĨNH VIỄN ---
+    # --- 5. BẢNG DỮ LIỆU & LOGIC XÓA ---
     df_filtered = df_po_tracking.copy()
     if sel_cust_9 != "TẤT CẢ":
         df_filtered = df_filtered[df_filtered["customer"] == sel_cust_9]
@@ -2588,16 +2597,16 @@ with t9:
             "total_price": st.column_config.NumberColumn("Total price", format="%,.0f"),
             "unit_price": st.column_config.NumberColumn("Unit price", format="%,.0f"),
         },
-        height=450,
-        key="editor_t9_v3_main"
+        height=400,
+        key="editor_t9_v4_main"
     )
 
+    # Đồng bộ xóa dữ liệu vĩnh viễn
     if len(edited_df_9) < len(df_filtered):
-        remaining_indices = edited_df_9.index.tolist()
-        dropped_rows = df_filtered[~df_filtered.index.isin(remaining_indices)]
-        for _, row in dropped_rows.iterrows():
+        dropped = df_filtered[~df_filtered.index.isin(edited_df_9.index.tolist())]
+        for _, row in dropped.iterrows():
             supabase.table("crm_po_tracking").delete().eq("po_no", row["po_no"]).eq("item_code", row["item_code"]).execute()
-        st.toast("🗑️ Đã xóa dữ liệu vĩnh viễn khỏi Database!", icon="✅")
+        st.toast("🗑️ Đã xóa dữ liệu khỏi Database!", icon="✅")
         time.sleep(0.5); st.rerun()
 
     cur_total = edited_df_9["total_price"].apply(local_parse_money).sum()
@@ -2610,80 +2619,74 @@ with t9:
 
     st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; border: 2px solid #333; color: #00FF00; padding: 8px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(cur_total)} VND</div>', unsafe_allow_html=True)
 
-    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT THÔNG TIN ĐƠN HÀNG (Yêu cầu 1 & 1.1) ---
+    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT THÔNG TIN ĐƠN HÀNG ---
     st.divider()
     c_bot1, c_bot2 = st.columns([7, 3])
     with c_bot1:
         with st.expander("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG**", expanded=False):
-            with st.form("form_update_po_v4"):
+            with st.form("form_update_po_v4_final"):
                 old_po = st.text_input("Số PO trước khi thay đổi", value="")
                 new_po = st.text_input("Số PO mới (sau khi thay đổi)", value="")
-                u_cust = st.selectbox("Khách hàng xác nhận", cust_list)
-                u_date = st.date_input("Ngày nhận mới (nếu có)", value=datetime.now())
-                # 1.1 Thêm ô upload excel/csv ghi đè
+                confirm_cust = st.selectbox("Khách hàng xác nhận", cust_list)
+                u_date = st.date_input("Ngày nhận mới", value=datetime.now())
                 u_excel = st.file_uploader("Cập nhật Data hàng loạt (Excel/CSV) - Tự động ghi đè", type=["xlsx", "csv"])
-                u_docs = st.file_uploader("Cập nhật thêm tài liệu Drive (PDF, Ảnh...)", accept_multiple_files=True)
+                u_docs = st.file_uploader("Cập nhật thêm tài liệu Drive (Ghi đè file trùng tên)", accept_multiple_files=True)
                 
-                if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT & ĐỔI TÊN FOLDER DRIVE", use_container_width=True):
+                if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT & ĐỔI TÊN DRIVE", use_container_width=True):
                     try:
                         srv = get_drive_service()
-                        # --- 1. XỬ LÝ ĐỔI TÊN FOLDER TRÊN DRIVE ---
-                        if old_po and new_po and u_cust:
-                            # Tìm folder cũ trên Drive
+                        # --- 1. XỬ LÝ ĐỔI TÊN FOLDER TRÊN GOOGLE DRIVE ---
+                        folder_new_url = ""
+                        if old_po and new_po and confirm_cust:
                             q = f"name = '{old_po}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-                            results = srv.files().list(q=q, fields="files(id, parents)").execute().get('files', [])
-                            
-                            new_folder_url = ""
-                            if results:
-                                folder_id = results[0]['id']
-                                # Đổi tên folder trực tiếp trên Drive
-                                srv.files().update(fileId=folder_id, body={'name': new_po}).execute()
-                                new_folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
-                                st.toast(f"📂 Đã đổi tên folder Drive thành {new_po}", icon="📁")
+                            res_drive = srv.files().list(q=q, fields="files(id)").execute().get('files', [])
+                            if res_drive:
+                                f_id = res_drive[0]['id']
+                                srv.files().update(fileId=f_id, body={'name': new_po}).execute()
+                                folder_new_url = f"https://drive.google.com/drive/folders/{f_id}"
+                                st.toast(f"📂 Đã đổi tên Folder Drive sang {new_po}")
 
-                            # Cập nhật số PO mới và link folder mới vào Database
-                            upd_payload = {"po_no": new_po, "date_received": str(u_date)}
-                            if new_folder_url: upd_payload["po_docs"] = new_folder_url
-                            
-                            supabase.table("crm_po_tracking").update(upd_payload).eq("po_no", old_po).execute()
-                        
-                        # --- 1.1 XỬ LÝ GHI ĐÈ DỮ LIỆU EXCEL ---
+                            # Cập nhật Database
+                            upd_data = {"po_no": new_po, "date_received": str(u_date)}
+                            if folder_new_url: upd_data["po_docs"] = folder_new_url
+                            supabase.table("crm_po_tracking").update(upd_data).eq("po_no", old_po).execute()
+
+                        # --- 2. XỬ LÝ GHI ĐÈ DỮ LIỆU EXCEL ---
                         if u_excel:
-                            df_upd = pd.read_excel(u_excel).fillna("") if u_excel.name.endswith('xlsx') else pd.read_csv(u_excel).fillna("")
-                            # Xác định số PO để ghi đè (ưu tiên new_po nếu có, không thì lấy trong file)
-                            target_po = new_po if new_po else old_po
-                            
+                            df_upd = pd.read_excel(u_excel, header=None, skiprows=1).fillna("") if u_excel.name.endswith('xlsx') else pd.read_csv(u_excel, header=None, skiprows=1).fillna("")
+                            target_po_final = new_po if new_po else old_po
                             for _, row in df_upd.iterrows():
-                                itm_code = str(row.get("Item code", ""))
-                                if itm_code and target_po:
-                                    rec = {
-                                        "po_no": target_po, "customer": u_cust,
-                                        "req_no": str(row.get("Req No", "")), "item_code": itm_code,
-                                        "item_name": str(row.get("Item name", "")), "specs": str(row.get("Specs", "")),
-                                        "qty": local_parse_money(row.get("Q'ty", 0)),
-                                        "unit_price": local_parse_money(row.get("Unit price", 0)),
-                                        "total_price": local_parse_money(row.get("Total price", 0)),
-                                        "remark": str(row.get("Remark", "")), "date_received": str(u_date)
+                                itm_code_upd = str(row.iloc[4]) if len(row) > 4 else ""
+                                if itm_code_upd and target_po_final:
+                                    rec_upd = {
+                                        "po_no": target_po_final, "customer": confirm_cust,
+                                        "req_no": str(row.iloc[3]) if len(row) > 3 else "",
+                                        "item_code": itm_code_upd,
+                                        "item_name": str(row.iloc[5]) if len(row) > 5 else "",
+                                        "specs": str(row.iloc[6]) if len(row) > 6 else "",
+                                        "qty": local_parse_money(row.iloc[7]) if len(row) > 7 else 0,
+                                        "unit_price": local_parse_money(row.iloc[8]) if len(row) > 8 else 0,
+                                        "total_price": local_parse_money(row.iloc[9]) if len(row) > 9 else 0,
+                                        "remark": str(row.iloc[11]) if len(row) > 11 else "",
+                                        "date_received": str(u_date)
                                     }
-                                    # Ghi đè: Xóa cũ chèn mới
-                                    supabase.table("crm_po_tracking").delete().eq("po_no", target_po).eq("item_code", itm_code).execute()
-                                    supabase.table("crm_po_tracking").insert([rec]).execute()
-                            st.toast("📊 Đã cập nhật data ghi đè thành công!", icon="📝")
+                                    supabase.table("crm_po_tracking").delete().eq("po_no", target_po_final).eq("item_code", itm_code_upd).execute()
+                                    supabase.table("crm_po_tracking").insert([rec_upd]).execute()
 
-                        # --- XỬ LÝ UPLOAD FILE DRIVE (GHI ĐÈ FILE TRÙNG TÊN) ---
+                        # --- 3. UPLOAD GHI ĐÈ FILE DRIVE ---
                         if u_docs:
-                            target_po_drive = new_po if new_po else old_po
-                            if target_po_drive and u_cust:
-                                path_drive = ["PO_TRACKING_DOCS", u_cust, target_po_drive]
-                                for f in u_docs: upload_to_drive_structured(f, path_drive, f.name)
-                                st.toast("📎 Đã upload/ghi đè tài liệu đính kèm!", icon="📂")
+                            target_drive_po = new_po if new_po else old_po
+                            if target_drive_po and confirm_cust:
+                                path_final = ["PO_TRACKING_DOCS", confirm_cust, target_drive_po]
+                                for f in u_docs: upload_to_drive_structured(f, path_final, f.name)
+                                st.toast("📎 Đã cập nhật tài liệu lên Drive!")
 
-                        st.success("✅ Đã hoàn tất mọi cập nhật!"); time.sleep(1); st.rerun()
+                        st.success("✅ Mọi cập nhật đã hoàn tất!"); time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Lỗi hệ thống: {e}")
     
     with c_bot2:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("📥 EXPORT ALL PO", use_container_width=True):
+        if st.button("📤 EXPORT ALL PO", use_container_width=True):
             out_xlsx = io.BytesIO()
             df_po_tracking.to_excel(out_xlsx, index=False)
             st.download_button("Tải file Excel", out_xlsx.getvalue(), "ALL_PO_LIST.xlsx", use_container_width=True)
