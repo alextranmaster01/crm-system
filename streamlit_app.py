@@ -2510,14 +2510,14 @@ with t9:
     c_head1.markdown("### 📊 THỐNG KÊ CHI TIẾT")
     with c_head2:
         with st.popover("➕ TẠO ĐƠN HÀNG", use_container_width=True):
-            n_legal = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"])
-            n_po_no = st.text_input("Số PO")
-            n_cust = st.selectbox("Khách hàng", cust_list)
+            n_legal = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="n_legal_9")
+            n_po_no = st.text_input("Số PO", key="n_po_9")
+            n_cust = st.selectbox("Khách hàng", cust_list, key="n_cust_9")
             nd1, nd2 = st.columns(2)
-            n_date_rec = nd1.date_input("Ngày nhận PO")
-            n_date_del = nd2.date_input("Ngày giao hàng")
-            n_excel = st.file_uploader("Import file Excel PO", type=["xlsx", "csv"])
-            n_files = st.file_uploader("Upload đính kèm Drive", accept_multiple_files=True)
+            n_date_rec = nd1.date_input("Ngày nhận PO", key="n_date_rec_9")
+            n_date_del = nd2.date_input("Ngày giao hàng", key="n_date_del_9")
+            n_excel = st.file_uploader("Import file Excel PO", type=["xlsx", "csv"], key="n_file_9")
+            n_files = st.file_uploader("Upload đính kèm Drive", accept_multiple_files=True, key="n_files_9")
 
             if st.button("🚀 LƯU ĐƠN HÀNG", type="primary", use_container_width=True):
                 if n_po_no and n_cust and n_excel:
@@ -2568,7 +2568,7 @@ with t9:
     with c_f2:
         search_kw_9 = st.text_input("🔍 Tìm kiếm đơn hàng (Số PO, khách hàng, mã hàng...)", "", key="search_t9_v3")
 
-    # --- 5. BẢNG DỮ LIỆU & LOGIC XÓA VĨNH VIỄN (Yêu cầu 1) ---
+    # --- 5. BẢNG DỮ LIỆU & LOGIC XÓA VĨNH VIỄN ---
     df_filtered = df_po_tracking.copy()
     if sel_cust_9 != "TẤT CẢ":
         df_filtered = df_filtered[df_filtered["customer"] == sel_cust_9]
@@ -2578,7 +2578,6 @@ with t9:
 
     cols_order = ["customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
     
-    # ⚠️ THUẬT TOÁN XÓA VÀ GHI ĐÈ ĐỘC LẬP
     edited_df_9 = st.data_editor(
         df_filtered[cols_order],
         use_container_width=True,
@@ -2593,55 +2592,94 @@ with t9:
         key="editor_t9_v3_main"
     )
 
-    # Kiểm tra xem có dòng nào bị xóa không để đồng bộ Database
     if len(edited_df_9) < len(df_filtered):
-        # Xác định những ID bị mất trong df_filtered
         remaining_indices = edited_df_9.index.tolist()
         dropped_rows = df_filtered[~df_filtered.index.isin(remaining_indices)]
-        
-        # Thực hiện xóa vĩnh viễn trong Supabase dựa trên PO No và Item Code (hoặc ID nếu có)
         for _, row in dropped_rows.iterrows():
             supabase.table("crm_po_tracking").delete().eq("po_no", row["po_no"]).eq("item_code", row["item_code"]).execute()
         st.toast("🗑️ Đã xóa dữ liệu vĩnh viễn khỏi Database!", icon="✅")
-        time.sleep(0.5)
-        st.rerun()
+        time.sleep(0.5); st.rerun()
 
-    # Thuật toán tính tổng dynamic cho KPI
     cur_total = edited_df_9["total_price"].apply(local_parse_money).sum()
     cur_pos = len(edited_df_9['po_no'].unique()) if not edited_df_9.empty else 0
     cur_items = len(edited_df_9)
 
-    # Cập nhật ngược lại vào khối KPI
     kpi_placeholder1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{local_fmt_vnd(cur_total)}</h1></div>", unsafe_allow_html=True)
     kpi_placeholder2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{cur_pos}</h1></div>", unsafe_allow_html=True)
     kpi_placeholder3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{cur_items}</h1></div>", unsafe_allow_html=True)
 
-    # Thanh tổng giá trị màu đen
     st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; border: 2px solid #333; color: #00FF00; padding: 8px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(cur_total)} VND</div>', unsafe_allow_html=True)
 
-    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT THÔNG TIN ĐƠN HÀNG (Yêu cầu 2) ---
+    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT THÔNG TIN ĐƠN HÀNG (Yêu cầu 1 & 1.1) ---
     st.divider()
     c_bot1, c_bot2 = st.columns([7, 3])
     with c_bot1:
-        # Sử dụng expander để thu gọn (Yêu cầu 2.1)
         with st.expander("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG**", expanded=False):
-            with st.form("form_update_po_v3"):
-                # Yêu cầu 2.2: Thay đổi các trường nhập liệu
+            with st.form("form_update_po_v4"):
                 old_po = st.text_input("Số PO trước khi thay đổi", value="")
                 new_po = st.text_input("Số PO mới (sau khi thay đổi)", value="")
+                u_cust = st.selectbox("Khách hàng xác nhận", cust_list)
                 u_date = st.date_input("Ngày nhận mới (nếu có)", value=datetime.now())
-                u_docs = st.file_uploader("Cập nhật thêm tài liệu Drive", accept_multiple_files=True)
+                # 1.1 Thêm ô upload excel/csv ghi đè
+                u_excel = st.file_uploader("Cập nhật Data hàng loạt (Excel/CSV) - Tự động ghi đè", type=["xlsx", "csv"])
+                u_docs = st.file_uploader("Cập nhật thêm tài liệu Drive (PDF, Ảnh...)", accept_multiple_files=True)
                 
-                if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT TOÀN BỘ THÔNG TIN", use_container_width=True):
-                    if old_po and new_po:
-                        try:
-                            # Thuật toán đổi số PO hàng loạt cho tất cả các dòng cùng mã PO cũ
-                            supabase.table("crm_po_tracking").update({"po_no": new_po, "date_received": str(u_date)}).eq("po_no", old_po).execute()
-                            st.success(f"✅ Đã đổi Số PO: {old_po} thành {new_po} thành công!")
-                            time.sleep(1); st.rerun()
-                        except Exception as e: st.error(f"Lỗi: {e}")
-                    else:
-                        st.warning("Vui lòng điền cả Số PO cũ và Số PO mới để thực hiện thay đổi.")
+                if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT & ĐỔI TÊN FOLDER DRIVE", use_container_width=True):
+                    try:
+                        srv = get_drive_service()
+                        # --- 1. XỬ LÝ ĐỔI TÊN FOLDER TRÊN DRIVE ---
+                        if old_po and new_po and u_cust:
+                            # Tìm folder cũ trên Drive
+                            q = f"name = '{old_po}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                            results = srv.files().list(q=q, fields="files(id, parents)").execute().get('files', [])
+                            
+                            new_folder_url = ""
+                            if results:
+                                folder_id = results[0]['id']
+                                # Đổi tên folder trực tiếp trên Drive
+                                srv.files().update(fileId=folder_id, body={'name': new_po}).execute()
+                                new_folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
+                                st.toast(f"📂 Đã đổi tên folder Drive thành {new_po}", icon="📁")
+
+                            # Cập nhật số PO mới và link folder mới vào Database
+                            upd_payload = {"po_no": new_po, "date_received": str(u_date)}
+                            if new_folder_url: upd_payload["po_docs"] = new_folder_url
+                            
+                            supabase.table("crm_po_tracking").update(upd_payload).eq("po_no", old_po).execute()
+                        
+                        # --- 1.1 XỬ LÝ GHI ĐÈ DỮ LIỆU EXCEL ---
+                        if u_excel:
+                            df_upd = pd.read_excel(u_excel).fillna("") if u_excel.name.endswith('xlsx') else pd.read_csv(u_excel).fillna("")
+                            # Xác định số PO để ghi đè (ưu tiên new_po nếu có, không thì lấy trong file)
+                            target_po = new_po if new_po else old_po
+                            
+                            for _, row in df_upd.iterrows():
+                                itm_code = str(row.get("Item code", ""))
+                                if itm_code and target_po:
+                                    rec = {
+                                        "po_no": target_po, "customer": u_cust,
+                                        "req_no": str(row.get("Req No", "")), "item_code": itm_code,
+                                        "item_name": str(row.get("Item name", "")), "specs": str(row.get("Specs", "")),
+                                        "qty": local_parse_money(row.get("Q'ty", 0)),
+                                        "unit_price": local_parse_money(row.get("Unit price", 0)),
+                                        "total_price": local_parse_money(row.get("Total price", 0)),
+                                        "remark": str(row.get("Remark", "")), "date_received": str(u_date)
+                                    }
+                                    # Ghi đè: Xóa cũ chèn mới
+                                    supabase.table("crm_po_tracking").delete().eq("po_no", target_po).eq("item_code", itm_code).execute()
+                                    supabase.table("crm_po_tracking").insert([rec]).execute()
+                            st.toast("📊 Đã cập nhật data ghi đè thành công!", icon="📝")
+
+                        # --- XỬ LÝ UPLOAD FILE DRIVE (GHI ĐÈ FILE TRÙNG TÊN) ---
+                        if u_docs:
+                            target_po_drive = new_po if new_po else old_po
+                            if target_po_drive and u_cust:
+                                path_drive = ["PO_TRACKING_DOCS", u_cust, target_po_drive]
+                                for f in u_docs: upload_to_drive_structured(f, path_drive, f.name)
+                                st.toast("📎 Đã upload/ghi đè tài liệu đính kèm!", icon="📂")
+
+                        st.success("✅ Đã hoàn tất mọi cập nhật!"); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"Lỗi hệ thống: {e}")
     
     with c_bot2:
         st.markdown("<br>", unsafe_allow_html=True)
