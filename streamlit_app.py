@@ -2504,7 +2504,7 @@ with t9:
     # --- 2. HỆ THỐNG THÔNG BÁO TELEGRAM (BOT ĐỘC LẬP) ---
     # Sử dụng Token và Chat ID riêng cho bộ phận quản lý đơn hàng
     PO_SYSTEM_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PO_SYSTEM_CHAT_ID = "-5283852302"
+    PO_SYSTEM_CHAT_ID = "--5179823221"
 
     def send_order_update_notification_v2(legal, customer, amount, po_date, action_name="CẬP NHẬT"):
         """
@@ -2541,7 +2541,7 @@ with t9:
     header_col1, header_col2 = st.columns([7.8, 2.2])
     with header_col1:
         st.markdown("""
-            <h2 style='color: #00b09b; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); font-family: sans-serif;'>
+            <h2 style='color: #00b09b; text-shadow: 1.5px 1.5px 2px rgba(0,0,0,0.3); font-family: sans-serif;'>
                 📋 TRUNG TÂM QUẢN LÝ THEO DÕI ĐƠN HÀNG (PO CENTER)
             </h2>
         """, unsafe_allow_html=True)
