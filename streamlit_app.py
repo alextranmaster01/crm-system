@@ -2480,59 +2480,82 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 9: THEO DÕI ĐƠN HÀNG (PO TRACKING - FIX BIỂU ĐỒ & CẬP NHẬT PHÁP NHÂN) ---
+# --- TAB 9: THEO DÕI ĐƠN HÀNG (PO TRACKING - FULL 100% CAPABILITIES) ---
 # =============================================================================
 with t9:
-    # 1. TẢI DỮ LIỆU ĐỘC LẬP
+    # 1. KHỞI TẠO VÀ TẢI DỮ LIỆU ĐỘC LẬP
+    # Sử dụng bảng crm_po_tracking để đảm bảo không xung đột hệ thống
     df_po_tracking = load_data("crm_po_tracking", order_by="id", ascending=False)
+    
+    # Lấy danh sách khách hàng từ Master Data
     cust_db = load_data("crm_customers")
-    cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
+    if not cust_db.empty:
+        cust_list = [""] + sorted(cust_db["short_name"].unique().tolist())
+    else:
+        cust_list = [""]
 
-    # --- CẤU HÌNH THÔNG BÁO TELEGRAM ---
+    # --- CẤU HÌNH THÔNG BÁO TELEGRAM RIÊNG CHO TAB ĐƠN HÀNG ---
     PO_TELE_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PO_TELE_CHAT_ID = "-5179823221"
+    PO_TELE_CHAT_ID = "-5283852302"
 
-    def send_po_msg_tele(legal, customer, total, date_rec, action="CẬP NHẬT"):
+    def send_po_tele_full(legal, customer, total, date_rec, action="CẬP NHẬT"):
+        """Hàm gửi thông báo tự động tới Telegram khi có thay đổi PO"""
         url = f"https://api.telegram.org/bot{PO_TELE_TOKEN}/sendMessage"
         msg = (
-            f"📦 <b>{action} ĐƠN HÀNG (PO)</b>\n\n"
+            f"📦 <b>THÔNG BÁO {action} ĐƠN HÀNG</b>\n\n"
             f"🏢 <b>Pháp nhân:</b> {legal}\n"
             f"👤 <b>Khách hàng:</b> {customer}\n"
             f"💰 <b>Tổng giá trị:</b> {local_fmt_vnd(total)} VND\n"
-            f"📅 <b>Ngày nhận:</b> {date_rec}\n"
-            f"<i>Hệ thống CRM đã đồng bộ dữ liệu thành công!</i>"
+            f"📅 <b>Ngày nhận PO:</b> {date_rec}\n\n"
+            f"<i>👉 Dữ liệu đã được đồng bộ hóa thành công trên CRM!</i>"
         )
-        try: requests.post(url, json={"chat_id": PO_TELE_CHAT_ID, "text": msg, "parse_mode": "HTML"})
-        except: pass
+        try:
+            requests.post(url, json={"chat_id": PO_TELE_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=5)
+        except Exception as e:
+            st.error(f"Lỗi gửi Telegram: {e}")
 
-    # --- 2. HEADER: TIÊU ĐỀ & NÚT TẠO ---
+    # --- 2. GIAO DIỆN HEADER & NÚT TẠO ĐƠN HÀNG (CONCEPT DỰ ÁN) ---
     c_head1, c_head2 = st.columns([8, 2])
-    c_head1.markdown("### 📊 THỐNG KÊ CHI TIẾT")
+    c_head1.markdown("<h2 style='color: #00b09b;'>📋 TRUNG TÂM THEO DÕI ĐƠN HÀNG</h2>", unsafe_allow_html=True)
+    
     with c_head2:
-        with st.popover("➕ TẠO ĐƠN HÀNG", use_container_width=True):
-            n_legal = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="n_legal_9")
-            n_po_no = st.text_input("Số PO", key="n_po_9")
-            n_cust = st.selectbox("Khách hàng", cust_list, key="n_cust_9")
+        with st.popover("➕ TẠO ĐƠN HÀNG MỚI", use_container_width=True):
+            st.markdown("### Thông tin Đơn hàng")
+            n_legal = st.selectbox("11.1 Pháp nhân nhận PO", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="n_legal_9_full")
+            n_po_no = st.text_input("11.2 Số PO", key="n_po_9_full")
+            n_cust = st.selectbox("11.3 Tên khách hàng (Master Data)", cust_list, key="n_cust_9_full")
+            
             nd1, nd2 = st.columns(2)
-            n_date_rec = nd1.date_input("Ngày nhận PO", key="n_date_rec_9")
-            n_date_del = nd2.date_input("Ngày giao hàng", key="n_date_del_9")
-            n_excel = st.file_uploader("Import file Excel PO", type=["xlsx", "csv"], key="n_file_9")
-            n_files = st.file_uploader("Upload đính kèm Drive", accept_multiple_files=True, key="n_files_9")
+            n_date_rec = nd1.date_input("11.4 Ngày nhận PO", key="n_date_rec_9_full")
+            n_date_del = nd2.date_input("Ngày giao hàng dự kiến", key="n_date_del_9_full")
+            
+            st.divider()
+            n_excel = st.file_uploader("11.5 Import file PO (Excel/CSV)", type=["xlsx", "csv"], key="n_file_9_full")
+            n_files = st.file_uploader("11.6 Upload hồ sơ đính kèm (PDF, Ảnh...)", accept_multiple_files=True, key="n_files_9_full")
 
-            if st.button("🚀 LƯU ĐƠN HÀNG", type="primary", use_container_width=True):
+            if st.button("🚀 XÁC NHẬN LƯU VÀ THÔNG BÁO", type="primary", use_container_width=True):
                 if n_po_no and n_cust and n_excel:
                     try:
-                        df_raw = pd.read_excel(n_excel, header=None, skiprows=1).fillna("") if n_excel.name.endswith('xlsx') else pd.read_csv(n_excel, header=None, skiprows=1).fillna("")
-                        path_drive = ["PO_TRACKING_DOCS", n_cust, n_po_no]
-                        doc_url = ""
+                        # THUẬT TOÁN MATCHING TUYỆT ĐỐI THEO VỊ TRÍ CỘT (Yêu cầu 2: B-L)
+                        # Đọc file bỏ qua tiêu đề, lấy raw data để xử lý iloc
+                        if n_excel.name.endswith('xlsx'):
+                            df_raw = pd.read_excel(n_excel, header=None, skiprows=1).fillna("")
+                        else:
+                            df_raw = pd.read_csv(n_excel, header=None, skiprows=1).fillna("")
+
+                        # Xử lý Google Drive: Phân cấp theo Pháp nhân -> Khách hàng -> Số PO
+                        srv = get_drive_service()
+                        path_drive = [n_legal, n_cust, n_po_no]
+                        f_id = get_or_create_folder_hierarchy(srv, path_drive, ROOT_FOLDER_ID)
+                        doc_url = f"https://drive.google.com/drive/folders/{f_id}"
+                        
                         if n_files:
-                            srv = get_drive_service()
-                            f_id = get_or_create_folder_hierarchy(srv, path_drive, ROOT_FOLDER_ID)
-                            doc_url = f"https://drive.google.com/drive/folders/{f_id}"
-                            for f in n_files: upload_to_drive_structured(f, path_drive, f.name)
+                            for f in n_files:
+                                upload_to_drive_structured(f, path_drive, f.name)
 
                         new_recs = []
-                        for _, row in df_raw.iterrows():
+                        for index, row in df_raw.iterrows():
+                            # Mapping tuyệt đối theo mô tả: Customer=B (1), PO no=C (2)...
                             rec = {
                                 "legal_entity": n_legal,
                                 "customer": str(row.iloc[1]) if len(row) > 1 else n_cust,
@@ -2544,41 +2567,51 @@ with t9:
                                 "qty": local_parse_money(row.iloc[7]) if len(row) > 7 else 0,
                                 "unit_price": local_parse_money(row.iloc[8]) if len(row) > 8 else 0,
                                 "total_price": local_parse_money(row.iloc[9]) if len(row) > 9 else 0,
-                                "po_docs": doc_url if doc_url else (str(row.iloc[10]) if len(row) > 10 else ""),
+                                "po_docs": doc_url,
                                 "remark": str(row.iloc[11]) if len(row) > 11 else "",
-                                "date_received": str(n_date_rec), "date_delivery": str(n_date_del)
+                                "date_received": str(n_date_rec),
+                                "date_delivery": str(n_date_del)
                             }
+                            # Thuật toán ghi đè: Xóa cũ chèn mới
                             supabase.table("crm_po_tracking").delete().eq("po_no", rec["po_no"]).eq("item_code", rec["item_code"]).execute()
                             new_recs.append(rec)
                         
+                        # Chèn dữ liệu mới hàng loạt
                         supabase.table("crm_po_tracking").insert(new_recs).execute()
-                        send_po_msg_tele(n_legal, n_cust, sum(r["total_price"] for r in new_recs), str(n_date_rec), "TẠO MỚI")
-                        st.success("✅ Đã lưu!"); time.sleep(0.5); st.rerun()
-                    except Exception as e: st.error(f"Lỗi: {e}")
+                        
+                        # Gửi Telegram cập nhật
+                        t_val_sum = sum(r["total_price"] for r in new_recs)
+                        send_po_tele_full(n_legal, n_cust, t_val_sum, str(n_date_rec), "TẠO MỚI")
+                        
+                        st.success("✅ Đơn hàng đã được lưu và đồng bộ Google Drive!"); time.sleep(0.5); st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi Import: {e}")
+                else:
+                    st.warning("Vui lòng điền đầy đủ Số PO, Khách hàng và File Excel!")
 
-    # --- 3. KHỐI KPI ---
-    kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
-    kpi_placeholder1 = kpi_c1.empty()
-    kpi_placeholder2 = kpi_c2.empty()
-    kpi_placeholder3 = kpi_c3.empty()
+    # --- 3. KHỐI KPI DASHBOARD (LINK TUYỆT ĐỐI VỚI BẢNG) ---
+    kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+    k1_empty = kpi_col1.empty()
+    k2_empty = kpi_col2.empty()
+    k3_empty = kpi_col3.empty()
 
-    # --- 4. BỘ LỌC & BIỂU ĐỒ (CẬP NHẬT BIỂU ĐỒ DOANH SỐ) ---
+    # --- 4. BỘ LỌC TÌM KIẾM (STYLE 100% THEO ẢNH) ---
     st.markdown("---")
     df_filtered = df_po_tracking.copy()
     
-    c_f1, c_f2 = st.columns([1, 4])
-    with c_f1:
-        sel_cust_9 = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"], key="sel_cust_9_chart")
-    with c_f2:
-        search_kw_9 = st.text_input("🔍 Tìm kiếm nhanh đơn hàng...", "", key="search_t9_chart")
+    col_f1, col_f2 = st.columns([1, 4])
+    with col_f1:
+        sel_cust_view = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"], key="view_cust_9")
+    with col_f2:
+        search_view = st.text_input("🔍 Tìm kiếm dự án (tên dự án, mã dự án, khách hàng...)", "", key="view_search_9")
 
-    if sel_cust_9 != "TẤT CẢ":
-        df_filtered = df_filtered[df_filtered["customer"] == sel_cust_9]
-    if search_kw_9:
-        mask = df_filtered.astype(str).apply(lambda x: x.str.contains(search_kw_9, case=False, na=False)).any(axis=1)
+    if sel_cust_view != "TẤT CẢ":
+        df_filtered = df_filtered[df_filtered["customer"] == sel_cust_view]
+    if search_view:
+        mask = df_filtered.astype(str).apply(lambda x: x.str.contains(search_view, case=False, na=False)).any(axis=1)
         df_filtered = df_filtered[mask]
 
-    # [CẬP NHẬT] BIỂU ĐỒ PHÂN TÍCH THEO DỮ LIỆU ĐANG CHỌN
+    # BIỂU ĐỒ PHÂN TÍCH (Yêu cầu 1: Khách hàng, Tháng, Pháp nhân)
     with st.expander("📊 BIỂU ĐỒ PHÂN TÍCH DOANH SỐ", expanded=False):
         if not df_filtered.empty:
             df_chart = df_filtered.copy()
@@ -2586,116 +2619,137 @@ with t9:
             df_chart['date_dt'] = pd.to_datetime(df_chart['date_received'], errors='coerce')
             df_chart['Tháng'] = df_chart['date_dt'].dt.strftime('%Y-%m')
             
-            c_chart1, c_chart2, c_chart3 = st.columns(3)
-            with c_chart1:
+            c1, c2, c3 = st.columns(3)
+            with c1:
                 st.write("**Doanh số / Khách hàng**")
-                st.altair_chart(alt.Chart(df_chart).mark_bar().encode(x='customer', y='sum(Revenue)', color='customer', tooltip=['customer', alt.Tooltip('sum(Revenue)', format=',.0f')]), use_container_width=True)
-            with c_chart2:
+                st.altair_chart(alt.Chart(df_chart).mark_bar().encode(x='customer', y='sum(Revenue)', color='customer'), use_container_width=True)
+            with c2:
                 st.write("**Doanh số / Pháp nhân**")
-                st.altair_chart(alt.Chart(df_chart).mark_arc().encode(theta='sum(Revenue)', color='legal_entity', tooltip=['legal_entity', alt.Tooltip('sum(Revenue)', format=',.0f')]), use_container_width=True)
-            with c_chart3:
+                st.altair_chart(alt.Chart(df_chart).mark_arc().encode(theta='sum(Revenue)', color='legal_entity'), use_container_width=True)
+            with c3:
                 st.write("**Doanh số / Tháng**")
-                st.altair_chart(alt.Chart(df_chart).mark_line(point=True).encode(x='Tháng', y='sum(Revenue)', tooltip=['Tháng', alt.Tooltip('sum(Revenue)', format=',.0f')]), use_container_width=True)
+                st.altair_chart(alt.Chart(df_chart).mark_line(point=True).encode(x='Tháng', y='sum(Revenue)'), use_container_width=True)
         else:
-            st.info("Chưa có dữ liệu biểu đồ.")
+            st.info("Không có dữ liệu để hiển thị biểu đồ.")
 
-    # --- 5. BẢNG DỮ LIỆU ---
+    # --- 5. BẢNG DỮ LIỆU CHI TIẾT (DATA EDITOR) ---
+    # Cấu hình các cột theo yêu cầu
     cols_order = ["customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
     
-    edited_df_9 = st.data_editor(
+    edited_df = st.data_editor(
         df_filtered[cols_order],
         use_container_width=True,
         hide_index=False,
         num_rows="dynamic",
         column_config={
-            "po_docs": st.column_config.LinkColumn("PO Docs", display_text="📂 File"),
-            "total_price": st.column_config.NumberColumn("Total price", format="%,.0f"),
-            "unit_price": st.column_config.NumberColumn("Unit price", format="%,.0f"),
+            "po_docs": st.column_config.LinkColumn("📂 Hồ sơ Drive", display_text="Xem Folder"),
+            "total_price": st.column_config.NumberColumn("Total Price", format="%,.0f"),
+            "unit_price": st.column_config.NumberColumn("Unit Price", format="%,.0f"),
+            "qty": st.column_config.NumberColumn("Q'ty", format="%,.2f"),
         },
-        height=400,
-        key="editor_t9_final_v5"
+        height=450,
+        key="editor_9_main_full"
     )
 
-    if len(edited_df_9) < len(df_filtered):
-        dropped = df_filtered[~df_filtered.index.isin(edited_df_9.index.tolist())]
+    # THUẬT TOÁN XÓA ĐỒNG BỘ (Sửa lỗi refresh hiện lại dòng cũ)
+    if len(edited_df) < len(df_filtered):
+        # Xác định những dòng bị xóa
+        dropped = df_filtered[~df_filtered.index.isin(edited_df.index.tolist())]
         for _, row in dropped.iterrows():
             supabase.table("crm_po_tracking").delete().eq("po_no", row["po_no"]).eq("item_code", row["item_code"]).execute()
-        st.toast("🗑️ Đã xóa dữ liệu!", icon="✅")
-        time.sleep(0.5); st.rerun()
+        st.toast("🗑️ Đã xóa dữ liệu vĩnh viễn khỏi Database!"); time.sleep(0.5); st.rerun()
 
-    cur_total = edited_df_9["total_price"].apply(local_parse_money).sum()
-    cur_pos = len(edited_df_9['po_no'].unique()) if not edited_df_9.empty else 0
-    cur_items = len(edited_df_9)
+    # TÍNH TOÁN KPI LINK VỚI DỮ LIỆU ĐANG HIỂN THỊ
+    current_total_val = edited_df["total_price"].apply(local_parse_money).sum()
+    current_po_count = len(edited_df["po_no"].unique()) if not edited_df.empty else 0
+    current_item_count = len(edited_df)
 
-    kpi_placeholder1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{local_fmt_vnd(cur_total)}</h1></div>", unsafe_allow_html=True)
-    kpi_placeholder2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{cur_pos}</h1></div>", unsafe_allow_html=True)
-    kpi_placeholder3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{cur_items}</h1></div>", unsafe_allow_html=True)
+    # Đẩy dữ liệu lên các thẻ KPI
+    k1_empty.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{local_fmt_vnd(current_total_val)}</h1></div>", unsafe_allow_html=True)
+    k2_empty.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{current_po_count}</h1></div>", unsafe_allow_html=True)
+    k3_empty.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{current_item_count}</h1></div>", unsafe_allow_html=True)
 
-    st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; border: 2px solid #333; color: #00FF00; padding: 8px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(cur_total)} VND</div>', unsafe_allow_html=True)
+    # Thanh tổng phụ màu đen (Dưới bảng - Theo ảnh)
+    st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; border: 2px solid #333; color: #00FF00; padding: 10px 15px; font-weight: bold;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(current_total_val)} VND</div>', unsafe_allow_html=True)
 
-    # --- 6. CÀI ĐẶT THÔNG TIN ĐƠN HÀNG (BỔ SUNG SỬA PHÁP NHÂN) ---
+    # --- 6. CÀI ĐẶT THÔNG TIN ĐƠN HÀNG (FULL AUTO-SYNC DRIVE & MOVE) ---
     st.divider()
-    c_bot1, c_bot2 = st.columns([7, 3])
-    with c_bot1:
-        with st.expander("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG**", expanded=False):
-            with st.form("form_update_po_v5_final"):
-                old_po = st.text_input("Số PO trước khi thay đổi", value="")
-                new_po = st.text_input("Số PO mới (sau khi thay đổi)", value="")
-                # [BỔ SUNG] Ô SỬA PHÁP NHÂN
-                upd_legal = st.selectbox("Sửa lại Pháp nhân (APL, CSG, OLYMPUS, NEXGA)", ["APL", "CSG", "OLYMPUS", "NEXGA"])
-                confirm_cust = st.selectbox("Khách hàng xác nhận", cust_list)
-                u_date = st.date_input("Ngày nhận mới", value=datetime.now())
-                u_excel = st.file_uploader("Cập nhật Data hàng loạt (Excel/CSV) - Tự động ghi đè", type=["xlsx", "csv"])
-                u_docs = st.file_uploader("Cập nhật thêm tài liệu Drive (Ghi đè file trùng tên)", accept_multiple_files=True)
-                
-                if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT", use_container_width=True):
-                    try:
-                        srv = get_drive_service()
-                        # Xử lý update Pháp nhân & Số PO & Folder Drive
-                        if old_po and confirm_cust:
-                            target_po = new_po if new_po else old_po
-                            q = f"name = '{old_po}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-                            res_drive = srv.files().list(q=q, fields="files(id)").execute().get('files', [])
+    with st.expander("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG**", expanded=False):
+        with st.form("form_sync_final_9"):
+            f_col1, f_col2 = st.columns(2)
+            u_old_po = f_col1.text_input("Số PO trước khi thay đổi")
+            u_new_po = f_col2.text_input("Số PO mới (sau khi thay đổi)")
+            
+            u_legal = st.selectbox("Sửa lại Pháp nhân (APL, CSG, OLYMPUS, NEXGA)", ["APL", "CSG", "OLYMPUS", "NEXGA"])
+            u_cust = st.selectbox("Khách hàng xác nhận cập nhật", cust_list)
+            
+            u_excel = st.file_uploader("Cập nhật dữ liệu hàng loạt (Ghi đè bản mới)", type=["xlsx", "csv"])
+            u_docs = st.file_uploader("Upload tài liệu bổ sung (Hệ thống sẽ tự di chuyển Folder)", accept_multiple_files=True)
+            
+            if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT TOÀN DIỆN", use_container_width=True):
+                try:
+                    srv = get_drive_service()
+                    target_po = u_new_po if u_new_po else u_old_po
+                    final_url = ""
+
+                    # LOGIC DI CHUYỂN VÀ ĐỔI TÊN FOLDER DRIVE
+                    if u_old_po and u_cust:
+                        q = f"name = '{u_old_po}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                        folders = srv.files().list(q=q, fields="files(id, parents)").execute().get('files', [])
+                        
+                        if folders:
+                            f_id = folders[0]['id']
+                            # 1. Đổi tên folder sang số PO mới
+                            if u_new_po:
+                                srv.files().update(fileId=f_id, body={'name': u_new_po}).execute()
                             
-                            folder_url = ""
-                            if res_drive and new_po:
-                                f_id = res_drive[0]['id']
-                                srv.files().update(fileId=f_id, body={'name': new_po}).execute()
-                                folder_url = f"https://drive.google.com/drive/folders/{f_id}"
+                            # 2. Tìm/Tạo thư mục Pháp nhân mới để di chuyển
+                            new_p_path = [u_legal, u_cust]
+                            new_parent_id = get_or_create_folder_hierarchy(srv, new_p_path, ROOT_FOLDER_ID)
                             
-                            # Thuật toán cập nhật Pháp nhân tức thì cho bảng phía trên
-                            upd_payload = {
-                                "legal_entity": upd_legal, 
-                                "po_no": target_po, 
-                                "date_received": str(u_date)
+                            # 3. Thực hiện lệnh di chuyển (Move)
+                            current_parent = folders[0].get('parents', [ROOT_FOLDER_ID])[0]
+                            srv.files().update(fileId=f_id, addParents=new_parent_id, removeParents=current_parent).execute()
+                            final_url = f"https://drive.google.com/drive/folders/{f_id}"
+
+                        # 4. Cập nhật Database toàn bộ các dòng thuộc PO này
+                        upd_p = {"legal_entity": u_legal, "po_no": target_po, "customer": u_cust}
+                        if final_url: upd_p["po_docs"] = final_url
+                        supabase.table("crm_po_tracking").update(upd_p).eq("po_no", u_old_po).execute()
+
+                    # XỬ LÝ GHI ĐÈ EXCEL (Nâng cao)
+                    if u_excel:
+                        df_upd = pd.read_excel(u_excel, header=None, skiprows=1).fillna("") if u_excel.name.endswith('xlsx') else pd.read_csv(u_excel, header=None, skiprows=1).fillna("")
+                        for _, row in df_upd.iterrows():
+                            # Lấy data theo đúng vị trí cột B-L
+                            rec_u = {
+                                "legal_entity": u_legal, "customer": u_cust, "po_no": target_po,
+                                "req_no": str(row.iloc[3]), "item_code": str(row.iloc[4]),
+                                "item_name": str(row.iloc[5]), "specs": str(row.iloc[6]),
+                                "qty": local_parse_money(row.iloc[7]),
+                                "unit_price": local_parse_money(row.iloc[8]),
+                                "total_price": local_parse_money(row.iloc[9]),
+                                "remark": str(row.iloc[11])
                             }
-                            if folder_url: upd_payload["po_docs"] = folder_url
-                            
-                            supabase.table("crm_po_tracking").update(upd_payload).eq("po_no", old_po).execute()
+                            supabase.table("crm_po_tracking").delete().eq("po_no", target_po).eq("item_code", rec_u["item_code"]).execute()
+                            supabase.table("crm_po_tracking").insert([rec_u]).execute()
 
-                        # Xử lý Import ghi đè
-                        if u_excel:
-                            df_upd = pd.read_excel(u_excel, header=None, skiprows=1).fillna("") if u_excel.name.endswith('xlsx') else pd.read_csv(u_excel, header=None, skiprows=1).fillna("")
-                            for _, row in df_upd.iterrows():
-                                rec_upd = {
-                                    "legal_entity": upd_legal, "customer": confirm_cust, 
-                                    "po_no": (new_po if new_po else old_po),
-                                    "item_code": str(row.iloc[4]), "item_name": str(row.iloc[5]),
-                                    "qty": local_parse_money(row.iloc[7]), "total_price": local_parse_money(row.iloc[9]),
-                                    "date_received": str(u_date)
-                                }
-                                supabase.table("crm_po_tracking").delete().eq("po_no", rec_upd["po_no"]).eq("item_code", rec_upd["item_code"]).execute()
-                                supabase.table("crm_po_tracking").insert([rec_upd]).execute()
+                    # UPLOAD TÀI LIỆU MỚI VÀO ĐÚNG VỊ TRÍ SAU KHI MOVE
+                    if u_docs:
+                        final_path_list = [u_legal, u_cust, target_po]
+                        for f in u_docs:
+                            upload_to_drive_structured(f, final_path_list, f.name)
 
-                        st.success("✅ Cập nhật thành công!"); time.sleep(1); st.rerun()
-                    except Exception as e: st.error(f"Lỗi: {e}")
-    
-    with c_bot2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("📤 EXPORT ALL PO", use_container_width=True):
-            out_xlsx = io.BytesIO()
-            df_po_tracking.to_excel(out_xlsx, index=False)
-            st.download_button("Tải file Excel", out_xlsx.getvalue(), "ALL_PO_LIST.xlsx", use_container_width=True)
+                    st.success("✅ Mọi thông tin đã được đồng bộ hoàn hảo!"); time.sleep(1); st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi cập nhật: {e}")
+
+    # NÚT EXPORT DÀNH RIÊNG CHO TAB 9
+    if st.button("📥 XUẤT TOÀN BỘ DANH SÁCH PO (EXCEL)", use_container_width=True):
+        if not df_po_tracking.empty:
+            output = io.BytesIO()
+            df_po_tracking.to_excel(output, index=False)
+            st.download_button("Tải file Excel", output.getvalue(), "PO_TRACKING_FULL.xlsx", use_container_width=True)
 # =============================================================================
 # --- KẾT THÚC TAB 9 ---
 # =============================================================================
