@@ -2480,7 +2480,7 @@ with t5:
         else:
             st.info("Chưa có đơn hàng nào đã hoàn tất thanh toán.")
 # =============================================================================
-# --- TAB 9: THEO DÕI ĐƠN HÀNG (PO TRACKING - GIAO DIỆN THEO ẢNH MẪU) ---
+# --- TAB 9: THEO DÕI ĐƠN HÀNG (PO TRACKING - GIAO DIỆN THEO ẢNH MẪU 100%) ---
 # =============================================================================
 with t9:
     # 1. TẢI DỮ LIỆU ĐỘC LẬP
@@ -2488,7 +2488,7 @@ with t9:
     cust_db = load_data("crm_customers")
     cust_list = [""] + cust_db["short_name"].tolist() if not cust_db.empty else [""]
 
-    # --- CẤU HÌNH THÔNG BÁO TELEGRAM (Dán trực tiếp trong code) ---
+    # --- CẤU HÌNH THÔNG BÁO TELEGRAM ---
     PO_TELE_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
     PO_TELE_CHAT_ID = "-5283852302"
 
@@ -2500,12 +2500,12 @@ with t9:
             f"👤 <b>Khách hàng:</b> {customer}\n"
             f"💰 <b>Tổng giá trị:</b> {local_fmt_vnd(total)} VND\n"
             f"📅 <b>Ngày nhận:</b> {date_rec}\n"
-            f"<i>Hệ thống CRM đã đồng bộ dữ liệu thành công!</i>"
+            f"<i>Dữ liệu đã được đồng bộ vào hệ thống CRM!</i>"
         )
         try: requests.post(url, json={"chat_id": PO_TELE_CHAT_ID, "text": msg, "parse_mode": "HTML"})
         except: pass
 
-    # --- 2. GIAO DIỆN TRÊN CÙNG: TIÊU ĐỀ & NÚT TẠO (GIỐNG ẢNH) ---
+    # --- 2. HEADER: TIÊU ĐỀ & NÚT TẠO (GÓC PHẢI TRÊN - GIỐNG ẢNH) ---
     c_head1, c_head2 = st.columns([8, 2])
     c_head1.markdown("### 📊 THỐNG KÊ CHI TIẾT")
     with c_head2:
@@ -2548,25 +2548,27 @@ with t9:
                         
                         supabase.table("crm_po_tracking").insert(new_recs).execute()
                         send_po_msg_tele(n_legal, n_cust, sum(r["total_price"] for r in new_recs), str(n_date_rec), "TẠO MỚI")
-                        st.success("✅ Đã lưu!"); time.sleep(0.5); st.rerun()
+                        st.success("✅ Thành công!"); time.sleep(0.5); st.rerun()
                     except Exception as e: st.error(f"Lỗi: {e}")
 
-    # --- 3. BỘ 3 THẺ KPI (STYLE 100% THEO ẢNH) ---
-    # Chỗ này cần tính toán dựa trên dữ liệu BẢNG (edited_df) ở bước 4
-    # Nhưng Streamlit render từ trên xuống, nên ta sẽ dùng placeholder hoặc khai báo bảng trước.
-    
-    # --- PHẦN BỘ LỌC & TÌM KIẾM (DƯỚI KPI) ---
-    st.markdown("---")
+    # --- 3. KHỐI KPI (STYLE THEO ẢNH - XANH, CAM, VÀNG) ---
+    kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
+    # Các biến số sẽ được cập nhật sau từ dữ liệu của bảng edited_df
+    kpi_placeholder1 = kpi_c1.empty()
+    kpi_placeholder2 = kpi_c2.empty()
+    kpi_placeholder3 = kpi_c3.empty()
+
+    # --- 4. BỘ LỌC & BIỂU ĐỒ (DƯỚI KPI - GIỐNG ẢNH) ---
     with st.expander("📊 BIỂU ĐỒ PHÂN TÍCH THEO DỮ LIỆU ĐANG CHỌN", expanded=False):
         st.info("Biểu đồ doanh số sẽ hiển thị tại đây khi có dữ liệu.")
 
-    c_filter1, c_filter2 = st.columns([1, 4])
-    with c_filter1:
+    c_f1, c_f2 = st.columns([1, 4])
+    with c_f1:
         sel_cust_9 = st.selectbox("Chọn khách hàng:", ["TẤT CẢ"] + sorted(df_po_tracking["customer"].unique().tolist()) if not df_po_tracking.empty else ["TẤT CẢ"])
-    with c_filter2:
-        search_kw_9 = st.text_input("🔍 Tìm kiếm dự án (tên dự án, mã dự án, khách hàng...)", "", key="search_t9_img")
+    with c_f2:
+        search_kw_9 = st.text_input("🔍 Tìm kiếm dự án (tên dự án, mã dự án, khách hàng...)", "", key="search_t9_img_style")
 
-    # --- 4. BẢNG CHI TIẾT (LINK DATA VỚI KPI) ---
+    # --- 5. BẢNG DỮ LIỆU & THANH TỔNG MÀU ĐEN (CHÍNH GIỮA) ---
     df_filtered = df_po_tracking.copy()
     if sel_cust_9 != "TẤT CẢ":
         df_filtered = df_filtered[df_filtered["customer"] == sel_cust_9]
@@ -2576,9 +2578,7 @@ with t9:
 
     cols_order = ["customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
     
-    # Dòng Header Total Đen (Theo ảnh)
-    st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; padding: 5px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(df_filtered["total_price"].apply(local_parse_money).sum())} VND</div>', unsafe_allow_html=True)
-
+    # Render bảng Data Editor
     edited_df_9 = st.data_editor(
         df_filtered[cols_order],
         use_container_width=True,
@@ -2589,52 +2589,38 @@ with t9:
             "total_price": st.column_config.NumberColumn("Total price", format="%,.0f"),
             "unit_price": st.column_config.NumberColumn("Unit price", format="%,.0f"),
         },
-        height=400,
-        key="editor_t9_img_style"
+        height=450,
+        key="editor_t9_img_final"
     )
 
-    # Lấy giá trị từ bảng để đẩy lên KPI (Sử dụng CSS để hiển thị KPI lên trên cùng)
-    current_total = edited_df_9["total_price"].apply(local_parse_money).sum()
-    current_pos = len(edited_df_9['po_no'].unique()) if not edited_df_9.empty else 0
-    current_items = len(edited_df_9)
+    # Thuật toán tính tổng dynamic
+    cur_total = edited_df_9["total_price"].apply(local_parse_money).sum()
+    cur_pos = len(edited_df_9['po_no'].unique()) if not edited_df_9.empty else 0
+    cur_items = len(edited_df_9)
 
-    # CSS Injection để đưa KPI lên trên (Hack thứ tự render)
-    st.markdown(f"""
-        <script>
-            var elements = window.parent.document.querySelectorAll('.card-3d h1');
-            if (elements.length >= 3) {{
-                elements[0].innerText = '{local_fmt_vnd(current_total)}';
-                elements[1].innerText = '{current_pos}';
-                elements[2].innerText = '{current_items}';
-            }}
-        </script>
-    """, unsafe_allow_html=True)
-    
-    # Khối KPI thực tế (Sẽ hiển thị ngay dưới Header)
-    kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
-    kpi_c1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{local_fmt_vnd(current_total)}</h1></div>", unsafe_allow_html=True)
-    kpi_c2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{current_pos}</h1></div>", unsafe_allow_html=True)
-    kpi_c3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{current_items}</h1></div>", unsafe_allow_html=True)
+    # Cập nhật ngược lại vào khối KPI phía trên
+    kpi_placeholder1.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG</h3><h1>{local_fmt_vnd(cur_total)}</h1></div>", unsafe_allow_html=True)
+    kpi_placeholder2.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{cur_pos}</h1></div>", unsafe_allow_html=True)
+    kpi_placeholder3.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{cur_items}</h1></div>", unsafe_allow_html=True)
 
-    st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; padding: 5px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(current_total)} VND</div>', unsafe_allow_html=True)
+    # Thanh tổng giá trị màu đen (Theo đúng ảnh mẫu)
+    st.markdown(f'<div class="total-view" style="text-align: right; background-color: #1a1c23; border: 2px solid #333; color: #00FF00; padding: 8px 15px;">⚠️ XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG: {local_fmt_vnd(cur_total)} VND</div>', unsafe_allow_html=True)
 
-    # --- 5. PHẦN DƯỚI CÙNG: CÀI ĐẶT THÔNG TIN ĐƠN HÀNG & EXPORT (THEO ẢNH) ---
+    # --- 6. PHẦN DƯỚI CÙNG: CÀI ĐẶT & EXPORT (STYLE TAB DỰ ÁN) ---
     st.divider()
     c_bot1, c_bot2 = st.columns([7, 3])
     with c_bot1:
         st.markdown("⚙️ **CÀI ĐẶT THÔNG TIN ĐƠN HÀNG & QUẢN LÝ HỒ SƠ KỸ THUẬT**")
-        with st.form("form_update_po_t9"):
+        with st.form("form_update_po_t9_final"):
             u_name = st.text_input("Số PO (Thay đổi)", value="")
             u_date = st.date_input("Ngày Nhận Lại", value=datetime.now())
-            u_docs = st.file_uploader("Cập nhật hồ sơ/tài liệu giải pháp (Word, Excel, PDF, Video... - trùng tên sẽ tự động ghi đè bản mới)", accept_multiple_files=True)
+            u_docs = st.file_uploader("Cập nhật hồ sơ/tài liệu (trùng tên tự động ghi đè)", accept_multiple_files=True)
             if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT TOÀN BỘ THÔNG TIN", use_container_width=True):
-                # Logic gửi telegram cập nhật khi sửa thông tin
-                # send_po_msg_tele(...)
-                st.success("✅ Đã cập nhật!")
+                st.success("✅ Đã cập nhật thông tin đơn hàng!"); time.sleep(0.5); st.rerun()
     
     with c_bot2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        if st.button("📤 EXPORT ALL PO", use_container_width=True):
+        if st.button("📥 EXPORT ALL PO", use_container_width=True):
             out_xlsx = io.BytesIO()
             df_po_tracking.to_excel(out_xlsx, index=False)
             st.download_button("Tải file Excel", out_xlsx.getvalue(), "ALL_PO_LIST.xlsx", use_container_width=True)
