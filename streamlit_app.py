@@ -2545,7 +2545,7 @@ with t9:
 
     # --- [PHẦN 3]: HỆ THỐNG THÔNG BÁO QUẢN TRỊ TELEGRAM ---
     PO_TELE_TOKEN_V12 = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PO_TELE_CHAT_ID_V12 = "-5283852302"
+    PO_TELE_CHAT_ID_V12 = "-5179823221"
 
     def send_telegram_alert_v12(legal, customer, amount, po_date, action_name="CẬP NHẬT"):
         """Gửi thông báo Telegram Rich-Text với tiêu đề phân biệt rõ ràng"""
