@@ -395,7 +395,7 @@ def parse_formula(formula, buying_price, ap_price):
 # Cập nhật danh sách Tabs (Thêm tab thứ 9)
 # Thêm t9 vào danh sách và đổi tên t6 cũ
 # Khai báo đủ 9 biến tương ứng với 9 Tabs
-t1, t2, t3, t4, t5, t7, t8, t9, t6 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "🚀 DỰ ÁN", "⚠️ QUẢN LÝ ISSUE", "📋 THEO DÕI ĐƠN HÀNG", "⚙️ MASTER DATA"])
+t1, t2, t3, t4, t5, t7, t8, t9, t6, t10 = st.tabs(["📊 DASHBOARD", "📦 KHO HÀNG", "💰 BÁO GIÁ", "📑 QUẢN LÝ PO", "🚚 TRACKING", "🚀 DỰ ÁN", "⚠️ QUẢN LÝ ISSUE", "📋 THEO DÕI ĐƠN HÀNG", "⚙️ MASTER DATA", "🗄️ LƯU TRỮ DATA"])
 # =============================================================================
 # --- TAB 1: DASHBOARD (UPDATED - FIX METRICS LOGIC) ---
 # =============================================================================
