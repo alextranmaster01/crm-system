@@ -2763,22 +2763,38 @@ with t9:
     # --- [MÔ-ĐUN 7]: BẢNG DỮ LIỆU TƯƠNG TÁC LIVE (DATA EDITOR) ---
     # Chức năng: Hiển thị dữ liệu PO chi tiết và cho phép quản trị viên xóa bản ghi đồng bộ Database.
     
+    # --- [MÔ-ĐUN 7]: BẢNG DỮ LIỆU TƯƠNG TÁC LIVE (FIX KEYERROR TRIỆT ĐỂ) ---
+    
     if not df_v31_active.empty:
-        # Reset Index và tạo cột STT ảo chuẩn Pixel Perfect
+        # BƯỚC 1: Ép toàn bộ tên cột lấy từ Database về chữ thường để khớp với danh sách view
+        df_v31_active.columns = [str(c).lower() for c in df_v31_active.columns]
+        
+        # BƯỚC 2: Reset Index và tạo cột STT ảo (Đây là cột hiển thị, không có trong DB)
         df_v31_active = df_v31_active.reset_index(drop=True)
-        df_v31_active.insert(0, "STT", df_v31_active.index + 1)
+        df_v31_active["stt"] = df_v31_active.index + 1
     
-    final_view_cols_v31 = ["STT", "customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
+    # BƯỚC 3: Danh sách cột cần hiển thị (Sửa lại thành chữ thường toàn bộ)
+    final_view_cols_v31 = ["stt", "customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
     
+    # BƯỚC 4: Column Shield - Nếu vẫn thiếu cột nào sau khi ép chữ thường, tự tạo cột rỗng
+    for col_verify in final_view_cols_v31:
+        if col_verify not in df_v31_active.columns:
+            df_v31_active[col_verify] = ""
+
+    # BƯỚC 5: Hiển thị bảng (Đảm bảo không bao giờ lỗi KeyError nữa)
     editor_v31 = st.data_editor(
         df_v31_active[final_view_cols_v31],
-        use_container_width=True, hide_index=True, num_rows="dynamic",
+        use_container_width=True, 
+        hide_index=True, 
+        num_rows="dynamic",
         column_config={
-            "STT": st.column_config.NumberColumn("STT", width="small"),
+            "stt": st.column_config.NumberColumn("STT", width="small"),
             "po_docs": st.column_config.LinkColumn("📂 Drive", display_text="Xem File"),
             "total_price": st.column_config.NumberColumn("Thành tiền (VND)", format="%,.0f"),
             "qty": st.column_config.NumberColumn("Số lượng", format="%,.2f"),
-        }, height=450, key="editor_v31_ultimate"
+        }, 
+        height=450, 
+        key="editor_v31_ultimate_fixed"
     )
 
     # Thuật toán đồng bộ XÓA Database vĩnh viễn (Khử lỗi refresh hiện lại dữ liệu cũ)
