@@ -2598,7 +2598,7 @@ with t9:
     # --- [MÔ-ĐUN 3]: HỆ THỐNG THÔNG BÁO QUẢN TRỊ TELEGRAM BOT API ---
     # Cấu hình Token và Chat ID dành riêng cho kênh báo cáo PO Center của NEXGA.
     PO_TELE_TOKEN_V31 = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PO_TELE_CHAT_ID_V31 = "-5283852302"
+    PO_TELE_CHAT_ID_V31 = "-5194813184"
 
     def trigger_po_telegram_alert_v31(legal, customer, amount, po_date, action_name="CẬP NHẬT"):
         """Gửi tin nhắn Telegram định dạng HTML Rich-Text, phân biệt hành động TẠO MỚI và UPDATE"""
