@@ -2501,13 +2501,19 @@ with t9:
     def send_order_update_notification(legal, customer, amount, po_date, action_name="CẬP NHẬT"):
         """Hàm gửi tin nhắn Telegram với định dạng HTML chuyên nghiệp và báo cáo trạng thái đồng bộ Drive"""
         api_url = f"https://api.telegram.org/bot{PO_SYSTEM_TOKEN}/sendMessage"
+        
+        # Logic phân loại tiêu đề tin nhắn theo yêu cầu số 3
+        display_action = "🚀 TẠO ĐƠN HÀNG MỚI PO" if "TẠO" in action_name.upper() else "🔄 UPDATE THÔNG TIN PO"
+        
         content = (
-            f"🔔 <b>HỆ THỐNG CRM - THÔNG BÁO PO {action_name}</b>\n\n"
+            f"🔔 <b>HỆ THỐNG CRM - {display_action}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏢 <b>Pháp nhân nhận:</b> {legal}\n"
             f"👤 <b>Khách hàng:</b> {customer}\n"
             f"💰 <b>Tổng giá trị PO:</b> {local_fmt_vnd(amount)} VND\n"
-            f"📅 <b>Ngày ghi nhận:</b> {po_date}\n\n"
-            f"<i>✅ Thư mục Google Drive đã được tự động phân cấp và đồng bộ thành công!</i>"
+            f"📅 <b>Ngày ghi nhận:</b> {po_date}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>✅ Thư mục Google Drive đã được tự động phân cấp vào [PO_TRACKING_DOCS] và đồng bộ thành công!</i>"
         )
         try:
             requests.post(api_url, json={"chat_id": PO_SYSTEM_CHAT_ID, "text": content, "parse_mode": "HTML"}, timeout=10)
@@ -2523,7 +2529,17 @@ with t9:
         with st.popover("➕ TẠO ĐƠN HÀNG (PO) MỚI", use_container_width=True):
             st.markdown("### 📝 Chi tiết đơn hàng mới")
             new_legal_choice = st.selectbox("11.1 Pháp nhân (APL, CSG, OLYMPUS, NEXGA)", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="n_leg_9_full")
-            new_po_number = st.text_input("11.2 Nhập số PO", placeholder="Ví dụ: PO2024-001", key="n_po_9_full")
+            new_po_number_raw = st.text_input("11.2 Nhập số PO", placeholder="Ví dụ: PO2024-001", key="n_po_9_full")
+            
+            # Xử lý bỏ đuôi .0 nếu người dùng nhập số (Yêu cầu số 1)
+            try:
+                if new_po_number_raw and float(new_po_number_raw).is_integer():
+                    new_po_number = str(int(float(new_po_number_raw)))
+                else:
+                    new_po_number = new_po_number_raw
+            except:
+                new_po_number = new_po_number_raw
+
             new_customer_name = st.selectbox("11.3 Tên khách hàng (Master Data)", master_customer_list, key="n_cus_9_full")
             
             d_col1, d_col2 = st.columns(2)
@@ -2543,13 +2559,13 @@ with t9:
                         else:
                             df_raw_input = pd.read_csv(new_po_excel, header=None, skiprows=1).fillna("")
 
-                        # XỬ LÝ GOOGLE DRIVE: Tự động phân cấp thư mục theo cấu trúc: Pháp nhân / Khách hàng / Số PO
+                        # XỬ LÝ GOOGLE DRIVE: Phân cấp vào PO_TRACKING_DOCS (Yêu cầu số 2)
                         drive_srv = get_drive_service()
-                        drive_path_structure = [new_legal_choice, new_customer_name, new_po_number]
+                        drive_path_structure = ["PO_TRACKING_DOCS", new_legal_choice, new_customer_name, new_po_number]
                         final_folder_id = get_or_create_folder_hierarchy(drive_srv, drive_path_structure, ROOT_FOLDER_ID)
                         drive_link_url = f"https://drive.google.com/drive/folders/{final_folder_id}"
                         
-                        # Upload các file đính kèm vào đúng cấu trúc thư mục vừa tạo/truy vấn
+                        # Upload các file đính kèm
                         if new_attached_files:
                             for file_obj in new_attached_files:
                                 upload_to_drive_structured(file_obj, drive_path_structure, file_obj.name)
@@ -2557,11 +2573,20 @@ with t9:
                         records_to_insert = []
                         total_po_value = 0
                         for index, row_data in df_raw_input.iterrows():
-                            # Thực hiện ánh xạ dữ liệu trực tiếp từ chỉ số cột trong Excel sang Database
+                            # Xử lý Số PO trong Excel để bỏ .0 (Yêu cầu số 1)
+                            raw_excel_po = str(row_data.iloc[2]) if len(row_data) > 2 and row_data.iloc[2] != "" else new_po_number
+                            try:
+                                if float(raw_excel_po).is_integer():
+                                    final_po_val = str(int(float(raw_excel_po)))
+                                else:
+                                    final_po_val = raw_excel_po
+                            except:
+                                final_po_val = raw_excel_po
+
                             item_rec = {
                                 "legal_entity": new_legal_choice,
                                 "customer": str(row_data.iloc[1]) if len(row_data) > 1 and row_data.iloc[1] != "" else new_customer_name,
-                                "po_no": str(row_data.iloc[2]) if len(row_data) > 2 and row_data.iloc[2] != "" else new_po_number,
+                                "po_no": final_po_val,
                                 "req_no": str(row_data.iloc[3]) if len(row_data) > 3 else "",
                                 "item_code": str(row_data.iloc[4]) if len(row_data) > 4 else "",
                                 "item_name": str(row_data.iloc[5]) if len(row_data) > 5 else "",
@@ -2574,15 +2599,13 @@ with t9:
                                 "date_received": str(new_po_date),
                                 "date_delivery": str(new_delivery_date)
                             }
-                            # Cơ chế ghi đè thông minh: Xóa bản ghi cũ cùng Số PO và Mã hàng trước khi thêm mới dữ liệu cập nhật
                             supabase.table("crm_po_tracking").delete().eq("po_no", item_rec["po_no"]).eq("item_code", item_rec["item_code"]).execute()
                             records_to_insert.append(item_rec)
                             total_po_value += item_rec["total_price"]
                         
-                        # Thực hiện chèn dữ liệu hàng loạt vào Supabase
                         supabase.table("crm_po_tracking").insert(records_to_insert).execute()
                         
-                        # Gửi Telegram thông báo thành công cho cấp quản lý
+                        # Gửi Telegram thông báo (Yêu cầu số 3)
                         send_order_update_notification(new_legal_choice, new_customer_name, total_po_value, str(new_po_date), "TẠO MỚI")
                         
                         st.success(f"✅ Đã lưu PO {new_po_number} và đồng bộ Drive thành công!"); time.sleep(0.5); st.rerun()
@@ -2600,12 +2623,11 @@ with t9:
     # --- 4. BỘ LỌC TÌM KIẾM DỮ LIỆU VÀ BIỂU ĐỒ (STYLE ẢNH MẪU TUYỆT ĐỐI) ---
     st.markdown("<hr style='border: 1px solid #333; margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
     
-    # [KIỂM TRA CỘT ĐỂ TRÁNH LỖI KEYERROR TRÊN STREAMLIT CLOUD]
     df_view_working = df_po_tracking.copy()
-    required_cols = ["customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
+    required_cols = ["customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark", "legal_entity", "date_received"]
     for col in required_cols:
         if col not in df_view_working.columns:
-            df_view_working[col] = "" # Tạo cột rỗng nếu dữ liệu Database chưa kịp đồng bộ cột mới
+            df_view_working[col] = ""
 
     filter_c1, filter_c2 = st.columns([1, 4])
     with filter_c1:
@@ -2613,14 +2635,12 @@ with t9:
     with filter_c2:
         keyword_search_9 = st.text_input("🔍 Tìm kiếm thông minh (Số PO, Mã hàng, Tên hàng, Remark...)", "", key="f_search_9_sync")
 
-    # Áp dụng bộ lọc dữ liệu
     if selected_cust_filter != "TẤT CẢ":
         df_view_working = df_view_working[df_view_working["customer"] == selected_cust_filter]
     if keyword_search_9:
         search_mask = df_view_working.astype(str).apply(lambda x: x.str.contains(keyword_search_9, case=False, na=False)).any(axis=1)
         df_view_working = df_view_working[search_mask]
 
-    # KHỐI BIỂU ĐỒ PHÂN TÍCH (YÊU CẦU 1: DOANH SỐ THEO KHÁCH HÀNG, PHÁP NHÂN, THÁNG)
     with st.expander("📈 XEM BIỂU ĐỒ PHÂN TÍCH DOANH SỐ CHI TIẾT", expanded=False):
         if not df_view_working.empty:
             df_for_chart = df_view_working.copy()
@@ -2652,15 +2672,13 @@ with t9:
                     y='sum(Revenue):Q'
                 )
                 st.altair_chart(line_c, use_container_width=True)
-        else:
-            st.info("💡 Chưa có đủ dữ liệu để vẽ biểu đồ phân tích dựa trên bộ lọc hiện tại.")
 
     # --- 5. BẢNG DỮ LIỆU CHI TIẾT (DATA EDITOR) VÀ THUẬT TOÁN XÓA ĐỒNG BỘ ---
     main_editor_9 = st.data_editor(
         df_view_working[required_cols],
         use_container_width=True,
         hide_index=False,
-        num_rows="dynamic", # Cho phép quản trị viên thêm hoặc xóa dòng trực tiếp trên bảng
+        num_rows="dynamic",
         column_config={
             "po_docs": st.column_config.LinkColumn("📂 Hồ sơ Drive", display_text="Mở Thư Mục"),
             "total_price": st.column_config.NumberColumn("Thành tiền (VND)", format="%,.0f"),
@@ -2671,7 +2689,6 @@ with t9:
         key="editor_9_final_full_sync_v2"
     )
 
-    # THUẬT TOÁN XÓA VĨNH VIỄN KHỎI DATABASE (Đảm bảo khi Refresh dữ liệu không bị quay trở lại)
     if len(main_editor_9) < len(df_view_working):
         rows_to_delete = df_view_working[~df_view_working.index.isin(main_editor_9.index.tolist())]
         for _, del_row in rows_to_delete.iterrows():
@@ -2679,17 +2696,14 @@ with t9:
         st.toast("🗑️ Dữ liệu đã được xóa vĩnh viễn khỏi Database hệ thống!", icon="✅")
         time.sleep(0.5); st.rerun()
 
-    # TÍNH TOÁN CÁC CHỈ SỐ KPI LINK 100% VỚI BẢNG HIỂN THỊ (DYNAMIC CALCULATION)
     actual_total_val = main_editor_9["total_price"].apply(local_parse_money).sum()
     actual_po_count = len(main_editor_9["po_no"].unique()) if not main_editor_9.empty else 0
     actual_item_count = len(main_editor_9)
 
-    # Render dữ liệu lên 3 ô KPI trên cùng bằng CSS Gradient 3D
     k1_box.markdown(f"<div class='card-3d bg-sales'><h3>TỔNG GIÁ TRỊ ĐƠN HÀNG ĐANG LỌC</h3><h1>{local_fmt_vnd(actual_total_val)}</h1></div>", unsafe_allow_html=True)
     k2_box.markdown(f"<div class='card-3d bg-cost'><h3>TỔNG SỐ ĐƠN (PO)</h3><h1>{actual_po_count}</h1></div>", unsafe_allow_html=True)
     k3_box.markdown(f"<div class='card-3d bg-profit'><h3>TỔNG MẶT HÀNG CHI TIẾT</h3><h1>{actual_item_count}</h1></div>", unsafe_allow_html=True)
 
-    # Thanh trạng thái tổng màu đen nổi bật (Dưới bảng - Đồng bộ 100% theo ảnh thiết kế)
     st.markdown(f"""
         <div style="text-align: right; background-color: #1a1c23; border-radius: 6px; border-left: 6px solid #00FF00; color: #00FF00; padding: 15px 25px; font-weight: bold; font-size: 1.2em; margin-top: -15px; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
             ⚠️ XÁC NHẬN TỔNG GIÁ TRỊ HIỆN TẠI TRÊN BẢNG: {local_fmt_vnd(actual_total_val)} VND
@@ -2702,8 +2716,25 @@ with t9:
         with st.form("form_sync_absolute_logic_9_full"):
             st.info("ℹ️ Chức năng này sẽ tự động: 1. Đổi tên folder / 2. Di chuyển (Move) folder sang Pháp nhân mới / 3. Cập nhật Database đồng bộ.")
             col_u1, col_u2 = st.columns(2)
-            update_old_po = col_u1.text_input("Nhập Số PO hiện tại đang có (Cần thay đổi)")
-            update_new_po = col_u2.text_input("Nhập Số PO mới (Nếu muốn thay đổi tên)")
+            
+            # Xử lý bỏ .0 cho phần update (Yêu cầu số 1)
+            up_old_po_raw = col_u1.text_input("Nhập Số PO hiện tại đang có (Cần thay đổi)")
+            try:
+                if up_old_po_raw and float(up_old_po_raw).is_integer():
+                    update_old_po = str(int(float(up_old_po_raw)))
+                else:
+                    update_old_po = up_old_po_raw
+            except:
+                update_old_po = up_old_po_raw
+
+            up_new_po_raw = col_u2.text_input("Nhập Số PO mới (Nếu muốn thay đổi tên)")
+            try:
+                if up_new_po_raw and float(up_new_po_raw).is_integer():
+                    update_new_po = str(int(float(up_new_po_raw)))
+                else:
+                    update_new_po = up_new_po_raw
+            except:
+                update_new_po = up_new_po_raw
             
             update_legal = st.selectbox("Chọn Pháp nhân mới (Folder sẽ tự di chuyển vào thư mục cha của Pháp nhân này)", ["APL", "CSG", "OLYMPUS", "NEXGA"])
             update_confirm_cust = st.selectbox("Xác nhận Khách hàng chính xác", master_customer_list)
@@ -2718,22 +2749,20 @@ with t9:
                     new_drive_folder_url_sync = ""
 
                     if update_old_po and update_confirm_cust:
-                        # 1. TRUY VẤN TÌM FOLDER CŨ TRÊN GOOGLE DRIVE DỰA TRÊN TÊN SỐ PO CŨ
+                        # 1. TRUY VẤN TÌM FOLDER CŨ
                         query_drive_search = f"name = '{update_old_po}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
                         drive_results_list = drive_srv_upd.files().list(q=query_drive_search, fields="files(id, parents)").execute().get('files', [])
                         
                         if drive_results_list:
                             target_sync_f_id = drive_results_list[0]['id']
-                            # 2. THỰC HIỆN LỆNH ĐỔI TÊN NẾU CÓ CUNG CẤP SỐ PO MỚI
+                            # 2. ĐỔI TÊN NẾU CÓ PO MỚI
                             if update_new_po:
                                 drive_srv_upd.files().update(fileId=target_sync_f_id, body={'name': update_new_po}).execute()
                             
-                            # 3. THUẬT TOÁN DI CHUYỂN (MOVE): Tìm thư mục cha mới theo cấu trúc [Pháp nhân mới] -> [Khách hàng]
-                            new_parent_hierarchy_id = get_or_create_folder_hierarchy(drive_srv_upd, [update_legal, update_confirm_cust], ROOT_FOLDER_ID)
+                            # 3. DI CHUYỂN: Gốc mới phải là PO_TRACKING_DOCS (Yêu cầu số 2)
+                            new_parent_hierarchy_id = get_or_create_folder_hierarchy(drive_srv_upd, ["PO_TRACKING_DOCS", update_legal, update_confirm_cust], ROOT_FOLDER_ID)
                             
-                            # Truy xuất danh sách ID thư mục cha hiện tại để thực hiện lệnh loại bỏ (Remove)
                             current_parent_ids_list = ",".join(drive_results_list[0].get('parents', []))
-                            # Thực hiện lệnh Di chuyển (Move) chuẩn xác thông qua API Google Drive
                             drive_srv_upd.files().update(
                                 fileId=target_sync_f_id, 
                                 addParents=new_parent_hierarchy_id, 
@@ -2744,7 +2773,7 @@ with t9:
                             new_drive_folder_url_sync = f"https://drive.google.com/drive/folders/{target_sync_f_id}"
                             st.toast(f"📂 Thành công: Đơn hàng đã di chuyển sang thư mục Pháp nhân: {update_legal}", icon="🚚")
 
-                        # 4. CẬP NHẬT TRẠNG THÁI DATABASE CHO TOÀN BỘ CÁC DÒNG SẢN PHẨM THUỘC SỐ PO NÀY
+                        # 4. CẬP NHẬT TRẠNG THÁI DATABASE
                         db_upd_payload_final = {
                             "legal_entity": update_legal, 
                             "po_no": target_po_final_name, 
@@ -2756,7 +2785,11 @@ with t9:
                         
                         supabase.table("crm_po_tracking").update(db_upd_payload_final).eq("po_no", update_old_po).execute()
 
-                    # 5. XỬ LÝ LOGIC GHI ĐÈ DỮ LIỆU TỪ FILE EXCEL CẬP NHẬT
+                        # Tính tổng giá trị để gửi Telegram thông báo Update (Yêu cầu số 3)
+                        total_upd_val = df_view_working[df_view_working["po_no"] == update_old_po]["total_price"].apply(local_parse_money).sum()
+                        send_order_update_notification(update_legal, update_confirm_cust, total_upd_val, datetime.now().strftime('%d/%m/%Y'), "CẬP NHẬT THÔNG TIN")
+
+                    # 5. XỬ LÝ GHI ĐÈ EXCEL
                     if update_excel_overwrite:
                         if update_excel_overwrite.name.endswith('xlsx'):
                             df_imp_u_final = pd.read_excel(update_excel_overwrite, header=None, skiprows=1).fillna("")
@@ -2764,7 +2797,7 @@ with t9:
                             df_imp_u_final = pd.read_csv(update_excel_overwrite, header=None, skiprows=1).fillna("")
                             
                         for _, r_upd_val in df_imp_u_final.iterrows():
-                            itm_c_val = str(r_upd_val.iloc[4]) # Lấy mã hàng tại cột E (index 4)
+                            itm_c_val = str(r_upd_val.iloc[4])
                             if itm_c_val:
                                 rec_obj_final = {
                                     "legal_entity": update_legal, 
@@ -2777,15 +2810,15 @@ with t9:
                                     "qty": local_parse_money(r_upd_val.iloc[7]), 
                                     "unit_price": local_parse_money(r_upd_val.iloc[8]),
                                     "total_price": local_parse_money(r_upd_val.iloc[9]),
-                                    "remark": str(r_upd_val.iloc[11])
+                                    "remark": str(r_upd_val.iloc[11]),
+                                    "po_docs": new_drive_folder_url_sync if new_drive_folder_url_sync else ""
                                 }
-                                # Xóa bản ghi cũ trùng khớp để đảm bảo dữ liệu ghi đè là duy nhất và mới nhất
                                 supabase.table("crm_po_tracking").delete().eq("po_no", target_po_final_name).eq("item_code", itm_c_val).execute()
                                 supabase.table("crm_po_tracking").insert([rec_obj_final]).execute()
 
-                    # 6. UPLOAD TÀI LIỆU MỚI VÀO ĐÚNG VỊ TRÍ THƯ MỤC SAU KHI ĐÃ DI CHUYỂN/ĐỔI TÊN
+                    # 6. UPLOAD TÀI LIỆU MỚI
                     if update_new_docs:
-                        final_drive_path_sync = [update_legal, update_confirm_cust, target_po_final_name]
+                        final_drive_path_sync = ["PO_TRACKING_DOCS", update_legal, update_confirm_cust, target_po_final_name]
                         for f_new_sync in update_new_docs:
                             upload_to_drive_structured(f_new_sync, final_drive_path_sync, f_new_sync.name)
 
