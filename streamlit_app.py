@@ -2502,90 +2502,186 @@ with t5:
 # ======================================================================================================================
 
 with t9:
-    # --- [MÔ-ĐUN 0]: ĐỊNH NGHĨA GIAO DIỆN CHUYÊN SÂU (ADVANCED ENTERPRISE CSS Styling) ---
-    # Chức năng: Tái hiện giao diện Pixel Perfect giống hệt ảnh chụp của Alex Tran.
-    # Toàn bộ mã màu Gradient và Border được fix cứng theo nhận diện thương hiệu.
-    
+    # --- [MÔ-ĐUN 0]: CSS LAYOUT PIXEL-PERFECT THEO ẢNH ────────────────────────────────
     st.markdown("""
-        <style>
-            /* Thiết lập Font chữ chuẩn cho hệ thống Enterprise */
-            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap');
-            
-            .stApp { font-family: 'Roboto', sans-serif; }
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
 
-            /* 1. Thiết lập Header xanh Navy đậm với dải viền trái đặc trưng */
-            .header-enterprise-v19 {
-                background-color: #1e3c72;
-                padding: 18px 25px;
-                border-radius: 4px;
-                margin-bottom: 20px;
-                border-left: 10px solid #00b09b;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-            }
-            .header-enterprise-v19 h2 {
-                color: #FFFFFF !important;
-                margin: 0 !important;
-                font-size: 20px !important;
-                font-weight: 700 !important;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .header-enterprise-v19 p {
-                color: #bdc3c7 !important;
-                margin: 6px 0 0 0 !important;
-                font-size: 11px;
-                font-weight: 400;
-                opacity: 0.85;
-            }
+        .stApp { font-family: 'Roboto', sans-serif; background-color: #0a0c12; color: #e0e0e0; }
 
-            /* 2. Thiết kế 3 thẻ KPI Dashboard với hiệu ứng Gradient mượt mà */
-            .kpi-card-v19 {
-                padding: 28px 15px;
-                border-radius: 12px;
-                text-align: center;
-                color: white;
-                box-shadow: 0 6px 15px rgba(0,0,0,0.15);
-                border: 1px solid rgba(255,255,255,0.1);
-                transition: all 0.3s ease-in-out;
-            }
-            .kpi-card-v19:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
-            .kpi-title-v19 { font-size: 14px; font-weight: 700; margin-bottom: 12px; text-transform: uppercase; color: rgba(255,255,255,0.95); letter-spacing: 1px; }
-            .kpi-value-v19 { font-size: 38px; font-weight: 900; margin: 0; font-family: 'Courier New', Courier, monospace; text-shadow: 1px 1px 2px rgba(0,0,0,0.2); }
-            
-            /* Mã màu chuẩn theo sơ đồ image_f1d0a0.png */
-            .bg-grad-green-v19 { background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%); }
-            .bg-grad-coral-v19 { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); color: #2c3e50 !important; }
-            .bg-grad-orange-v19 { background: linear-gradient(135deg, #f83600 0%, #fe8c00 100%); }
+        /* Header chính */
+        .header-po-center {
+            background: #1e3c72;
+            padding: 20px 28px;
+            border-radius: 6px;
+            margin: 0 0 24px 0;
+            border-left: 12px solid #00b09b;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+        }
+        .header-po-center h2 {
+            color: #fff !important;
+            margin: 0 !important;
+            font-size: 22px !important;
+            font-weight: 900 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+        .header-po-center p {
+            color: #c0c8d0 !important;
+            margin: 8px 0 0 !important;
+            font-size: 13px;
+            opacity: 0.85;
+        }
 
-            /* 3. Thanh Footer hiển thị tổng giá trị Đen - Xanh Neon (Pixel Perfect) */
-            .footer-neon-v19 {
-                background-color: #1a1c23;
-                border-left: 12px solid #00FF00;
-                color: #00FF00;
-                padding: 18px 35px;
-                text-align: right;
-                font-weight: 900;
-                font-size: 1.4em;
-                margin-top: -15px;
-                margin-bottom: 35px;
-                border-radius: 0 10px 10px 0;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.6);
-                border-right: 2px solid #333;
-                display: flex;
-                justify-content: flex-end;
-                align-items: center;
-                gap: 10px;
-            }
-            
-            /* Tinh chỉnh Data Editor để hài hòa với Layout */
-            .stDataEditor { border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
-            
-            /* Tinh chỉnh nút xuất báo cáo */
-            .export-btn-v19 button { background-color: #1a1c23 !important; color: white !important; border: 1px solid #444 !important; }
-        </style>
+        /* 3 KPI cards */
+        .kpi-row { display: flex; gap: 16px; margin-bottom: 32px; }
+        .kpi-card {
+            flex: 1;
+            padding: 26px 18px;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+            transition: all 0.25s ease;
+        }
+        .kpi-card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(0,0,0,0.4); }
+        .kpi-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; opacity: 0.92; margin-bottom: 10px; }
+        .kpi-value { font-size: 40px; font-weight: 900; font-family: 'Courier New', monospace; text-shadow: 1.5px 1.5px 4px rgba(0,0,0,0.4); }
+
+        .grad-green  { background: linear-gradient(135deg, #00b09b, #96c93d); }
+        .grad-coral  { background: linear-gradient(135deg, #ff9a9e, #fecfef); color: #1e2535 !important; }
+        .grad-orange { background: linear-gradient(135deg, #f83600, #fe8c00); }
+
+        /* Filter row */
+        .filter-label { font-size: 13.5px; font-weight: 600; color: #777; margin-bottom: 6px; }
+        .stSelectbox > div > div > select, .stTextInput > div > div > input {
+            background: #1a1f2e !important; color: #e0e0e0 !important; border: 1px solid #444 !important;
+        }
+
+        /* Footer tổng giá trị */
+        .total-footer {
+            background: #11141f;
+            border-left: 14px solid #00ff41;
+            color: #00ff41;
+            padding: 20px 36px;
+            font-size: 1.45rem;
+            font-weight: 900;
+            text-align: right;
+            border-radius: 0 12px 12px 0;
+            box-shadow: 0 10px 28px rgba(0,255,65,0.12);
+            margin: 24px 0 40px 0;
+            display: flex; align-items: center; justify-content: flex-end; gap: 14px;
+        }
+        .total-footer .warning { font-size: 1.6rem; }
+
+        /* Nút xuất báo cáo */
+        .export-btn button { background: #0f121a !important; color: #ddd !important; border: 1px solid #555 !important; font-weight: 600; padding: 12px !important; }
+
+        /* Data editor tinh chỉnh */
+        .stDataEditor { border: 1px solid #333; border-radius: 8px; background: #0f111a; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- HEADER ---
+    col_header, col_new_po = st.columns([7.5, 2.5])
+    with col_header:
+        st.markdown("""
+        <div class="header-po-center">
+            <h2>📋 TRUNG TÂM QUẢN TRỊ VÀ THEO DÕI ĐƠN HÀNG (PO CENTER)</h2>
+            <p>Hệ thống tích hợp Enterprise & Supabase + Google Drive v19.0</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_new_po:
+        with st.popover("➕ KHAI BÁO HỒ SƠ PO MỚI", use_container_width=True):
+            # (giữ nguyên form tạo PO mới của anh ở đây - copy từ code cũ)
+            st.markdown("#### 📝 NHẬP THÔNG TIN HỒ SƠ PO")
+            n_legal = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"])
+            n_po = st.text_input("Số PO / Mã đơn hàng", placeholder="Ví dụ: 2026030108")
+            n_cust = st.selectbox("Khách hàng", master_cust_list_v19)
+            # ... (các field ngày, excel import, file đính kèm, button lưu & alert telegram - copy nguyên từ code cũ)
+
+    # --- 3 KPI CARDS ---
+    if not df_po_raw_v19.empty:
+        total_val = df_po_raw_v19["total_price"].apply(local_parse_money).sum()
+        po_count  = df_po_raw_v19["po_no"].nunique()
+        item_count = len(df_po_raw_v19)
+    else:
+        total_val = po_count = item_count = 0
+
+    st.markdown(f"""
+    <div class="kpi-row">
+        <div class="kpi-card grad-green">
+            <div class="kpi-title">TỔNG GIÁ TRỊ ĐƠN HÀNG</div>
+            <div class="kpi-value">{local_fmt_vnd(total_val)}</div>
+        </div>
+        <div class="kpi-card grad-coral">
+            <div class="kpi-title">TỔNG SỐ ĐƠN (PO)</div>
+            <div class="kpi-value">{po_count}</div>
+        </div>
+        <div class="kpi-card grad-orange">
+            <div class="kpi-title">TỔNG MẶT HÀNG CHI TIẾT</div>
+            <div class="kpi-value">{item_count}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- FILTER ROW ---
+    st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
+    col_cust, col_search = st.columns([3, 7])
+    with col_cust:
+        st.markdown("<div class='filter-label'>Lọc Khách hàng:</div>", unsafe_allow_html=True)
+        sel_cust = st.selectbox("", ["TẤT CẢ"] + sorted(df_po_raw_v19["customer"].unique().tolist()), label_visibility="collapsed")
+
+    with col_search:
+        st.markdown("<div class='filter-label'>Tìm kiếm đơn hàng (Số PO, Mã hàng, Remark...):</div>", unsafe_allow_html=True)
+        search_txt = st.text_input("", placeholder="Tìm theo số PO, mã hàng, ghi chú...", label_visibility="collapsed")
+
+    # Lọc df
+    df_view = df_po_raw_v19.copy()
+    if sel_cust != "TẤT CẢ": df_view = df_view[df_view["customer"] == sel_cust]
+    if search_txt:
+        mask = df_view.astype(str).apply(lambda x: x.str.contains(search_txt, case=False, na=False)).any(axis=1)
+        df_view = df_view[mask]
+
+    # --- BẢNG DỮ LIỆU ---
+    if not df_view.empty:
+        df_view = df_view.reset_index(drop=True)
+        df_view.insert(0, "STT", range(1, len(df_view)+1))
+
+        view_cols = ["STT", "customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
+
+        cfg = {
+            "STT": st.column_config.NumberColumn("STT", width="small"),
+            "po_docs": st.column_config.LinkColumn("📂 Drive", display_text="Xem"),
+            "qty": st.column_config.NumberColumn("Số lượng", format="%,.2f"),
+            "unit_price": st.column_config.NumberColumn("Đơn giá", format="%,.0f"),
+            "total_price": st.column_config.NumberColumn("Thành tiền", format="%,.0f"),
+        }
+
+        edited_df = st.data_editor(
+            df_view[view_cols],
+            use_container_width=True,
+            hide_index=True,
+            column_config=cfg,
+            num_rows="dynamic",
+            height=480,
+            key="po_editor_full_v19"
+        )
+
+        # Sync xóa (giữ nguyên logic cũ của anh)
+        if len(edited_df) < len(df_view):
+            deleted = df_view[~df_view.index.isin(edited_df.index)]
+            for _, row in deleted.iterrows():
+                supabase.table("crm_po_tracking").delete().eq("po_no", row["po_no"]).eq("item_code", row["item_code"]).execute()
+            st.cache_data.clear(); st.rerun()
+
+    # --- FOOTER TỔNG GIÁ TRỊ ---
+    shown_total = edited_df["total_price"].apply(local_parse_money).sum() if 'edited_df' in locals() and not edited_df.empty else 0
+    st.markdown(f"""
+    <div class="total-footer">
+        <span class="warning">⚠️</span> XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG HIỆN TẠI: {local_fmt_vnd(shown_total)} VND
+    </div>
     """, unsafe_allow_html=True)
 
     # --- [MÔ-ĐUN 1]: KHỞI TẠO BIẾN, PLACEHOLDER VÀ ĐIỀU PHỐI HỆ THỐNG ---
