@@ -2952,6 +2952,26 @@ with t10:
     # Ở đây tôi mặc định dùng bảng crm_po_tracking để lưu trữ hồ sơ thực tế.
     df_archive_raw = load_data("crm_po_tracking", order_by="id", ascending=False)
     if df_archive_raw is None: df_archive_raw = pd.DataFrame()
+
+    # --- [MÔ-ĐUN 3]: THÔNG BÁO ARCHIVE (TELEGRAM) ---
+    ARCHIVE_TELE_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw"
+    ARCHIVE_TELE_CHAT_ID = "-5194813184"
+
+    def trigger_archive_tele_alert(legal, customer, po_no, action="CẬP NHẬT HỒ SƠ"):
+        api_url = f"https://api.telegram.org/bot{ARCHIVE_TELE_TOKEN}/sendMessage"
+        msg = (
+            f"🗄️ <b>HỆ THỐNG LƯU TRỮ DATA PO</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏢 <b>PHÁP NHÂN:</b> {legal}\n"
+            f"👤 <b>KHÁCH HÀNG:</b> {customer}\n"
+            f"📦 <b>SỐ PO:</b> {po_no}\n"
+            f"🛠️ <b>HÀNH ĐỘNG:</b> {action}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>✅ Biên bản giao hàng & Ảnh thực tế đã được đồng bộ.</i>"
+        )
+        try: requests.post(api_url, json={"chat_id": ARCHIVE_TELE_CHAT_ID, "text": msg, "parse_mode": "HTML"})
+        except: pass
+
     # --- [MÔ-ĐUN 4]: TIÊU ĐỀ & MODULE UPLOAD DATA THỰC TẾ ---
     h_arc1, h_arc2 = st.columns([7.5, 2.5])
     with h_arc1:
@@ -3080,6 +3100,8 @@ with t10:
                             
                             st.success("✨ Đồng bộ kho lưu trữ thành công!"); time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Lỗi: {e}")
+
+# ======================================================================================================================
 
 # ======================================================================================================================
 # --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025 - SELF HEALING IMPORT) ---
