@@ -2922,7 +2922,7 @@ with t9:
 # ======================================================================================================================
 # ======================================================================================================================
 # --- TẬP ĐOÀN CÔNG NGHỆ NEXGA INC - HỆ THỐNG QUẢN TRỊ DOANH NGHIỆP CRM ---
-# --- PHÂN HỆ TAB 10: QUẢN LÝ DỮ LIỆU ĐƠN HÀNG (DATA ARCHIVE CENTER - V10.0) ---
+# --- PHÂN HỆ TAB 10: QUẢN LÝ DỮ LIỆU ĐƠN HÀNG (DATA ARCHIVE - CLEAN VERSION) ---
 # ======================================================================================================================
 
 with t10:
@@ -2932,12 +2932,6 @@ with t10:
             .header-simple-v10 {
                 font-size: 22px; font-weight: 900; color: #333; margin-bottom: 20px; 
                 text-transform: uppercase; font-family: 'Segoe UI', sans-serif;
-            }
-            .neon-footer-v10 {
-                background-color: #1a1c23; border-left: 12px solid #00FF00; color: #00FF00;
-                padding: 16px 35px; text-align: right; font-weight: 900; font-size: 1.45em;
-                margin-top: 10px; margin-bottom: 30px; border-radius: 0 10px 10px 0;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.6); border-right: 3px solid #333;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -2951,39 +2945,34 @@ with t10:
             return s
         except: return str(val).strip()
 
-    def format_money_v10(amount):
-        try: return "{:,.0f}".format(float(amount))
-        except: return "0"
-
     # --- [MÔ-ĐUN 2]: TRUY VẤN DỮ LIỆU ---
     try:
         df_po_raw_v10 = load_data("crm_po_tracking", order_by="id", ascending=False)
         if df_po_raw_v10 is None: df_po_raw_v10 = pd.DataFrame()
-    except:
+    except Exception:
         df_po_raw_v10 = pd.DataFrame()
 
     try:
         df_cust_master_v10 = load_data("crm_customers")
         master_cust_options_v10 = [""] + sorted(df_cust_master_v10["short_name"].unique().tolist()) if not df_cust_master_v10.empty else [""]
-    except:
+    except Exception:
         master_cust_options_v10 = [""]
 
-    # --- [MÔ-ĐUN 4]: TIÊU ĐỀ & MODULE TẠO DỮ LIỆU (KHÔNG KPI, KHÔNG TELEGRAM) ---
+    # --- [MÔ-ĐUN 4]: TIÊU ĐỀ & MODULE TẠO DỮ LIỆU (ĐÃ XÓA KPI & TELEGRAM) ---
     h_col1_v10, h_col2_v10 = st.columns([7.8, 2.2])
     with h_col1_v10:
         st.markdown("<div class='header-simple-v10'>💾 TRUNG TÂM QUẢN LÝ DỮ LIỆU ĐƠN HÀNG (DATA ARCHIVE)</div>", unsafe_allow_html=True)
     
     with h_col2_v10:
         with st.popover("➕ NHẬP DỮ LIỆU ĐƠN HÀNG MỚI", use_container_width=True):
-            st.markdown("#### 📝 CHI TIẾT DỮ LIỆU")
-            n_leg_v10 = st.selectbox("10.1 Pháp nhân đơn vị", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="n_leg_v10_pop")
-            n_po_raw_v10 = st.text_input("10.2 Số PO / Mã dữ liệu", key="n_po_v10_pop")
+            n_leg_v10 = st.selectbox("10.1 Pháp nhân đơn vị", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="n_leg_v10_final")
+            n_po_raw_v10 = st.text_input("10.2 Số PO / Mã dữ liệu", key="n_po_v10_final")
             final_po_v10 = sanitize_po_v10(n_po_raw_v10)
-            n_cus_v10 = st.selectbox("10.3 Khách hàng thụ hưởng", master_cust_options_v10, key="n_cus_v10_pop")
-            n_d1_v10 = st.date_input("10.4 Ngày ghi nhận", key="n_d1_v10_pop")
+            n_cus_v10 = st.selectbox("10.3 Khách hàng thụ hưởng", master_cust_options_v10, key="n_cus_v10_final")
+            n_d1_v10 = st.date_input("10.4 Ngày ghi nhận", key="n_d1_v10_final")
             st.divider()
-            n_ex_v10 = st.file_uploader("10.5 Import Excel (A-L)", type=["xlsx", "csv"], key="n_ex_v10_pop")
-            n_fi_v10 = st.file_uploader("10.6 Tải lên hồ sơ lưu trữ", accept_multiple_files=True, key="n_fi_v10_pop")
+            n_ex_v10 = st.file_uploader("10.5 Import Excel (A-L)", type=["xlsx", "csv"], key="n_ex_v10_final")
+            n_fi_v10 = st.file_uploader("10.6 Tải lên hồ sơ lưu trữ", accept_multiple_files=True, key="n_fi_v10_final")
 
             if st.button("🚀 XÁC NHẬN LƯU DỮ LIỆU", type="primary", use_container_width=True, key="btn_save_v10_final"):
                 if final_po_v10 and n_cus_v10 != "" and n_ex_v10:
@@ -3018,7 +3007,7 @@ with t10:
                             st.success(f"✅ Đã lưu dữ liệu đơn hàng {final_po_v10} thành công!"); st.cache_data.clear(); time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"❌ Lỗi: {str(e)}")
 
-    # --- [MÔ-ĐUN 5]: BỘ LỌC TÌM KIẾM DỮ LIỆU ---
+    # --- [MÔ-ĐUN 5]: BỘ LỌC TÌM KIẾM ---
     st.markdown("<hr style='border: 0.5px solid #eee; margin: 10px 0;'>", unsafe_allow_html=True)
     df_v10_active = df_po_raw_v10.copy()
     
@@ -3029,21 +3018,20 @@ with t10:
 
     f1_v10, f2_v10 = st.columns([3.5, 6.5])
     with f1_v10:
-        sel_c_v10 = st.selectbox("Lọc theo Khách hàng:", ["TẤT CẢ"] + sorted([str(x) for x in df_v10_active["customer"].unique() if x]), key="f_cust_v10")
+        sel_c_v10 = st.selectbox("Lọc Khách hàng:", ["TẤT CẢ"] + sorted([str(x) for x in df_v10_active["customer"].unique() if x]), key="f_cust_v10_final")
     with f2_v10:
-        txt_s_v10 = st.text_input("Tìm kiếm trong kho dữ liệu:", placeholder="Nhập mã hàng, số PO hoặc nội dung...", key="f_search_v10")
+        txt_s_v10 = st.text_input("Tìm kiếm dữ liệu:", placeholder="Nhập từ khóa...", key="f_search_v10_final")
 
     if sel_c_v10 != "TẤT CẢ": df_v10_active = df_v10_active[df_v10_active["customer"] == sel_c_v10]
     if txt_s_v10:
         mask_v10 = df_v10_active.astype(str).apply(lambda x: x.str.contains(txt_s_v10, case=False, na=False)).any(axis=1)
         df_v10_active = df_v10_active[mask_v10]
 
-    # --- [MÔ-ĐUN 7]: BẢNG HIỂN THỊ (THÊM CỘT PHÁP NHÂN) ---
+    # --- [MÔ-ĐUN 7]: BẢNG HIỂN THỊ (CỘT PHÁP NHÂN + XÓA FOOTER TỔNG TIỀN) ---
     if not df_v10_active.empty:
         df_v10_active = df_v10_active.reset_index(drop=True)
         df_v10_active["stt"] = df_v10_active.index + 1
     
-    # Cấu hình hiển thị cột Pháp nhân (legal_entity)
     final_cols_v10 = ["stt", "legal_entity", "customer", "po_no", "req_no", "item_code", "item_name", "specs", "qty", "unit_price", "total_price", "po_docs", "remark"]
 
     editor_v10 = st.data_editor(
@@ -3056,48 +3044,32 @@ with t10:
             "total_price": st.column_config.NumberColumn("Thành tiền (VND)", format="%,.0f"),
             "qty": st.column_config.NumberColumn("Số lượng", format="%,.2f"),
         }, 
-        height=600, key="editor_v10_main_data"
+        height=650, key="editor_v10_final_data"
     )
 
     if len(editor_v10) < len(df_v10_active):
         del_rows = df_v10_active[~df_v10_active.index.isin(editor_v10.index.tolist())]
         for _, r in del_rows.iterrows():
-            supabase.table("crm_po_tracking").delete().eq("po_no", r["po_no"]).eq("item_code", r["item_code"]).execute()
+            try:
+                supabase.table("crm_po_tracking").delete().eq("po_no", r["po_no"]).eq("item_code", r["item_code"]).execute()
+            except Exception: pass
         st.cache_data.clear(); time.sleep(0.5); st.rerun()
 
-    # --- [MÔ-ĐUN 8]: TỔNG GIÁ TRỊ LIVE ---
-    v10_total_live = editor_v10["total_price"].apply(local_parse_money).sum()
-    st.markdown(f"""
-        <div class='neon-footer-v10'>
-            XÁC NHẬN TỔNG GIÁ TRỊ TRÊN BẢNG HIỆN TẠI: {format_money_v10(v10_total_live)} VND
-        </div>
-    """, unsafe_allow_html=True)
-
     # --- [MÔ-ĐUN 9]: MODULE CÀI ĐẶT DỮ LIỆU ---
-    with st.expander("⚙️ HIỆU CHỈNH THÔNG TIN DỮ LIỆU (CẬP NHẬT PHÁP NHÂN / DRIVE)", expanded=False):
-        with st.form("form_v10_update_data"):
+    with st.expander("⚙️ HIỆU CHỈNH THÔNG TIN DỮ LIỆU ĐƠN HÀNG", expanded=False):
+        with st.form("form_v10_update_final"):
             ug1, ug2 = st.columns(2)
-            u_old_v10 = sanitize_po_v10(ug1.text_input("Số PO hiện tại", key="up_old_v10"))
-            u_new_v10 = sanitize_po_v10(ug2.text_input("Số PO mới (Nếu đổi)", key="up_new_v10"))
-            u_leg_v10 = st.selectbox("Pháp nhân thụ hưởng", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="up_leg_v10")
-            u_cus_v10 = st.selectbox("Khách hàng đích", master_cust_options_v10, key="up_cus_v10")
-            u_ex_v10 = st.file_uploader("📑 Cập nhật nội dung từ Excel", type=["xlsx"], key="up_ex_v10")
-            u_fi_v10 = st.file_uploader("📂 Ghi đè hồ sơ Drive", accept_multiple_files=True, key="up_fi_v10")
+            u_old_v10 = sanitize_po_v10(ug1.text_input("Số PO hiện tại", key="up_old_v10_f"))
+            u_new_v10 = sanitize_po_v10(ug2.text_input("Số PO mới (Nếu đổi)", key="up_new_v10_f"))
+            u_leg_v10 = st.selectbox("Pháp nhân mới", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="up_leg_v10_f")
+            u_cus_v10 = st.selectbox("Khách hàng đích", master_cust_options_v10, key="up_cus_v10_f")
             
-            if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT DỮ LIỆU", use_container_width=True):
+            if st.form_submit_button("💾 XÁC NHẬN CẬP NHẬT", use_container_width=True):
                 if u_old_v10 and u_cus_v10:
                     try:
-                        srv_v10_u = get_drive_service()
-                        t_po_v10_f = u_new_v10 if u_new_v10 else u_old_v10
-                        if u_ex_v10:
-                            df_u_v10 = pd.read_excel(u_ex_v10, header=None, skiprows=1).fillna("")
-                            for _, r_up in df_u_v10.iterrows():
-                                if str(r_up.iloc[4]).strip():
-                                    pay_u = {"qty": local_parse_money(r_up.iloc[7]), "unit_price": local_parse_money(r_up.iloc[8]), "total_price": local_parse_money(r_up.iloc[9]), "remark": str(r_up.iloc[11])}
-                                    supabase.table("crm_po_tracking").update(pay_u).eq("po_no", u_old_v10).eq("item_code", str(r_up.iloc[4])).execute()
-                        
-                        supabase.table("crm_po_tracking").update({"legal_entity": u_leg_v10, "po_no": t_po_v10_f, "customer": u_cus_v10}).eq("po_no", u_old_v10).execute()
-                        st.success("✨ Đã đồng bộ dữ liệu thành công!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                        t_po_f = u_new_v10 if u_new_v10 else u_old_v10
+                        supabase.table("crm_po_tracking").update({"legal_entity": u_leg_v10, "po_no": t_po_f, "customer": u_cus_v10}).eq("po_no", u_old_v10).execute()
+                        st.success("✨ Đã đồng bộ dữ liệu!"); st.cache_data.clear(); time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"❌ Lỗi: {e}")
 # =============================================================================
 # --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025 - SELF HEALING IMPORT) ---
