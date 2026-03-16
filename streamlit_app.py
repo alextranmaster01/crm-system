@@ -2516,7 +2516,7 @@ with t9:
     # --- 2. HỆ THỐNG THÔNG BÁO QUẢN TRỊ QUA TELEGRAM (ALEX ALERT SYSTEM) ---
     # Cấu hình Token và Chat ID dành riêng cho phân hệ quản lý PO
     PO_BOT_TOKEN = "7785342410:AAHcdXRCu6qZs-M4mGowF-65AAGzc1kdXjw" 
-    PO_BOT_CHAT_ID = "-5283852302"
+    PO_BOT_CHAT_ID = "-5179823221"
 
     def send_po_telegram_rich_notification(legal, customer, amount, po_date, action_type="CẬP NHẬT"):
         """
