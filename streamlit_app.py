@@ -2914,11 +2914,174 @@ with t9:
             st.download_button(label="👉 Click tải file báo cáo PO Center (.xlsx)", data=buf_v31.getvalue(), file_name=f"CRM_PO_CENTER_{datetime.now().strftime('%d%m%Y')}.xlsx", use_container_width=True)
 
 # ======================================================================================================================
-# KẾT THÚC TAB 9 - BẢN THIẾT KẾ ĐÃ ĐƯỢC TỐI ƯU HÓA TUYỆT ĐỐI CHO NEXGA INC (ALEX TRAN EDITION)
-# ======================================================================================================================
-# ======================================================================================================================
 # KẾT THÚC TAB 9 - HOÀN TẤT THIẾT KẾ CHO DIRECTOR ALEX TRAN (NEXGA INC)
 # =============================================================================
+# ======================================================================================================================
+# --- PHÂN HỆ TAB 10: TRUNG TÂM LƯU TRỮ HỒ SƠ & HÌNH ẢNH THỰC TẾ (DATA ARCHIVE CENTER) ---
+# ======================================================================================================================
+
+with t10:
+    # --- [MÔ-ĐUN 0]: HỆ THỐNG GIAO DIỆN LƯU TRỮ (ARCHIVE CSS v1.0) ---
+    st.markdown("""
+        <style>
+            .header-archive-v10 {
+                font-size: 22px; font-weight: 900; color: #1E1E1E; margin-bottom: 20px; 
+                text-transform: uppercase; border-left: 5px solid #007bff; padding-left: 15px;
+            }
+            .kpi-archive-v10 {
+                background: linear-gradient(135deg, #3a7bd5 0%, #00d2ff 100%);
+                padding: 20px; border-radius: 10px; color: white; text-align: center;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            }
+            .neon-footer-archive-v10 {
+                background-color: #0d1117; border-left: 12px solid #00d2ff; color: #00d2ff;
+                padding: 16px 35px; text-align: right; font-weight: 900; font-size: 1.3em;
+                margin-top: 10px; border-radius: 0 10px 10px 0;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --- [MÔ-ĐUN 1]: CÁC HÀM BỔ TRỢ (ARCHIVE UTILS) ---
+    def sanitize_po_v10(val):
+        if val is None or str(val).strip() == "" or str(val).lower() == "nan": return ""
+        s = str(val).strip()
+        return s[:-2] if s.endswith('.0') else s
+
+    # --- [MÔ-ĐUN 2]: TRUY VẤN DỮ LIỆU ---
+    # Sử dụng chung bảng crm_po_tracking hoặc bảng riêng tùy cấu trúc của bạn. 
+    # Ở đây tôi mặc định dùng bảng crm_po_tracking để lưu trữ hồ sơ thực tế.
+    df_archive_raw = load_data("crm_po_tracking", order_by="id", ascending=False)
+    if df_archive_raw is None: df_archive_raw = pd.DataFrame()
+    # --- [MÔ-ĐUN 4]: TIÊU ĐỀ & MODULE UPLOAD DATA THỰC TẾ ---
+    h_arc1, h_arc2 = st.columns([7.5, 2.5])
+    with h_arc1:
+        st.markdown("<div class='header-archive-v10'>🗄️ KHO LƯU TRỮ HÌNH ẢNH & BIÊN BẢN GIAO HÀNG (DATA ARCHIVE)</div>", unsafe_allow_html=True)
+    
+    with h_arc2:
+        with st.popover("📤 CẬP NHẬT DATA THỰC TẾ", use_container_width=True):
+            st.markdown("#### 📸 UPLOAD ẢNH & BIÊN BẢN")
+            a_leg = st.selectbox("Pháp nhân", ["APL", "CSG", "OLYMPUS", "NEXGA"], key="a_leg")
+            a_po_raw = st.text_input("Nhập Số PO cần lưu trữ", key="a_po_raw")
+            a_po = sanitize_po_v10(a_po_raw)
+            a_cus = st.selectbox("Khách hàng", master_cust_options_v31, key="a_cus_v10")
+            
+            st.divider()
+            st.caption("Chọn ảnh sản phẩm thực tế, Biên bản giao hàng (PDF/JPG)")
+            a_files = st.file_uploader("Chọn Files Data", accept_multiple_files=True, key="a_files")
+
+            if st.button("🚀 LƯU TRỮ & ĐỒNG BỘ DRIVE", type="primary", use_container_width=True):
+                if a_po and a_cus != "" and a_files:
+                    try:
+                        # Tạo thư mục phân cấp: DATA_ARCHIVE > Pháp Nhân > Khách Hàng > Số PO
+                        p_struct = ["DATA_ARCHIVE", a_leg, a_cus, a_po]
+                        srv = get_drive_service()
+                        fid = get_or_create_folder_hierarchy(srv, p_struct, ROOT_FOLDER_ID)
+                        drive_url = f"https://drive.google.com/drive/folders/{fid}"
+                        
+                        for f in a_files:
+                            upload_to_drive_structured(f, p_struct, f.name)
+                        
+                        # Cập nhật link Drive vào DB cho tất cả items thuộc PO này
+                        supabase.table("crm_po_tracking").update({"po_docs": drive_url}).eq("po_no", a_po).execute()
+                        
+                        trigger_archive_tele_alert(a_leg, a_cus, a_po, "UPLOAD DATA THỰC TẾ")
+                        st.success(f"✅ Đã lưu trữ thành công data cho PO {a_po}!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"Lỗi: {e}")
+                else: st.warning("Vui lòng điền Số PO và chọn File!")
+
+    # --- [MÔ-ĐUN 5]: BỘ LỌC TÌM KIẾM ---
+    df_arc_active = df_archive_raw.copy()
+    # Đảm bảo có đủ cột
+    for c in ["customer", "po_no", "item_code", "item_name", "total_price", "po_docs", "legal_entity"]:
+        if c not in df_arc_active.columns: df_arc_active[c] = ""
+
+    f_arc1, f_arc2 = st.columns([3, 7])
+    with f_arc1:
+        sel_cust_arc = st.selectbox("🎯 Lọc theo Khách hàng:", ["TẤT CẢ"] + sorted([str(x) for x in df_arc_active["customer"].unique() if x]), key="sel_cust_arc")
+    with f_arc2:
+        txt_search_arc = st.text_input("🔍 Tìm kiếm nhanh hồ sơ (Mã đơn, Tên sản phẩm...):", placeholder="Nhập từ khóa...")
+
+    if sel_cust_arc != "TẤT CẢ": df_arc_active = df_arc_active[df_arc_active["customer"] == sel_cust_arc]
+    if txt_search_arc:
+        mask = df_arc_active.astype(str).apply(lambda x: x.str.contains(txt_search_arc, case=False, na=False)).any(axis=1)
+        df_arc_active = df_arc_active[mask]
+
+    # --- [MÔ-ĐUN 7]: BẢNG DATA EDITOR ---
+    st.markdown("##### 📄 DANH SÁCH CHI TIẾT DỮ LIỆU HÌNH ẢNH & HỒ SƠ")
+    
+    # Chuẩn hóa hiển thị
+    df_arc_active = df_arc_active.reset_index(drop=True)
+    df_arc_active["STT"] = df_arc_active.index + 1
+    
+    view_cols = ["STT", "legal_entity", "customer", "po_no", "item_code", "item_name", "total_price", "po_docs"]
+    
+    editor_arc = st.data_editor(
+        df_arc_active[view_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "STT": st.column_config.NumberColumn("No", width="small"),
+            "po_docs": st.column_config.LinkColumn("📂 THƯ MỤC DATA", display_text="XEM ẢNH/BIÊN BẢN"),
+            "total_price": st.column_config.NumberColumn("Giá trị (VND)", format="%,.0f"),
+            "legal_entity": "Pháp nhân",
+            "po_no": "Số PO",
+            "item_name": "Tên sản phẩm"
+        },
+        height=500
+    )
+
+    # --- [MÔ-ĐUN 8]: FOOTER TỔNG HỢP ---
+    total_val_arc = editor_arc["total_price"].apply(local_parse_money).sum()
+    st.markdown(f"""
+        <div class='neon-footer-archive-v10'>
+            📦 TỔNG GIÁ TRỊ HÀNG HÓA ĐÃ LƯU TRỮ DATA: {format_money_enterprise_v31(total_val_arc)} VND
+        </div>
+    """, unsafe_allow_html=True)
+
+    # --- [MÔ-ĐUN 9]: SMART UPDATE & OVERWRITE ---
+    with st.expander("⚙️ QUẢN LÝ NÂNG CAO (GHI ĐÈ DỮ LIỆU & ĐỔI TÊN THƯ MỤC)"):
+        with st.form("form_archive_sync"):
+            st.info("Dùng để cập nhật thêm ảnh hoặc di chuyển hồ sơ giữa các Pháp nhân/Khách hàng.")
+            u_grid = st.columns(2)
+            u_old_po = sanitize_po_v10(u_grid[0].text_input("Số PO nguồn"))
+            u_new_po = sanitize_po_v10(u_grid[1].text_input("Số PO đích (Để trống nếu giữ nguyên)"))
+            
+            u_leg = st.selectbox("Pháp nhân đích", ["APL", "CSG", "OLYMPUS", "NEXGA"])
+            u_cus = st.selectbox("Khách hàng đích", master_cust_options_v31)
+            u_files_more = st.file_uploader("Tải lên thêm ảnh/biên bản (Ghi đè nếu trùng tên)", accept_multiple_files=True)
+            
+            if st.form_submit_button("💾 XÁC NHẬN ĐỒNG BỘ DỮ LIỆU", use_container_width=True):
+                if u_old_po and u_cus:
+                    try:
+                        srv = get_drive_service()
+                        final_po = u_new_po if u_new_po else u_old_po
+                        
+                        # Tìm folder cũ để move/rename
+                        q = f"name = '{u_old_po}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                        res = srv.files().list(q=q).execute().get('files', [])
+                        
+                        if res:
+                            fid = res[0]['id']
+                            if u_new_po: srv.files().update(fileId=fid, body={'name': u_new_po}).execute()
+                            
+                            # Move folder
+                            new_parent = get_or_create_folder_hierarchy(srv, ["DATA_ARCHIVE", u_leg, u_cus], ROOT_FOLDER_ID)
+                            srv.files().update(fileId=fid, addParents=new_parent, removeParents=res[0].get('parents', [''])[0]).execute()
+                            
+                            new_url = f"https://drive.google.com/drive/folders/{fid}"
+                            
+                            # Thêm files mới
+                            if u_files_more:
+                                for f in u_files_more:
+                                    upload_to_drive_structured(f, ["DATA_ARCHIVE", u_leg, u_cus, final_po], f.name)
+                            
+                            # Sync Database
+                            supabase.table("crm_po_tracking").update({"legal_entity": u_leg, "po_no": final_po, "customer": u_cus, "po_docs": new_url}).eq("po_no", u_old_po).execute()
+                            
+                            st.success("✨ Đồng bộ kho lưu trữ thành công!"); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"Lỗi: {e}")
+
+# ======================================================================================================================
 # --- TAB 6: MASTER DATA (RESTORED ALGORITHM V6025 - SELF HEALING IMPORT) ---
 with t6:
     # CẬP NHẬT: Thêm tab "IMPORT DATA"
